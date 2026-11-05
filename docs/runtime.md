@@ -147,7 +147,9 @@ path of a release npm installation for the current OS and run
 `node --test packages/rsi-dsh-plugin-bridge/test/workbench/workbench-shell.test.mjs`
 from the repository root. Run it once with native Windows Node and once
 with Linux Node. The test checks foreground exit status 7, background output
-and cancellation, and a value across two calls to the same Agent's persistent shell.
+and cancellation. Two Agents sharing a working directory keep separate
+persistent shell environments. A new tool selection for the same Agent sees
+its existing environment.
 
 Application opening uses protocol 5. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the

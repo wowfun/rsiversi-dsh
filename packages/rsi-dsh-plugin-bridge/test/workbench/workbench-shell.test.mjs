@@ -15,11 +15,14 @@ import {shellPreset} from '../../../../fixtures/market/shell-preset.mjs';
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('the market profile runs the release shell service and platform model tools', {skip:!root},async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-hook-shell-'));
-  let app,world,detach;
+  let app;
+  const agents=[];
   const sessions=applicationSessions(()=>{throw Error('Unexpected Session RPC');});
   t.after(async()=>{
-    await world?.dispose();
-    detach?.();
+    for(const {world,detach} of agents){
+      await world.dispose();
+      detach();
+    }
     await app?.close();
     await sessions.close();
     await rm(profile,{recursive:true,force:true});
@@ -54,12 +57,17 @@ test('the market profile runs the release shell service and platform model tools
 
   const name=process.platform==='win32'?'pwsh':'bash';
   const {Session}=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-session')));
-  const header={version:4,id:'shell-test',createdAt:0,cwd:profile,isSeeded:false};
-  const agent={id:header.id,ctx:app.ctx,session:Session.create(header.id,[],header),inbox:{nextStep:[]}};
   const load=name=>import(pathToFileURL(modules.entry('@deepseek-ai/'+name)));
-  world=(await load('dsh-scope')).createScope(app.ctx,agent);
-  agent.ctx=world.ctx;
-  detach=app.ctx.agents.enter(agent);
+  const {createScope}=await load('dsh-scope');
+  function enterAgent(id){
+    const header={version:4,id,createdAt:0,cwd:profile,isSeeded:false};
+    const agent={id,session:Session.create(id,[],header),inbox:{nextStep:[]}};
+    const world=createScope(app.ctx,agent);
+    agent.ctx=world.ctx;
+    agents.push({world,detach:app.ctx.agents.enter(agent)});
+    return agent;
+  }
+  const agent=enterAgent('shell-test');
   const tools=await load('dsh-tools');
   const execute=toolPipeline(app.ctx,await load('dsh-tools/pipeline'),tools);
   // The deterministic fixture lives in OS temp. Live release acceptance
@@ -67,46 +75,56 @@ test('the market profile runs the release shell service and platform model tools
   const testServices=services.map(row=>row.id==='sandbox-policy'?{...row,config:{...row.config,mode:'danger-full-access'}}:row);
   const token=randomUUID();
   await writeFile(join(profile,'proof.txt'),token);
+  const select=agent=>app.ctx.tools.resolve({agent,modelSelection:{provider:'test',model:'test'},signal:t.signal});
+  const invoke=(agent,toolSet,name,args)=>sessions.withToolAgent(agent,()=>execute({agent,name,callId:randomUUID(),
+    toolSet,arguments:args,signal:t.signal}));
   for(const preset of ['standard','minimal'])await t.test(preset+' executes the original platform model tool',async()=>{
     await app.reconcile([{insert:[...testServices,...await shellPreset(root,preset)]}]);
-    const selection=await app.ctx.tools.resolve({agent,modelSelection:{provider:'test',model:'test'},signal:t.signal});
+    const selection=await select(agent);
     try {
       const controls=preset==='standard'?['job_list','job_output','job_kill']:[];
       assert.deepEqual(new Set(selection.view(agent).keys()),new Set([name,...controls]));
-      const invoke=(name,args)=>sessions.withToolAgent(agent,()=>execute({agent,name,callId:randomUUID(),toolSet:selection,
-        arguments:args,signal:t.signal}));
-      const call=command=>invoke(name,{command,...preset==='standard'?{description:'Shell acceptance'}:{}});
+      const run=(name,args)=>invoke(agent,selection,name,args);
       if(preset==='standard'){
         const command=name==='pwsh'?"[Console]::Write((Get-Content -Raw proof.txt)); [Console]::Error.Write($env:DSH_SESSION_ID); exit 7":
           'cat proof.txt; printf %s "$DSH_SESSION_ID" >&2; exit 7';
-        const {value}=await call(command);
+        const {value}=await run(name,{command,description:'Shell acceptance'});
         assert.equal(value.kind,'foreground',JSON.stringify(value));
         assert.equal(value.exitCode,7);
         assert.equal(value.cwd,profile);
         assert.equal(value.stdout.text,token);
         assert.equal(value.stderr.text,agent.id);
-        const background=await invoke(name,{description:'Background acceptance',run_in_background:true,
+        const background=await run(name,{description:'Background acceptance',run_in_background:true,
           command:name==='pwsh'?'Get-Content proof.txt; Start-Sleep -Seconds 60':'cat proof.txt; sleep 60'});
         assert.equal(background.value?.kind,'background',JSON.stringify(background));
         const id=background.value.jobId,jobs=app.ctx.jobs;
-        assert.ok((await invoke('job_list',{})).value.some(job=>job.id===id&&job.status==='running'));
+        assert.ok((await run('job_list',{})).value.some(job=>job.id===id&&job.status==='running'));
         assert.deepEqual(jobs.list('another-session'),[]);
         assert.throws(()=>jobs.readAt(id,0,'another-session'),/another session/);
         // The browser starts from an absolute offset. Its observation must not
         // advance the consuming model cursor or duplicate the next read.
         await t.waitFor(()=>assert.ok(jobs.readAt(id,0,agent.id).chunks.some(chunk=>chunk.text.includes(token))),{timeout:15000});
-        assert.ok((await invoke('job_output',{job_id:id})).value.text.includes(token));
-        assert.equal((await invoke('job_output',{job_id:id})).value.text,'');
-        assert.equal((await invoke('job_kill',{job_id:id})).value.outcome,'cancellation-requested');
-        const stopped=await invoke('job_output',{job_id:id,wait:true,timeout_ms:10000});
+        assert.ok((await run('job_output',{job_id:id})).value.text.includes(token));
+        assert.equal((await run('job_output',{job_id:id})).value.text,'');
+        assert.equal((await run('job_kill',{job_id:id})).value.outcome,'cancellation-requested');
+        const stopped=await run('job_output',{job_id:id,wait:true,timeout_ms:10000});
         assert.equal(stopped.value?.job.status,'killed',JSON.stringify(stopped));
       }else{
-        const first=await call(name==='pwsh'?"$global:RsiProof = Get-Content -Raw proof.txt; Write-Output 'primed'":
-          'export RSI_PROOF="$(cat proof.txt)"; echo primed');
+        const first=await run(name,{command:name==='pwsh'?"$global:RsiProof = Get-Content -Raw proof.txt; Write-Output 'primed'":
+          'export RSI_PROOF="$(cat proof.txt)"; echo primed'});
         assert.equal(first.value?.split('\n')[0],'primed',JSON.stringify(first));
-        const second=await call(name==='pwsh'?'Write-Output $global:RsiProof':'echo "$RSI_PROOF"');
-        assert.equal(second.value?.split('\n')[0],token,JSON.stringify(second));
       }
     }finally{selection.dispose();}
+    if(preset==='minimal'){
+      const command=name==='pwsh'?"if ($global:RsiProof) { $global:RsiProof } else { 'fresh' }":
+        'echo "${RSI_PROOF:-fresh}"';
+      for(const [owner,expected] of [[enterAgent('second-shell-test'),'fresh'],[agent,token]]){
+        const next=await select(owner);
+        try{
+          const reply=await invoke(owner,next,name,{command});
+          assert.equal(reply.value?.split('\n')[0],expected,JSON.stringify(reply));
+        }finally{next.dispose();}
+      }
+    }
   });
 });
