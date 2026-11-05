@@ -107,10 +107,13 @@ coordinate.
 The preset keeps priority for existing names. A retired registration cannot dispatch
 a captured call to its replacement. Application Tools follow native Turn and Tool
 policy without an additional approval solely for plugin origin. The original DSH
-pipeline still owns its pre-execute decisions, approval requests and guards.
-Tool results are normalized and validated by that original pipeline; the bridge
-does not traverse the output schema again after pipeline completion. Native wire
-decoding still owns its envelope and retained-content bounds.
+pipeline owns pre-execute policy, approval, guards and around-execution hooks
+in both the market and Agent adapter. An admitted call enters that pipeline
+with its logged arguments. A hook can deny the call or answer it directly.
+When it delegates, the registered tool owns input validation at its body
+boundary. DSH validates successful body and hook values against the tool's
+output schema and finalizes errors through its normal result hooks. Native
+wire decoding owns its envelope and retained-content bounds.
 These trusted plugins run as the local operator, independently of native process sandbox
 settings. The published loader handles ordering, conditional
 rows, groups and reconciliation. Failed activation releases the root Fiber and preserves
@@ -688,7 +691,7 @@ captured host dependencies. A fresh import resolves changed dependency
 versions. The profile obtains private payload paths from Rust's retained
 selection before publishing installed package links or enabling a bundle.
 
-Original Tool execution observes its captured ToolStarted prefix before the plugin body. The recorded model call id is passed to the DSH execution pipeline; its invocation precedes any todo/write event in the same atomic settlement. A monotonic DSH guard binds exactly one root execution to the admitted agent, tool, arguments and call id. The released single-call executor and the newer public prepare/dispatch/complete API are alternative implementations of that contract. No nested execution inherits a parent's authorization. A displaced human question remains a rejected transaction even when the original pipeline would normally return an error result.
+Original Tool execution observes its captured ToolStarted prefix before the plugin body. The recorded model call id is passed to the DSH execution pipeline; its invocation precedes any todo/write event in the same atomic settlement. A monotonic DSH guard binds exactly one root execution to the admitted agent, tool, arguments and call id. The Agent adapter stages a finalized tool error with its hook events and contexts. A tool outside the admitted Step or a displaced human question remains a rejected transaction.
 
 A resolved tool view belongs to its initiating Agent. A visible definition
 remains eligible only while its exact registration is still visible in that

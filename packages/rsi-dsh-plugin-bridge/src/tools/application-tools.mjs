@@ -93,10 +93,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     const {name,args,registration,session,identity}=input,view=views.get(input.view);
     if(!view||view.session.id!==session||view.bindings.get(registration)!==name)
       return failure('UNKNOWN_TOOL','The captured tool is no longer available');
-    const definition=view.selection.view(view.agent).get(name);
-    if(!definition)return failure('UNKNOWN_TOOL','The captured tool registration was withdrawn');
-    const violations=tools.validateJsonSchemaValue(tools.projectToolSchema(definition,false).parameters,args,'');
-    if(violations.length)return failure('INVALID_ARGUMENTS',violations.join('; ').slice(0,2048));
+    if(!view.selection.view(view.agent).has(name))return failure('UNKNOWN_TOOL','The captured tool registration was withdrawn');
     const result=await sessions.withToolAgent(view.agent,()=>execute({agent:view.agent,callId:identity.call_id,name,
       arguments:args,toolSet:view.selection,signal}));
     const contexts=toolContextOutput(result.additionalContexts??[]);

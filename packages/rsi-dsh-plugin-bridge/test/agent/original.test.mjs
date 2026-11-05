@@ -213,7 +213,7 @@ integration('definite rejection retires tentative Todo state and permits a later
 });
 integration('Agent Tool rejection is explicit and abandon cannot discard another effect', async t => {
   const bridge = await setup(t);
-  const rejected = await bridge.agentTool({ session_id: 'session-one', operation_id: 'invalid', name: 'todo_write', arguments: { unknown: true } });
+  const rejected = await bridge.agentTool({ session_id: 'session-one', operation_id: 'unbound', name: 'unbound', arguments: {} });
   assert.equal(rejected.kind, 'rejected');
   assert.equal(bridge.canonical('session-one').events.length, 0);
   const staged = await bridge.agentTool({ session_id: 'session-one', operation_id: 'lost', name: 'todo_write', arguments: { todos: [] } });
@@ -264,9 +264,15 @@ integration('unknown event and malformed projection seed fail before Session pub
   await assert.rejects(bridge.load({ ...canonical(), seed: { todos: { ver: 999, seq: -1, val: null } } }), /seed/);
   assert.equal(bridge.canonical('session-one').events.length, 0);
 });
-integration('original parameter schema rejects unknown fields before any event', async t => {
+integration('original Todo argument errors settle with a receipt and no Todo mutation', async t => {
   const bridge = await setup(t);
-  await assert.rejects(bridge.tool('session-one', 'invalid', 'todo_write', { todos: [{ content: 'x', status: 'pending', hidden: true }] }), /arguments/);
+  const invalid = await bridge.agentTool({session_id:'session-one', operation_id:'invalid', name:'todo_write',
+    arguments:{todos:[{content:'x',status:'pending',hidden:true}]}});
+  assert.equal(invalid.kind,'staged',invalid.diagnostic);
+  assert.equal(invalid.result.is_error,true);
+  assert.match(invalid.result.content[0].text,/invalid arguments:.*hidden/);
+  assert.deepEqual(invalid.events,[]);
+  await bridge.receipt('session-one','invalid',invalid.token,'committed',1);
   assert.equal(bridge.canonical('session-one').events.length, 0);
   assert.equal((await bridge.describe('session-one'))[0].name, 'todo_write');
 });

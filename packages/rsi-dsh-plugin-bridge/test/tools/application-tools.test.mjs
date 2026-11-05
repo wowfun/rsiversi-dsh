@@ -25,7 +25,8 @@ test('original application policy allows by default, asks once when requested an
     ctx.provide('approval',{async request(input){assert.equal(input.toolName,'policy_probe');asks++;return answer;}});
     ctx.on('tools/pre-execute',(_,next)=>decision??next());
     ctx.tools.guard(()=>guardDenied?'local guard denied':undefined);
-    ctx.tools.register(tools.defineTool({name:'policy_probe',description:'Count actual body execution',parameters:{},
+    ctx.tools.register(tools.defineTool({name:'policy_probe',description:'Count actual body execution',
+      parameters:{revision:{type:'number',required:true}},
       output:{schema:{type:'number'},render:(_,value)=>[{type:'text',text:String(value)}]},
       execute(_,exec){calls++;exec.concludeTurn();return invalidOutput?'invalid number':calls;}}));
     const countedLoad=async name=>name==='@deepseek-ai/dsh-tools'?{...tools,validateJsonSchemaValue(schema,...args){
@@ -38,8 +39,8 @@ test('original application policy allows by default, asks once when requested an
       const value=await response.json();assert.equal(response.status,200,JSON.stringify(value));return value;
     };
     const capture=await post('capture',{view:randomUUID(),header:{id:'policy',cwd:directory},reserved:[],modelSelection:nativeSelection});
-    const invoke=async()=>{
-      const effect=randomUUID(),input={view:capture.view,session:'policy',effect,name:'policy_probe',args:{},registration:capture.tools[0].registration,
+    const invoke=async(args={revision:1})=>{
+      const effect=randomUUID(),input={view:capture.view,session:'policy',effect,name:'policy_probe',args,registration:capture.tools[0].registration,
         identity:{owner_id:'policy',invocation_id:effect,call_id:randomUUID(),request_sha256:'a'.repeat(64)}};
       const outcome=await post('start',input);
       assert.equal(outcome.state,'settled');return outcome.result;
@@ -51,10 +52,14 @@ test('original application policy allows by default, asks once when requested an
     answer='rejected';
     assert.equal((await invoke()).is_error,true);assert.equal(asks,2);assert.equal(calls,2);
     decision={kind:'deny',reason:'installed denial'};
-    assert.equal((await invoke()).is_error,true);assert.equal(asks,2);assert.equal(calls,2);
+    const denied=await invoke({});
+    assert.equal(denied.is_error,true);assert.match(denied.content[0].text,/installed denial/);assert.equal(asks,2);assert.equal(calls,2);
     decision=undefined;guardDenied=true;
     assert.equal((await invoke()).is_error,true);assert.equal(asks,2);assert.equal(calls,2);
-    guardDenied=false;invalidOutput=true;
+    guardDenied=false;
+    const malformed=await invoke({});
+    assert.equal(malformed.is_error,true);assert.match(malformed.content[0].text,/invalid arguments:.*revision/);assert.equal(calls,2);
+    invalidOutput=true;
     const invalid=await invoke();assert.equal(invalid.is_error,true);assert.equal(invalid.concludes_turn,undefined);assert.equal(calls,3);
     assert.match(JSON.stringify(invalid.content),/number|output|contract/i);
     assert.equal(outputChecks,0,'The original pipeline owns output validation; the bridge does not repeat it');
@@ -182,7 +187,8 @@ test('a captured Cordis registration settles once in its own Session and survive
       };
     }
     let post=await open(),calls=0,escaped;
-    const definition=tools.defineTool({name:'session_probe',description:'Return the calling workspace.',parameters:{},
+    const definition=tools.defineTool({name:'session_probe',description:'Return the calling workspace.',
+      parameters:{attempt:{type:'number',required:true}},
       output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
       async execute(_,exec){
         calls++;
@@ -206,7 +212,7 @@ test('a captured Cordis registration settles once in its own Session and survive
       const effect=randomUUID();
       return {view:view.view,session,effect,identity:{owner_id:'worker-test',invocation_id:effect,call_id:randomUUID(),
         request_sha256:'a'.repeat(64)},name:'session_probe',
-        args:{},registration:view.tools[0].registration};
+        args:{attempt:1},registration:view.tools[0].registration};
     }
     async function outcome(operation,input) {
       const reply=await post(operation,input);
@@ -262,10 +268,11 @@ test('a captured Cordis registration settles once in its own Session and survive
         await (await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry)).await();
         const mods=await import(pathToFileURL(modsEntry));
         await (await ctx.plugin(mods.default)).await();
-        let observed,allowedCall;
+        let observed,allowedCall,handledCall;
         await (await ctx.plugin(mods.defineMod({name:'market-guard',register(on){
           on('tool.call',async(api,event,next)=>{
             observed=await api.session.cwd();
+            if(event.tool_use_id===handledCall)return {result:'answered in the mod'};
             if(event.tool_use_id!==allowedCall)return {deny:'denied by the market mod'};
             const downstream=await next(event);
             return {...downstream,result:'post-hook rendering'};
@@ -273,9 +280,14 @@ test('a captured Cordis registration settles once in its own Session and survive
         }}))).await();
         ctx.tools.register(definition);
         const input=request(await capture('two'),'two');
+        input.args={};
         const result=(await outcome('start',input)).result;
         assert.equal(result.is_error,true);assert.match(JSON.stringify(result),/denied by the market mod/);
         assert.equal(observed,join(directory,'two'));assert.equal(calls,2);
+        const handled=request(await capture('two'),'two');
+        handled.args={};handledCall=handled.identity.call_id;
+        const answer=(await outcome('start',handled)).result;
+        assert.equal(answer.is_error,false);assert.equal(answer.value,'answered in the mod');assert.equal(calls,2);
         const wrapped=request(await capture('one'),'one');
         allowedCall=wrapped.identity.call_id;
         const completed=(await outcome('start',wrapped)).result;

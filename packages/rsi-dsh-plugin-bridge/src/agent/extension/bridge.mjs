@@ -147,16 +147,11 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
         const owner = agent(record);
         const selection = await ctx.tools.resolve({ agent: owner, signal: operation.signal });
         try {
-          const definition = selection.view(owner).get(name);
-          if (!definition) throw new Error('tool not admitted for this Step');
-          const inputViolations = tools.validateJsonSchemaValue(tools.projectToolSchema(definition, false).parameters, args, '');
-          if (inputViolations.length) throw new Error(`invalid original Tool arguments: ${inputViolations.join('; ')}`);
+          if (!selection.view(owner).has(name)) throw new Error('tool not admitted for this Step');
           const result=await executeTool({agent:owner, callId, name, arguments:args, toolSet:selection, signal:operation.signal});
           if(operation.inputs.some(input=>input.kind!=='inject'))throw Error('Tool steering requires native interrupt admission');
           const deferred=[...operation.inputs.map(input=>input.message),...(result.additionalContexts??[])];
           operation.inputs=[];
-          if (!result.isError && tools.validateJsonSchemaValue(definition.output.schema, result.value, '').length)
-            throw new Error('invalid original Tool result');
           return {value:result.value??null,content:result.content,isError:result.isError===true,concludeTurn:result.concludesTurn===true,
             contexts:toolContextOutput(deferred)};
         } finally { selection.dispose(); }

@@ -58,7 +58,7 @@ test('a released Claude Code Mod can deny the original DSH Todo before its body'
   t.after(()=>bridge.close());
   const id='mods-denied';
   await bridge.load({header:{version:4,id,createdAt:1,isSeeded:false,cwd:root},events:[],revision:0});
-  const result=await bridge.tool(id,'deny-original-todo','todo_write',{todos:[{content:'must not run',status:'completed'}]});
+  const result=await bridge.tool(id,'deny-original-todo','todo_write',{todos:'malformed'});
   assert.deepEqual(calls,['deny-original-todo']);
   assert.match(JSON.stringify(result.payload.result),/denied by the fixture mod/);
   await bridge.receipt(id,'deny-original-todo',result.token,'committed',1);
