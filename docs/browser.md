@@ -24,6 +24,9 @@ requests. Session-scoped resources hang from that root; they
 do not create additional market or sidebar instances. Client modules resolve
 the primary brand from the RSI artwork. At `/document/?brand=original` the
 same module delegates to the release's original brand factory and slots.
+Publishing the same brand again preserves the installed client file and its
+timestamps. DSH uses its size and timestamps to version the startup script
+that contains the brand module.
 The two variants use the same plugin profile. Other modules resolve
 from the selected runtime graph and the enabled packages' public client exports.
 Use the plugin's own routes for lazy resources; an install-only action does not
