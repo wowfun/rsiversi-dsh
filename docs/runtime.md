@@ -156,7 +156,10 @@ denied, and that the next command starts in the Session cwd. It also checks
 foreground exit status 7, background output and cancellation. Two Agents
 sharing a working directory keep separate
 persistent shell environments. A new tool selection for the same Agent sees
-its existing environment.
+its existing environment. The standard Bash and PowerShell tools attach
+the resolved working directory to their result event, including when a
+command exits unsuccessfully. The minimal preset's persistent tools leave
+that field absent. The [Session journal](session-journal.md) owns this mapping.
 
 Application opening uses protocol 5. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the

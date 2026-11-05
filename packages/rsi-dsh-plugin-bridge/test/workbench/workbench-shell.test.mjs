@@ -8,7 +8,7 @@ import {test} from 'node:test';
 import {pathToFileURL} from 'node:url';
 import {createApplication} from '../../src/application/application.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
-import {toolPipeline} from '../../src/tools/tool-pipeline.mjs';
+import {applicationTools} from '../../src/tools/application-tools.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
 import {shellPreset} from '../../../../fixtures/market/shell-preset.mjs';
 
@@ -70,19 +70,35 @@ test('the market profile runs the release shell service and platform model tools
     return agent;
   }
   const agent=enterAgent('shell-test');
-  const tools=await load('dsh-tools');
-  const execute=toolPipeline(app.ctx,await load('dsh-tools/pipeline'),tools);
+  const key=randomUUID();
+  const {port}=await applicationTools(app.ctx,{load:name=>import(pathToFileURL(modules.entry(name))),
+    key,generation:randomUUID(),directory:profile,sessions,resolveAgent:id=>app.ctx.agents.get(id)});
+  async function post(operation,input){
+    const response=await fetch('http://127.0.0.1:'+port+'/v1/'+operation,{method:'POST',
+      headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input),signal:t.signal});
+    const result=await response.json();
+    assert.equal(response.status,200,JSON.stringify(result));
+    return result;
+  }
   const token=randomUUID();
   await writeFile(join(workspace,'proof.txt'),token);
-  const select=agent=>app.ctx.tools.resolve({agent,modelSelection:{provider:'test',model:'test'},signal:t.signal});
-  const invoke=(agent,toolSet,name,args)=>sessions.withToolAgent(agent,()=>execute({agent,name,callId:randomUUID(),
-    toolSet,arguments:args,signal:t.signal}));
+  const select=agent=>post('capture',{header:agent.session.header,view:randomUUID(),reserved:[],
+    modelSelection:{provider:'test',model:'test'}});
+  async function invoke(agent,selection,name,args){
+    const effect=randomUUID();
+    const input={session:agent.id,view:selection.view,effect,name,args,
+      registration:selection.tools.find(tool=>tool.definition.name===name).registration,
+      identity:{owner_id:'shell-test',invocation_id:effect,call_id:randomUUID(),request_sha256:'a'.repeat(64)}};
+    const {result}=await post('start',input);
+    assert.deepEqual((await post('outcome',input)).result,result);
+    return result;
+  }
   for(const preset of ['standard','minimal'])await t.test(preset+' executes the original platform model tool',async()=>{
     await app.reconcile([{insert:[...services,...await shellPreset(root,preset)]}]);
     const selection=await select(agent);
     try {
       const controls=preset==='standard'?['job_list','job_output','job_kill']:[];
-      assert.deepEqual(new Set(selection.view(agent).keys()),new Set([name,...controls]));
+      assert.deepEqual(new Set(selection.tools.map(tool=>tool.definition.name)),new Set([name,...controls]));
       const run=(name,args)=>invoke(agent,selection,name,args);
       if(preset==='standard'){
         const allowed=await run(name,{workdir:'nested dir',description:'Write in the Session workspace',
@@ -90,6 +106,7 @@ test('the market profile runs the release shell service and platform model tools
             'printf %s "$DSH_SESSION_ID" > allowed.txt'});
         assert.equal(allowed.value?.exitCode,0,JSON.stringify(allowed));
         assert.equal(allowed.value.cwd,join(workspace,'nested dir'));
+        assert.deepEqual(allowed.metadata,{dsh:{meta:{cwd:allowed.value.cwd}}});
         assert.equal(allowed.value.sandbox.mode,'workspace-write');
         assert.equal(allowed.value.sandbox.denied,false);
         assert.equal(await readFile(join(workspace,'nested dir','allowed.txt'),'utf8'),agent.id);
@@ -97,6 +114,8 @@ test('the market profile runs the release shell service and platform model tools
           command:name==='pwsh'?'Set-Content -LiteralPath ../outside.txt -Value probe':'printf probe > ../outside.txt'});
         assert.equal(denied.value?.cwd,workspace,JSON.stringify(denied));
         assert.notEqual(denied.value.exitCode,0);
+        assert.equal(denied.is_error,false,'the shell reports a process exit as a tool value');
+        assert.deepEqual(denied.metadata,{dsh:{meta:{cwd:workspace}}});
         assert.equal(denied.value.sandbox.denied,true,JSON.stringify(denied));
         await assert.rejects(stat(join(profile,'outside.txt')),{code:'ENOENT'});
         const command=name==='pwsh'?"[Console]::Write((Get-Content -Raw proof.txt)); [Console]::Error.Write($env:DSH_SESSION_ID); exit 7":
@@ -126,8 +145,9 @@ test('the market profile runs the release shell service and platform model tools
         const first=await run(name,{command:name==='pwsh'?"$global:RsiProof = Get-Content -Raw proof.txt; Write-Output 'primed'":
           'export RSI_PROOF="$(cat proof.txt)"; echo primed'});
         assert.equal(first.value?.split('\n')[0],'primed',JSON.stringify(first));
+        assert.equal(Object.hasOwn(first,'metadata'),false);
       }
-    }finally{selection.dispose();}
+    }finally{await post('release',{view:selection.view});}
     if(preset==='minimal'){
       const command=name==='pwsh'?"if ($global:RsiProof) { $global:RsiProof } else { 'fresh' }":
         'echo "${RSI_PROOF:-fresh}"';
@@ -136,7 +156,7 @@ test('the market profile runs the release shell service and platform model tools
         try{
           const reply=await invoke(owner,next,name,{command});
           assert.equal(reply.value?.split('\n')[0],expected,JSON.stringify(reply));
-        }finally{next.dispose();}
+        }finally{await post('release',{view:next.view});}
       }
     }
   });
