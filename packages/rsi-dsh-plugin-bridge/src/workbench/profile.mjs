@@ -4,7 +4,7 @@ import {join} from 'node:path';
 const hostServices=new Set(['dsh-host-plugin-inventory','dsh-commands','dsh-session-title','dsh-storage',
   'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-attachment-local','dsh-session-query-sqlite',
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy',
-  'dsh-bash-sandbox','dsh-pwsh-sandbox'].map(name=>'@deepseek-ai/'+name));
+  'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env'].map(name=>'@deepseek-ai/'+name));
 
 /** Use the released app's ordered client entries and published dsh.client
  * declarations. A backend requiring a missing service remains pending; third

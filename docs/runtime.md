@@ -114,7 +114,7 @@ the original diagnostic. A registry install and a profile enable are distinct
 operations; the market's request specifies which to perform.
 
 The market workbench mounts the release's local subprocess service, sandbox,
-sandbox policy and platform shell. Installed plugins can use `ctx.shell`
+sandbox policy, platform shell and shell environment registry. Installed plugins can use `ctx.shell`
 without registering another model tool. Claude Code and Codex command hooks
 use their own config files, stdin dialects and result decoding. They run in
 the Session cwd and use the DSH deployment policy, as the published hook
@@ -123,6 +123,19 @@ The default deployment write root for such calls is the profile's private
 `shell-workspace` directory. Set the original `sandbox-policy` row's
 `workspaceRoot` to the project when hooks need to write there. A provider
 that passes a Session to the policy service gets its Session workspace.
+
+The DSH standard preset's model tools are `@deepseek-ai/dsh-tool-pwsh` on
+Windows and `@deepseek-ai/dsh-tool-bash` on Linux. A market profile can
+enable the corresponding Cordis entry. When the native preset also provides
+`bash`, list `bash` in the Host application's `replace_preset_tools` to
+give that name to DSH. The DSH minimal preset instead composes its
+persistent shell tool with a private terminal registry and platform backend.
+To exercise both compositions, set `RSI_DSH_MARKET_COHORT` to the absolute
+path of a release npm installation for the current OS and run
+`node --test packages/rsi-dsh-plugin-bridge/test/workbench/workbench-shell.test.mjs`
+from the repository root. Run it once with native Windows Node and once
+with Linux Node. The test runs a command that exits with status 7 and reads
+a value across two calls to the same Agent's persistent shell.
 
 Application opening uses protocol 5. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
