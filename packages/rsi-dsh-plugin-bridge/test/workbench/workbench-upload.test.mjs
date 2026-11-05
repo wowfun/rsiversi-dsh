@@ -35,7 +35,7 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   const app=await createApplication({profile,modules,hostModules,provide:async(ctx,load)=>{
     await provideHttp(ctx,load,key,scope);
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController(
-      (await load('@deepseek-ai/dsh-typert-protocol')).TypertRemoteService,scope,{},undefined,activate));
+      await load('@deepseek-ai/dsh-typert-protocol'),scope,{},undefined,activate));
     ctx.provide('agents',{get:id=>agents.get(id)});
     ctx.provide('profileContext',{name:'upload',dir:profile,installAnchor:join(root,'package.json')});
     await ctx.plugin((await load('@deepseek-ai/dsh-app-boot')).PluginPackages);

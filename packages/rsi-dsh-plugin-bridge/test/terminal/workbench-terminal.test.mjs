@@ -103,7 +103,7 @@ test('published commands and terminals share the authorized Agent and preserve t
     await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
     await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
     const {TypertRemoteService}=await load('@deepseek-ai/dsh-typert-protocol');
-    hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController(TypertRemoteService,scope,undefined,undefined,async id=>{
+    hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService},scope,undefined,undefined,async id=>{
       activations++;return mirror={id,ctx,session:{id,append(type,data){events.push({type,data});}}};
     }));
     hostModules.set(terminal,terminalController(TypertRemoteService,scope,(await load(terminal)).default.Config({})));

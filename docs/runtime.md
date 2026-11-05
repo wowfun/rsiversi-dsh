@@ -140,6 +140,11 @@ An application-created fork retains its declared DSH origin and delegation
 depth with the native seed's parent. The original Session Title service
 appends titles to the application journal. A compact prefix in the same
 atomic document supplies the catalog's cached title and its event sequence.
+The workbench's `session/rename` resolves the requested Session and passes
+the proposed title to that same service. Its reply carries the accepted title
+and the sequence of the user-authored title event. An invalid title yields
+`session/title-invalid`. Other workspace windows and a cold catalog read
+observe the saved title without opening the conversation.
 Catalog reads match the native creation time and reuse the prefix between
 updates. Opening another browser can discover these threads without a
 remembered ID. The native fork retains its independent execution lifetime.

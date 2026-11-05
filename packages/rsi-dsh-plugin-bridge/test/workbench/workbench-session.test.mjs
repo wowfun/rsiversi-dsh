@@ -13,6 +13,32 @@ import {sessionController} from '../../src/workbench/session-controller.mjs';
 import {catalogObserver} from '../../src/workbench/catalog.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('rename uses the authorized Session and returns the title service event coordinate',async()=>{
+  const session={id:'one'},calls=[];
+  class SessionTitleInvalidError extends Error {}
+  class RemoteError extends Error {
+    constructor(code,message,data){super(message);Object.assign(this,{code,data});}
+  }
+  class TypertRemoteService {constructor(ctx){this.ctx=ctx;}}
+  const lookupError=Error('Session not granted');
+  const scope={async lookupAgent(id){
+    if(id!==session.id)throw lookupError;
+    return {session};
+  }};
+  const titles={rename(target,title){
+    assert.equal(target,session);calls.push(title);
+    if(!title.trim())throw new SessionTitleInvalidError('Title must contain visible characters');
+    return {title:'normalized by DSH',eventSeq:0};
+  }};
+  const Service=sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError},scope);
+  const controller=new Service({get:key=>key==='sessionTitle'?titles:undefined});
+  const rename=(id,title)=>controller.rename({sessionId:id,title});
+  assert.deepEqual(await rename('one',' raw title '),{title:'normalized by DSH',seq:0});
+  await assert.rejects(rename('one',' '),{code:'session/title-invalid',data:{sessionId:'one'}});
+  await assert.rejects(rename('other','ungranted'),error=>error===lookupError);
+  assert.deepEqual(calls,[' raw title ',' ']);
+});
+
 test('restore waits for stop providers; a stop failure leaves the committed archive intact',async()=>{
   const started=Promise.withResolvers(),release=Promise.withResolvers(),calls=[],warnings=[];
   const scope={workspace:async({type})=>{
@@ -116,9 +142,9 @@ test('published Typert gateway serves two authorized cold pages using the origin
   const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
   const app=await createApplication({profile,modules,hostModules,provide:async(ctx,load)=>{
     await provideHttp(ctx,load,key,scope);
-    hostModules.set(session,sessionController((await load('@deepseek-ai/dsh-typert-protocol')).TypertRemoteService,scope,
-      {forkTurn:async()=> 'native-turn'}));
     const {TypertRemoteService,RemoteError}=await load('@deepseek-ai/dsh-typert-protocol');
+    hostModules.set(session,sessionController({TypertRemoteService,RemoteError},scope,
+      {forkTurn:async()=> 'native-turn'}));
     hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,scope,RemoteError));
     ctx.provide('agents',{get:id=>id==='mirror'?{status:'running'}:undefined});
     ctx.provide('profileContext',{name:'contract',dir:profile,installAnchor:join(root,'package.json')});

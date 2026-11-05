@@ -6,7 +6,7 @@ export function sessionSummary(ctx,{id,cwd,updatedAt,blank,running,parent,projec
     ...(parent?{parentSessionId:parent,origin:'subagent'}:{})};
 }
 
-export function sessionController(TypertRemoteService,scope,history,interactions,activate) {
+export function sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError},scope,history,interactions,activate) {
   return class extends TypertRemoteService {
     static inject=['typert'];
     constructor(ctx) {super(ctx,'sessionController',{namespace:'session'});}
@@ -29,6 +29,19 @@ export function sessionController(TypertRemoteService,scope,history,interactions
     }
     modelCatalog() {return scope.modelCatalog();}
     selectModel(request,signal) {return scope.selectModel(request,signal);}
+    async rename({sessionId,title}) {
+      const agent=await scope.lookupAgent(sessionId,activate);
+      const titles=this.ctx.get('sessionTitle');
+      if(!titles)throw new RemoteError('gateway/internal','Session title service is unavailable',{});
+      try {
+        const accepted=titles.rename(agent.session,title);
+        return {title:accepted.title,seq:accepted.eventSeq};
+      }catch(error) {
+        if(error instanceof SessionTitleInvalidError)
+          throw new RemoteError('session/title-invalid',error.message,{sessionId});
+        throw error;
+      }
+    }
     async fork(request,signal) {
       const turn=await history.forkTurn(request,signal);
       const result=await scope.fork(request.sessionId,turn,signal);
