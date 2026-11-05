@@ -12,6 +12,7 @@ import {linkProfilePackage} from '../market/profile-files.mjs';
 import {applicationSessions} from './sessions.mjs';
 import {workspaceController} from '../workbench/workspace-controller.mjs';
 import {sessionController} from '../workbench/session-controller.mjs';
+import {jobController} from '../workbench/job-controller.mjs';
 import {workbenchProfile} from '../workbench/profile.mjs';
 import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
@@ -94,6 +95,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError},sessionScope,history,interactions,
       (id,signal)=>agents.ensure(id,signal)));
     hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,sessionScope,RemoteError));
+    const jobName='@deepseek-ai/dsh-api-job-controller';
+    if(rows.some(row=>row.name===jobName))hostModules.set(jobName,jobController((await load(jobName)).default,history));
     const terminalName='@deepseek-ai/dsh-api-terminal-controller';
     const terminal=await load(terminalName);
     hostModules.set(terminalName,terminalController({TypertRemoteService,RemoteError},sessionScope,terminal.default.Config({})));

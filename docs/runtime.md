@@ -128,14 +128,22 @@ The DSH standard preset's model tools are `@deepseek-ai/dsh-tool-pwsh` on
 Windows and `@deepseek-ai/dsh-tool-bash` on Linux. A market profile can
 enable the corresponding Cordis entry. When the native preset also provides
 `bash`, list `bash` in the Host application's `replace_preset_tools` to
-give that name to DSH. The DSH minimal preset instead composes its
+give that name to DSH. The workbench mounts the release's host-wide
+`dsh-jobs-local` registry. To run a standard shell command in the background,
+enable its preset's `dsh-tool-jobs` entry and assign `job_list`, `job_output`
+and `job_kill` to the application when the native preset supplies those names.
+The Session's Cordis Agent owns the job until disposal. The workbench checks
+the browser's native Session access when opening a job stream or stopping a
+job. The release controller then enforces job ownership and reads retained
+output independently of the model's cursor. The live registry lasts for the
+application process. The DSH minimal preset instead composes its
 persistent shell tool with a private terminal registry and platform backend.
 To exercise both compositions, set `RSI_DSH_MARKET_COHORT` to the absolute
 path of a release npm installation for the current OS and run
 `node --test packages/rsi-dsh-plugin-bridge/test/workbench/workbench-shell.test.mjs`
 from the repository root. Run it once with native Windows Node and once
-with Linux Node. The test runs a command that exits with status 7 and reads
-a value across two calls to the same Agent's persistent shell.
+with Linux Node. The test checks foreground exit status 7, background output
+and cancellation, and a value across two calls to the same Agent's persistent shell.
 
 Application opening uses protocol 5. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the

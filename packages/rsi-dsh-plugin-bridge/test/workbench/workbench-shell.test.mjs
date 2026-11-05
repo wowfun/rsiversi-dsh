@@ -28,7 +28,7 @@ test('the market profile runs the release shell service and platform model tools
   const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   const selected=await workbenchProfile(modules,boot,profile);
-  const services=selected.rows.filter(row=>['subprocess','sandbox','sandbox-policy','pwsh-sandbox','bash-sandbox','shell-env'].includes(row.id));
+  const services=selected.rows.filter(row=>['subprocess','sandbox','sandbox-policy','pwsh-sandbox','bash-sandbox','shell-env','jobs'].includes(row.id));
   app=await createApplication({profile,modules,provide:async(ctx,load)=>{
     ctx.provide('workingDirectory',sessions.workingDirectory);
     for(const name of ['dsh-session-projection','dsh-system-prompt','dsh-tools'])
@@ -36,6 +36,7 @@ test('the market profile runs the release shell service and platform model tools
     await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
   }});
   await app.reconcile([{insert:services}]);
+  assert.ok(app.ctx.get('jobs'),'market profile must mount the release job registry');
   const policy=app.ctx.sandboxPolicy.resolve();
   assert.equal(policy.workspaceRoot,join(profile,'shell-workspace'));
   assert.ok((await stat(policy.workspaceRoot)).isDirectory());
@@ -54,7 +55,7 @@ test('the market profile runs the release shell service and platform model tools
   const name=process.platform==='win32'?'pwsh':'bash';
   const {Session}=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-session')));
   const header={version:4,id:'shell-test',createdAt:0,cwd:profile,isSeeded:false};
-  const agent={id:header.id,ctx:app.ctx,session:Session.create(header.id,[],header)};
+  const agent={id:header.id,ctx:app.ctx,session:Session.create(header.id,[],header),inbox:{nextStep:[]}};
   const load=name=>import(pathToFileURL(modules.entry('@deepseek-ai/'+name)));
   world=(await load('dsh-scope')).createScope(app.ctx,agent);
   agent.ctx=world.ctx;
@@ -70,9 +71,11 @@ test('the market profile runs the release shell service and platform model tools
     await app.reconcile([{insert:[...testServices,...await shellPreset(root,preset)]}]);
     const selection=await app.ctx.tools.resolve({agent,modelSelection:{provider:'test',model:'test'},signal:t.signal});
     try {
-      assert.deepEqual([...selection.view(agent).keys()],[name]);
-      const call=command=>sessions.withToolAgent(agent,()=>execute({agent,name,callId:randomUUID(),toolSet:selection,
-        arguments:{command,...preset==='standard'?{description:'Shell acceptance'}:{}},signal:t.signal}));
+      const controls=preset==='standard'?['job_list','job_output','job_kill']:[];
+      assert.deepEqual(new Set(selection.view(agent).keys()),new Set([name,...controls]));
+      const invoke=(name,args)=>sessions.withToolAgent(agent,()=>execute({agent,name,callId:randomUUID(),toolSet:selection,
+        arguments:args,signal:t.signal}));
+      const call=command=>invoke(name,{command,...preset==='standard'?{description:'Shell acceptance'}:{}});
       if(preset==='standard'){
         const command=name==='pwsh'?"[Console]::Write((Get-Content -Raw proof.txt)); [Console]::Error.Write($env:DSH_SESSION_ID); exit 7":
           'cat proof.txt; printf %s "$DSH_SESSION_ID" >&2; exit 7';
@@ -82,6 +85,21 @@ test('the market profile runs the release shell service and platform model tools
         assert.equal(value.cwd,profile);
         assert.equal(value.stdout.text,token);
         assert.equal(value.stderr.text,agent.id);
+        const background=await invoke(name,{description:'Background acceptance',run_in_background:true,
+          command:name==='pwsh'?'Get-Content proof.txt; Start-Sleep -Seconds 60':'cat proof.txt; sleep 60'});
+        assert.equal(background.value?.kind,'background',JSON.stringify(background));
+        const id=background.value.jobId,jobs=app.ctx.jobs;
+        assert.ok((await invoke('job_list',{})).value.some(job=>job.id===id&&job.status==='running'));
+        assert.deepEqual(jobs.list('another-session'),[]);
+        assert.throws(()=>jobs.readAt(id,0,'another-session'),/another session/);
+        // The browser starts from an absolute offset. Its observation must not
+        // advance the consuming model cursor or duplicate the next read.
+        await t.waitFor(()=>assert.ok(jobs.readAt(id,0,agent.id).chunks.some(chunk=>chunk.text.includes(token))),{timeout:15000});
+        assert.ok((await invoke('job_output',{job_id:id})).value.text.includes(token));
+        assert.equal((await invoke('job_output',{job_id:id})).value.text,'');
+        assert.equal((await invoke('job_kill',{job_id:id})).value.outcome,'cancellation-requested');
+        const stopped=await invoke('job_output',{job_id:id,wait:true,timeout_ms:10000});
+        assert.equal(stopped.value?.job.status,'killed',JSON.stringify(stopped));
       }else{
         const first=await call(name==='pwsh'?"$global:RsiProof = Get-Content -Raw proof.txt; Write-Output 'primed'":
           'export RSI_PROOF="$(cat proof.txt)"; echo primed');
