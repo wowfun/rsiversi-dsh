@@ -10,6 +10,11 @@ share the same canonical mirror used to accept or undo staged Agent operations.
 The market's desktop pnpm and Plugin Manager invocations operate on the same
 profile selection journal and live package bindings.
 
+The market dispatches `agent/turn-stopping` serially on the producing Agent
+after its Step has settled and before its Turn ends. Listeners read the
+settled Session and can steer through the normal inbox. The reply waits for
+those publications so the native Executor can admit them in the same Turn.
+
 Verbatim file prompts use the original `fileUploads` receipts and binding guard.
 The bridge resolves receipts against the uploading Agent's exact Session,
 commits their binding only after native mailbox acceptance, and rolls back a

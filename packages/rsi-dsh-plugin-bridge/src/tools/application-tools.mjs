@@ -73,6 +73,22 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     }
     return row.preparation;
   }
+  async function stopping({view},signal) {
+    const row=views.get(view);
+    if(!row)throw Error('Stopping lost its captured Agent');
+    if(!row.stopping){
+      const stop=AbortSignal.any([signal,row.controller.signal]);
+      row.stopping=sessions.withToolAgent(row.agent,async()=>{
+        // Snapshot the published model/tool result before a listener reads the Session.
+        if(resolveAgent&&await resolveAgent(row.agent.id,stop)!==row.agent)throw Error('Stopping Agent has retired');
+        const turn=row.agent.session.lastEvent('turn/start').data.turn;
+        await agentEvents(ctx,row.agent).serial('agent/turn-stopping',{turn,signal:stop});
+        stop.throwIfAborted();
+        return null;
+      },stop);
+    }
+    return row.stopping;
+  }
   async function run(input,signal){
     const {name,args,registration,session,identity}=input,view=views.get(input.view);
     if(!view||view.session.id!==session||view.bindings.get(registration)!==name)
@@ -92,6 +108,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     switch(path){
       case '/v1/capture':return capture(input,signal);
       case '/v1/prepare':return prepare(input,signal);
+      case '/v1/stopping':return stopping(input,signal);
       case '/v1/start':return ledger.start(input,stop=>run(input,stop));
       case '/v1/outcome':return ledger.outcome(input);
       case '/v1/cancel':return ledger.cancel(input);
@@ -130,5 +147,5 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     closeNative();server.close();server.closeAllConnections();await ledger.close();
     for(const id of views.keys())release(id);
   },'close application tool source');
-  return {protocol:11,generation,port:server.address().port};
+  return {protocol:12,generation,port:server.address().port};
 }

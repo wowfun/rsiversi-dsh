@@ -260,7 +260,7 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     },
     authorize:(id,signal)=>scoped('application.session',{session_id:id},signal),
     interactions:(id,operation,signal)=>scoped('application.interactions',{session_id:id,operation},signal),
-    async withToolAgent(agent,run){
+    async withToolAgent(agent,run,signal){
       const execute=async()=>{
         const view={...scope.getStore(),id:agent.id,header:agent.session.header,agent};
         return scope.run(view,async()=>{
@@ -270,7 +270,7 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
           finally{view.released=true;delete view.agent;}
         });
       };
-      return owner?activities.run(execute):execute();
+      return owner?activities.run(execute,signal):execute();
     },
     fork:(id,turn,signal)=>scoped('application.create',{fresh:'session-'+randomUUID(),
       fork:{source_session_id:id,point:{kind:'through_turn',turn_id:turn},turns:'all'}},signal),

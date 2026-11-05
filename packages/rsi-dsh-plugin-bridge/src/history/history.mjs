@@ -93,7 +93,7 @@ export async function observeFact(session, mapping, fact, readFact, readAttempt,
   } else if (fact.type === 'model_started' && mapping.model?.effectId === fact.effect_id) {
     mapping.model.startedAt = fact.timestamp_ms;
   } else if (fact.type === 'model_attempt_settled') {
-    await observeAttempt(session, mapping, fact, readAttempt, llm);
+    if (await observeAttempt(session, mapping, fact, readAttempt, llm)) closeStep(session, mapping, fact.timestamp_ms);
   } else if (['turn_accepted', 'message_turn_accepted', 'step_started'].includes(fact.type)) {
     if (mapping.turnId !== fact.turn_id) {
       if (mapping.turnId !== null) throw new Error('new Turn precedes canonical terminal');
@@ -113,7 +113,9 @@ export async function observeFact(session, mapping, fact, readFact, readAttempt,
       for (const message of messages) observeInput(session, mapping, message, fact.timestamp_ms);
     }
   } else if (['tool_intent', 'tool_started', 'tool_rejected', 'tool_result', 'tool_calls_superseded'].includes(fact.type)) {
+    const pending = mapping.calls.length;
     observeTool(session, mapping, fact);
+    if (pending && !mapping.calls.length) closeStep(session, mapping, fact.timestamp_ms);
   } else if (fact.type === 'step_ended' && fact.turn_id === mapping.turnId) {
     closeStep(session, mapping, fact.timestamp_ms);
     mapping.stepId = null;

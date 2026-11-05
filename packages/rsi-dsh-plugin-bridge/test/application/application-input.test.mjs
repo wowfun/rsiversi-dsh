@@ -45,6 +45,21 @@ async function fixture(t) {
   return { ctx, agent, session, world, post, capture, input, load, require, directory, agentApi, listener, key };
 }
 
+test('stopping awaits listeners on the captured Agent and propagates failures', { skip: !root }, async t => {
+  const f=await fixture(t), {view}=await f.capture();
+  const seen=[];
+  f.world.ctx.on('agent/turn-stopping',async ({agent,turn,signal})=>{
+    assert.equal(agent,f.agent);assert.equal(turn,1);assert.equal(signal.aborted,false);
+    await Promise.resolve();seen.push('first');
+  });
+  f.world.ctx.on('agent/turn-stopping',()=>{seen.push('second');});
+  assert.equal(await f.post('stopping',{view}),null);
+  assert.deepEqual(seen,['first','second']);
+  const second=await f.capture();
+  f.world.ctx.on('agent/turn-stopping',()=>{throw Error('stop hook failed');});
+  await assert.rejects(f.post('stopping',{view:second.view}),/stop hook failed/);
+});
+
 async function nativeCall(f,captured,command,callId=randomUUID()){
   const WS=f.require('ws'),socket=new WS(`ws://127.0.0.1:${f.listener.port}/v1/native`,{headers:{authorization:f.key}});
   await once(socket,'open');

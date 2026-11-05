@@ -220,7 +220,9 @@ integration('original surface folds preserve roles, system replacements, raw cal
     result: { content: [{ type: 'text', text: 'Internal only' }], value: null, is_error: false } });
   await observe({ type: 'tool_result', effect_id: 'effect-a', identity: { call_id: 'a' },
     result: { content: [{ type: 'text', text: 'Exact result' }], value: { ignored: 'rendered content wins' }, is_error: false } });
+  assert.equal(mapping.stepOpen,true,'the sibling call still owns the Step');
   await observe({ ...intent('b', 'first-model', 'tool_rejected'), rejection: { type: 'policy_denied', reason: 'Denied by exact policy', contribution_id: 'policy' } });
+  assert.equal(session.lastEvent('step/end').data.step,1);
   await model('second-model', ['c', 'd', 'e']);
   await observe(intent('c', 'second-model'));
   await observe(intent('d', 'second-model'));
