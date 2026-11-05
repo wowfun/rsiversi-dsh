@@ -96,7 +96,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,sessionScope,RemoteError));
     const terminalName='@deepseek-ai/dsh-api-terminal-controller';
     const terminal=await load(terminalName);
-    hostModules.set(terminalName,terminalController(TypertRemoteService,sessionScope,terminal.default.Config({})));
+    hostModules.set(terminalName,terminalController({TypertRemoteService,RemoteError},sessionScope,terminal.default.Config({})));
     ctx.provide('sessions',{...sessionScope.sessions,flush:session=>agents.flush(session)});
     ctx.provide('sessionPersistence',persistence);
     ctx.provide('workingDirectory',sessionScope.workingDirectory);

@@ -94,7 +94,8 @@ test('published commands and terminals share the authorized Agent and preserve t
     assert.equal(method,'application.terminal');assert.equal(args.session_id,'allowed');
     if(!args.operation)return {cwd:profile,program:'/bin/bash',arguments:['-i'],bindings:calls.length?[{key:'client-key',terminal:state}]:[]};
     calls.push(args.operation);
-    return {type:'terminal',value:state};
+    if(args.operation.type==='create'&&args.operation.key==='retired')return {type:'retired'};
+    return args.operation.type==='close_key'?{type:'done'}:{type:'terminal',value:state};
   },{owner:'application-test-owner',agent:id=>mirror?.id===id?mirror:undefined});
   const app=await createApplication({profile,modules,hostModules,provide:async(ctx,load)=>{
     await provideHttp(ctx,load,key,scope);
@@ -102,11 +103,11 @@ test('published commands and terminals share the authorized Agent and preserve t
     await ctx.plugin((await load('@deepseek-ai/dsh-app-boot')).PluginPackages);
     await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
     await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
-    const {TypertRemoteService}=await load('@deepseek-ai/dsh-typert-protocol');
+    const {TypertRemoteService,RemoteError}=await load('@deepseek-ai/dsh-typert-protocol');
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService},scope,undefined,undefined,async id=>{
       activations++;return mirror={id,ctx,session:{id,append(type,data){events.push({type,data});}}};
     }));
-    hostModules.set(terminal,terminalController(TypertRemoteService,scope,(await load(terminal)).default.Config({})));
+    hostModules.set(terminal,terminalController({TypertRemoteService,RemoteError},scope,(await load(terminal)).default.Config({})));
   }});
   t.after(()=>app.close());
   await app.reconcile([{insert:['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway','dsh-api-session-controller','dsh-api-terminal-controller','dsh-commands']
@@ -136,5 +137,12 @@ test('published commands and terminals share the authorized Agent and preserve t
   assert.equal(added.value.id,'client-key');
   assert.deepEqual(calls,[{type:'create',key:'client-key',size:{rows:24,columns:80}}]);
   assert.equal((await invoke('terminal/list',{sessionId:'allowed'})).value[0].id,'client-key');
+  for(const id of ['unseen-key','client-key']){
+    const closed=await invoke('terminal/close',{agentId:'allowed',id});
+    assert.equal(closed.ok,true,JSON.stringify(closed));
+    assert.deepEqual(calls.at(-1),{type:'close_key',key:id});
+  }
+  const retired=await invoke('terminal/create',{agentId:'allowed',request:{...request,id:'retired'}});
+  assert.equal(retired.error.code,'terminal/unavailable');
   assert.equal(activations,1);
 });

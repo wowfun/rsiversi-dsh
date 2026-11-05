@@ -872,8 +872,11 @@ operation is not a durable receipt and does not produce a synthetic SessionEvent
 The released terminal controller's Remote contract uses its ordinary Agent
 lookup. The bridge checks the live browser request and addressed root Session before
 lending its identity. The terminal client sees the native shell and its
-actual workspace. Creation uses the client's terminal ID, attachment takes
-the native writer explicitly, and unmount releases the follower while the
+actual workspace. Creation and closure use the client's terminal ID. Closing
+an unseen or pending ID prevents a delayed create from reopening the tab.
+The gateway returns the published `terminal/unavailable` code for a retired
+key or missing binding, so the original client removes the missing terminal.
+Attachment takes the native writer explicitly, and unmount releases the follower while the
 shell remains available. A Remote attachment emits one initial snapshot.
 Terminal output and input each keep one outstanding read. A busy PTY does
 not accumulate waiters on an idle uplink. An output page emits a state frame
