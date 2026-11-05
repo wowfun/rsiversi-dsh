@@ -362,6 +362,12 @@ pending for reconnection. Concurrent views of one root share its observation.
 When one view closes, another supplies the physical request for the same
 pending interaction. Any connected owner window can answer once.
 
+A history follow is passive by default. Once the native opening snapshot is
+available, an explicit `activate: true` on a root starts a missing Cordis Agent
+under the application lifetime. Delivering history and observing interactions
+do not wait for Agent startup. Activation errors reach the release's
+`api-session/error` event.
+
 A plugin waiting for services reports the missing names from its Cordis
 Fiber's resolved injection contract and scope. This diagnostic is evaluated
 after loading, so services registered earlier in the same profile participate.

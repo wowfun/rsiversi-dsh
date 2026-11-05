@@ -13,6 +13,38 @@ import {sessionController} from '../../src/workbench/session-controller.mjs';
 import {catalogObserver} from '../../src/workbench/catalog.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('follow opens authorized history before optional independent Agent startup',async()=>{
+  const activation=Promise.withResolvers(),failure=Promise.withResolvers(),starts=[],reads=[];
+  const app=new AbortController();
+  class Base {constructor(ctx){this.ctx=ctx;}}
+  const history={async *follow({address}) {
+    if(address.sessionId==='denied')throw Error('No Session access');
+    yield {type:'snapshot',header:address.sessionId==='child-by-id'?{origin:'subagent'}:{}};
+  }};
+  const scope={runOwned:fn=>fn(app.signal)};
+  const Service=sessionController({TypertRemoteService:Base},scope,history,{
+    async observe(id,signal){reads.push(id);await new Promise(r=>signal.addEventListener('abort',r,{once:true}));}
+  },async(id,signal)=>{starts.push(id);assert.equal(signal,app.signal);await activation.promise;});
+  const controller=new Service({get:()=>new Map([['resident',{}]]),emit:(...args)=>failure.resolve(args)});
+  async function read(address,active){
+    const reader=new AbortController(),frames=controller.follow({address,activate:active},reader.signal);
+    try {assert.equal((await frames.next()).value.type,'snapshot');}
+    finally {reader.abort();await frames.return();}
+  }
+  const addr=sessionId=>({kind:'session',sessionId});
+  for(const active of [undefined,false])await read(addr('passive'),active);
+  await read(addr('resident'),true);
+  await read(addr('child-by-id'),true);
+  await read({kind:'subagent',childSessionId:'child',parentSessionId:'parent'},true);
+  await assert.rejects(read(addr('denied'),true),/No Session access/);
+  assert.deepEqual(starts,[]);
+  await read(addr('cold'),true);
+  assert.deepEqual(reads,['passive','passive','resident','child-by-id','cold']);
+  assert.deepEqual(starts,['cold']);
+  activation.reject(Error('Agent unavailable'));
+  assert.deepEqual(await failure.promise,['api-session/error','cold','Agent unavailable']);
+});
+
 test('rename uses the authorized Session and returns the title service event coordinate',async()=>{
   const session={id:'one'},calls=[];
   class SessionTitleInvalidError extends Error {}

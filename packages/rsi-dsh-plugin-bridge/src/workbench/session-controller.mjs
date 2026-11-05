@@ -86,14 +86,25 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
       return {accepted:true};
     }
     async *follow(request,signal) {
-      if(request.address.kind==='session')await activate?.(request.address.sessionId,signal);
       const lifetime=new AbortController();
       const stop=AbortSignal.any([signal,lifetime.signal]);
-      const observation=interactions&&request.address.kind==='session'
-        ?interactions.observe(request.address.sessionId,stop).catch(error=>{
-          if(!stop.aborted)console.error('Native interaction observation:',error.message);
-        }):undefined;
-      try{yield* history.follow(request,stop);}
+      let observation;
+      try{
+        for await(const frame of history.follow(request,stop)){
+          if(frame.type==='snapshot'&&request.address.kind==='session'&&!stop.aborted){
+            const id=request.address.sessionId;
+            observation=interactions?.observe(id,stop).catch(error=>{
+              if(!stop.aborted)console.error('Native interaction observation:',error.message);
+            });
+            if(request.activate===true&&frame.header.origin!=='subagent'&&!this.ctx.get('agents')?.get(id)){
+              void this.resolveAgent(id).then(result=>{
+                if(result.error)this.ctx.emit('api-session/error',id,result.error.message);
+              }).catch(error=>this.ctx.logger.error('Session activation failed:',error));
+            }
+          }
+          yield frame;
+        }
+      }
       finally{lifetime.abort();await observation;}
     }
     page(request,signal) {return history.page(request,signal);}
