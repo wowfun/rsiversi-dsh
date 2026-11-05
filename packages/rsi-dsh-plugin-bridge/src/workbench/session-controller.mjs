@@ -1,3 +1,5 @@
+import {updateQueue} from './queue.mjs';
+
 /** Use the release's generated session codec and dispatch machinery. */
 export function sessionSummary(ctx,{id,cwd,updatedAt,blank,running,parent,projections}) {
   return {sessionId:id,cwd,updatedAt,blank,running,formatStatus:'current',
@@ -75,6 +77,14 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
       return {attachment,data:Buffer.from(data.buffer,data.byteOffset,data.byteLength).toString('base64')};
     }
     cancel(request,signal) {return scope.cancel(request,signal);}
+    async updateQueue(request,signal) {
+      const source=await updateQueue(request,scope.inbox,history,RemoteError,signal);
+      if(request.action.kind==='remove'&&source.kind==='user'&&source.rpcId) {
+        const agent=this.ctx.get('agents')?.get(request.sessionId);
+        if(agent)this.ctx.get('fileUploads')?.retirePrompt(agent,source.rpcId);
+      }
+      return {accepted:true};
+    }
     async *follow(request,signal) {
       if(request.address.kind==='session')await activate?.(request.address.sessionId,signal);
       const lifetime=new AbortController();

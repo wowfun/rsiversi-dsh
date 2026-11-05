@@ -953,6 +953,19 @@ one native operation ID and exact predecessor, and exposes the committed receipt
 including claim/replacement rejection. It never uses message cancellation, which
 can cancel the executing Turn after the message has been claimed.
 
+The workbench's `session/updateQueue` resolves the displayed message against
+the Session's pending inputs. Editing replaces the content of a queued human
+message with the supplied text blocks.
+Browser prompts carry their DSH message ID and user RPC source into native
+acceptance, so an edited message retains its identity when later consumed.
+Removing withdraws the input. Steering converts a queued human message to a
+next-Step input bound to the currently active native Turn. The Kernel checks
+the queue slot and exact predecessor together and records its decision. The
+workbench acknowledges a durable change only after reading that decision.
+Unpublished command inputs can be withdrawn through the draft owner. A
+consumed item or an unavailable steering turn returns the corresponding DSH
+queue error. Upload retention ends when removal succeeds.
+
 Attached Agents use the [application Session journal](session-journal.md) for
 synchronous text input, pending reads and removal. Original DSH folds, workbench readers and Agent
 notifications consume the same accepted splice events. Native command receipts

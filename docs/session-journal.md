@@ -206,3 +206,11 @@ Agents retain their shared owner; inactive owners may be collected and reopened
 from disk. Unchanged native cuts reuse the retained projector. New cuts project
 only their source delta. Whole-document snapshot encoding remains bounded by the
 Session budget; paged history and incremental persistence remain separate work.
+
+## Queue replacements in saved journals
+
+A native queue replacement keeps its slot. The workbench presents the same
+DSH message ID and position for an edit, with a new native acceptance ID for
+mutation and claim. A journal records the end of any previously published
+source prefix that presented replacements as fresh insertions. Replay keeps
+those published events intact and applies slot semantics to new controls.

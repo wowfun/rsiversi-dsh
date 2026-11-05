@@ -123,7 +123,7 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     if(!['queue','steer'].includes(mode)) throw new Error('Unknown prompt delivery mode');
     await submit(sessionId,{message_id:requestId,
       delivery:mode==='queue'?'next_turn':'steer',content:submissionContent(content),
-      ...(attribution===undefined?{}:{attribution})},signal);
+      attribution:attribution??{id:requestId,source:{kind:'user',rpcId:requestId}}},signal);
     return {accepted:true};
   }
   async function submit(sessionId,input,signal) {

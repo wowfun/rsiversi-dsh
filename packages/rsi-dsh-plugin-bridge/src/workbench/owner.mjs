@@ -77,7 +77,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
           }
           const nextCut=cut(meta),through=meta.through,controlThrough=nextCut.control_seq??0;
           const localRequests=new Set(journal.operations().map(row=>row.id));
-          const staged=await source.stage(call,signal,through,controlThrough,localRequests),native=staged.value;
+          const staged=await source.stage(call,signal,through,controlThrough,localRequests,journal.inboxSlotFrom),native=staged.value;
           if(nextCut.kind==='draft')native.model=workbenchModel(meta.model_selection);
           const saveCreation=!row.merged&&newOrigin;
           const after=row.merged?source.current.session.seq:0,events=native.session.snapshotEvents(after);

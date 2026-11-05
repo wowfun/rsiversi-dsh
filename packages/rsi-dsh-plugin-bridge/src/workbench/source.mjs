@@ -14,7 +14,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
     inbox:workbenchInbox(),spawning:new Set(),spawned:new Map(),settled:new Map(),origins:new Map()};
   return {
     get current(){return current;},
-    async stage(call,signal,through,controlThrough,localRequests=new Set()) {
+    async stage(call,signal,through,controlThrough,localRequests=new Set(),inboxSlotFrom=0) {
       const original=current;
       const next={...original,session:session.branch(),mapping:cloneMapping(original.mapping),
         model:original.model.branch(),inbox:original.inbox.branch(),
@@ -52,7 +52,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
               const appended=next.model.observe(event,next.session);
               if(localRequests.has(event.invocation?.request_id))next.origins.set(appended.seq,event);
             }
-            else await next.inbox.observe(event,next.session,call,signal,next.mapping.turn);
+            else await next.inbox.observe(event,next.session,call,signal,next.mapping.turn,inboxSlotFrom);
           }finally{next.session.end();}
         }
         next.controlThrough=page.through;

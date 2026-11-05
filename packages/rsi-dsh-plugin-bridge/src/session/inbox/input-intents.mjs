@@ -262,6 +262,13 @@ export function inputIntents(journal,{command,submit,messageStatus,readMessage,b
     },
     abandonClear(operations){for(const id of operations)activeClears.delete(id);},
     snapshot:()=>read().snapshot(),notifications:()=>read().notifications,
+    async pending(itemId,signal) {
+      const state=read().state;
+      const row=state['next-turn'].find(row=>row.message.id===itemId)??state['next-step'].find(row=>row.message.id===itemId);
+      if(!row)return;
+      if(row.operation&&!row.operation.receipt)await this.ready(signal,row.operation.seq+1);
+      if(row.nativeId)return {nativeId:row.nativeId,slotId:row.slotId??row.nativeId,target:row.target,source:row.message.source};
+    },
     ready(signal,through=journal.seq){const next=tail.catch(()=>{}).then(()=>settle(signal,through));tail=next;return next;},
     observeDraft(captured) {
       if(captured.kind!=='draft')return;

@@ -30,7 +30,7 @@ export function workbenchInbox(seed) {
   }
   return {transitions,branch:()=>workbenchInbox({rows:[...rows],transitions,successor}),
     snapshot:()=>({'next-step':list('next_step').map(row=>row.message),
-    'next-turn':list('next_turn').map(row=>row.message)}),async observe(event,session,call,signal,turn) {
+    'next-turn':list('next_turn').map(row=>row.message)}),async observe(event,session,call,signal,turn,inboxSlotFrom=0) {
     if(successor&&event.kind!=='accepted')throw Error('Native inbox successor lacks its next acceptance');
     if(event.kind==='successor') {
       const row=rows.get(event.predecessor_id);
@@ -40,9 +40,12 @@ export function workbenchInbox(seed) {
     if(event.kind==='accepted') {
       if(rows.has(event.message_id)||!['next_step','next_turn'].includes(event.target))throw Error('Invalid native inbox acceptance');
       const native=await readNativeMessage(call,event.message_id,event.seq,signal);
-      const message={id:nativeMessageId(native.source,native.message_id),role:'user',content:contentBlocks(native.content),
-        source:nativeMessageSource(native.source,native.message_id)};
       const slotId=successor?.slot.id??event.message_id;
+      const useSlot=session.seq>=inboxSlotFrom;
+      const identity=useSlot?slotId:native.message_id;
+      const message={id:nativeMessageId(native.source,identity),role:'user',content:contentBlocks(native.content),
+        source:nativeMessageSource(native.source,identity)};
+      const accepted=useSlot&&successor?.row.target===event.target?successor.row.accepted:event.seq;
       if(successor) {
         if(successor.successor_id!==event.message_id)throw Error('Native inbox successor identity changed');
         const replaced=successor.row,predecessor=successor.predecessor_id;successor=undefined;
@@ -52,7 +55,7 @@ export function workbenchInbox(seed) {
           {kind:'replaced',before:prior,removed:[{...replaced}],inserted:[]});
       }
       const prior=before(event.target),row={nativeId:event.message_id,slotId,source:native.source,
-        message,target:event.target,accepted:event.seq};rows.set(event.message_id,row);
+        message,target:event.target,accepted};rows.set(event.message_id,row);
       const index=list(row.target).findIndex(item=>item===row);
       const appended=splice(session,event.time,row.target,index,0,[message],undefined,
         [{type:'agent/inbox/inserted',data:{message}}],

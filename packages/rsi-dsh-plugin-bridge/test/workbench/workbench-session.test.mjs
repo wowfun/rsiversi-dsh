@@ -274,7 +274,8 @@ test('published Typert gateway serves two authorized cold pages using the origin
     const result=await reply.json();
     assert.deepEqual(result.result?.value,{accepted:true},JSON.stringify(result));
     assert.deepEqual(sent.at(-1),{request:'issued-request',session_id:'one',message_id:requestId,
-      delivery:mode==='queue'?'next_turn':'steer',content:[{kind:'text',text:'hello'}]});
+      delivery:mode==='queue'?'next_turn':'steer',content:[{kind:'text',text:'hello'}],
+      attribution:{id:requestId,source:{kind:'user',rpcId:requestId}}});
   }
   const cancel=await fetch(app.ctx.webServer.getOrigin()+'/api/session/cancel',{method:'POST',
     headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},

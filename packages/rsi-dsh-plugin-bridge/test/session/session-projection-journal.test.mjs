@@ -371,3 +371,15 @@ test('live deltas preserve source cursors and a failed batch or stale branch can
     assert.throws(()=>journal.session.adoptBranch(branch),/lost its original prefix/);
     assert.equal(journal.seq,3);
   });
+
+test('saved journals retain the native prefix that used predecessor-based inbox identities', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t),restore=raw=>new SessionProjectionJournal(ctx,api,{header},{document:JSON.stringify(raw)});
+  const native=[0,1].map(seq=>({type:'model/selection',seq,time:seq,data:selection}));
+  journal.merge(native);
+  const saved=JSON.parse(journal.encode());assert.equal(restore(saved).inboxSlotFrom,0);
+  delete saved.inboxSlotFrom;
+  const cold=restore(saved);assert.equal(cold.inboxSlotFrom,2);
+  cold.merge([...native,{...native[1],seq:2}]);
+  assert.equal(restore(JSON.parse(cold.encode())).inboxSlotFrom,2);
+  assert.throws(()=>restore({...saved,inboxSlotFrom:3}),/source boundary/);
+});

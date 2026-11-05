@@ -1,3 +1,4 @@
+import {captureAgentView} from './agent-view.mjs';
 import {followAssistant,followAgentAssistant} from './assistant.mjs';
 import {projectionFrame,workbenchControl} from './control.mjs';
 import {inboxReader} from '../session/inbox/inbox-state.mjs';
@@ -124,6 +125,15 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       yield* followAgentAssistant(view,llm,signal);
     },
     metadata:(id,signal,metadataOnly=false)=>read(id,{type:'open',...(metadataOnly?{metadata_only:true}:{})},signal),
+    async queueItem(id,itemId,signal) {
+      const meta=await read(id,{type:'open'},signal);
+      if(!meta)return;
+      const {session}=meta.selection_cursor.kind==='draft'
+        ?await captureAgentView({inbox},this,id,signal)
+        :await open({address:{kind:'session',sessionId:id}},signal,meta);
+      const owner=owners.get(session),row=await owner.input.pending(itemId,signal);
+      if(row)return {...row,kind:owner.meta.selection_cursor.kind,turn:owner.source.current.mapping.turnId};
+    },
     async selectModel({sessionId,provider,model,reasoningEffort},signal) {
       const view=await open({address:{kind:'session',sessionId}},signal);
       const selected={provider,model,...(reasoningEffort===undefined?{}:{reasoningEffort})};

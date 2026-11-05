@@ -30,13 +30,13 @@ function remap(input,seq,sourceAt) {
 export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
   #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;
-  #save;#notify;#report;
+  #save;#notify;#report;#inboxSlotFrom=0;
   constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},document}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
     if(document!==undefined) {
       if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
       const state=JSON.parse(document);
-      if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount'])||state.version!==1
+      if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','inboxSlotFrom'])||state.version!==1
         ||!isDeepStrictEqual(state.header,seed.header)||!Array.isArray(state.sources)||!Array.isArray(state.operations)
         ||!integer(state.inheritedEventCount)||!Array.isArray(state.events)
         ||state.eventCount!==undefined&&state.eventCount!==state.events.length
@@ -44,6 +44,8 @@ export class SessionProjectionJournal {
         throw Error('Invalid application journal');
       seed={header:state.header,events:state.events,inheritedEventCount:state.inheritedEventCount};
       this.#session=this.#create(seed);
+      this.#inboxSlotFrom=Object.hasOwn(state,'inboxSlotFrom')?state.inboxSlotFrom:state.sources.length;
+      if(!integer(this.#inboxSlotFrom)||this.#inboxSlotFrom>state.sources.length)throw Error('Invalid saved inbox source boundary');
       this.#restore(state.sources,state.operations);this.#saved=0;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
@@ -97,6 +99,7 @@ export class SessionProjectionJournal {
   get session(){return this.#session;}
   get seq(){return this.#session.seq;}
   get nativeSeq(){return this.#sources.length;}
+  get inboxSlotFrom(){return this.#inboxSlotFrom;}
   get revision(){return this.#revision;}
   get hasLocalEvents(){return this.#operations.size>0||this.seq>this.nativeSeq;}
   sourceAt(seq){return this.#sources[seq];}
@@ -231,7 +234,7 @@ export class SessionProjectionJournal {
   encode() {
     const event=this.#session.lastEvent('session/title');
     const prefix=JSON.stringify({header:this.#session.header,eventCount:this.seq,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-    const document=JSON.stringify({version:1,inheritedEventCount:this.#session.inheritedEventCount,
+    const document=JSON.stringify({version:1,inheritedEventCount:this.#session.inheritedEventCount,inboxSlotFrom:this.#inboxSlotFrom,
       events:this.#session.snapshotEvents(),sources:this.#sources,operations:this.operations()});
     const value=prefix.slice(0,-1)+',\n'+document.slice(1);
     if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');

@@ -59,12 +59,12 @@ for(const sourceType of ['command','human'])test(`${sourceType} inbox transition
       session.begin();try{await inbox.observe({time:300,...control,seq:index+1},session,call,undefined,1);}finally{session.end();}
       inbox=inbox.branch();
       assert.deepEqual(ctx.sessionProjections.snapshot(session).values.inbox,inbox.snapshot());
-      if(index===4)assert.deepEqual(inbox.snapshot()['next-turn'].map(row=>row.id),['b','a2']);
-      if(index===7)assert.deepEqual(inbox.snapshot()['next-turn'].map(row=>row.id),['original:c','a2','b2']);
+      if(index===4)assert.deepEqual(inbox.snapshot()['next-turn'].map(row=>row.id),['a','b']);
+      if(index===7)assert.deepEqual(inbox.snapshot()['next-turn'].map(row=>row.id),['a','b','original:c']);
     }
     assert.equal(reads.filter(op=>op.message_id==='c').length,3,'native input larger than 256 KiB crosses fragments without a mirror-specific rejection');
     const notices=[...inbox.transitions.values()].flatMap(row=>row.notifications??[]);
-    assert.deepEqual(notices.filter(row=>row.type==='agent/inbox/claimed').map(row=>[row.data.message.id,row.data.turn]),[['original:c',1],['b2',1]]);
+    assert.deepEqual(notices.filter(row=>row.type==='agent/inbox/claimed').map(row=>[row.data.message.id,row.data.turn]),[['original:c',1],['b',1]]);
     assert.ok(notices.every(row=>Object.isFrozen(row.data.message)));
     const replay=new SessionFacade(ctx,api,{header:session.header,events:JSON.parse(JSON.stringify(session.snapshotEvents()))});
     assert.deepEqual(ctx.sessionProjections.snapshot(replay).values.inbox,{'next-step':[],'next-turn':[]});
@@ -77,6 +77,22 @@ for(const sourceType of ['command','human'])test(`${sourceType} inbox transition
     assert.deepEqual(message,notices.find(row=>row.type==='agent/inbox/claimed').data.message,
       'accepted and independently consumed messages retain exactly the same original envelope');
   });
+
+test('saved inbox prefix reopens with its published IDs and switches to stable slots for later edits', {skip:!root},async t=>{
+  const {ctx,api}=await fixture(t);
+  const session=new SessionFacade(ctx,api,{header:{version:4,id:'saved',createdAt:1,isSeeded:false}});
+  const inbox=workbenchInbox(),accepted=(id,seq)=>({kind:'accepted',target:'next_turn',message_id:id,seq,time:seq});
+  const successor=(from,to,seq)=>({kind:'successor',predecessor_id:from,successor_id:to,slot:{id:'a'},seq,time:seq});
+  const events=[accepted('a',1),accepted('b',2),successor('a','a2',3),accepted('a2',4),
+    successor('a2','a3',5),accepted('a3',6),accepted('c',7),successor('a3','a4',8),accepted('a4',9)];
+  for(const event of events){
+    const call=async op=>fragment({message_id:op.message_id,source:{type:'human'},content:[{type:'text',text:op.message_id}]},op.accepted_control_seq,op.offset);
+    session.begin();try{await inbox.observe(event,session,call,undefined,1,4);}finally{session.end();}
+    if(event.seq===4)assert.deepEqual(inbox.snapshot()['next-turn'].map(r=>r.id),['b','a2']);
+    if(event.seq===6)assert.deepEqual(inbox.snapshot()['next-turn'].map(r=>r.id),['b','a']);
+  }
+  assert.deepEqual(inbox.snapshot()['next-turn'].map(r=>[r.id,r.content[0].text]),[['b','b'],['a','a4'],['c','c']]);
+});
 
 test('control-only acceptance and withdrawal notify subscribers and replay at the same Session cursors',
   {skip:!root},async t=>{
