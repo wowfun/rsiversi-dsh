@@ -219,7 +219,8 @@ integration('original surface folds preserve roles, system replacements, raw cal
   await observe({ type: 'tool_result', effect_id: 'program-internal', identity: { call_id: 'internal' },
     result: { content: [{ type: 'text', text: 'Internal only' }], value: null, is_error: false } });
   await observe({ type: 'tool_result', effect_id: 'effect-a', identity: { call_id: 'a' },
-    result: { content: [{ type: 'text', text: 'Exact result' }], value: { ignored: 'rendered content wins' }, is_error: false } });
+    result: { content: [{ type: 'text', text: 'Exact result' }], value: null, is_error: true,
+      metadata: { dsh: { error: { name: 'ToolError', code: 'INVALID_ARGS' }, meta: null } } } });
   assert.equal(mapping.stepOpen,true,'the sibling call still owns the Step');
   await observe({ ...intent('b', 'first-model', 'tool_rejected'), rejection: { type: 'policy_denied', reason: 'Denied by exact policy', contribution_id: 'policy' } });
   assert.equal(session.lastEvent('step/end').data.step,1);
@@ -244,7 +245,11 @@ integration('original surface folds preserve roles, system replacements, raw cal
   assert.equal(log.find(event => event.type === 'tool/call').data.arguments, '{ "todos": [] }');
   const results = log.filter(event => event.type === 'tool/result');
   assert.deepEqual(results.map(event => event.data.message.toolCallId), ['a', 'b', 'e', 'c', 'd']);
-  assert.deepEqual(results.map(event => event.data.error?.code), [undefined, 'rsi.policy_denied', 'TOOL_NOT_STARTED', 'TOOL_NOT_STARTED', 'TOOL_OUTCOME_UNKNOWN']);
+  assert.deepEqual(results.map(event => event.data.error?.code), ['INVALID_ARGS', 'rsi.policy_denied', 'TOOL_NOT_STARTED', 'TOOL_NOT_STARTED', 'TOOL_OUTCOME_UNKNOWN']);
+  assert.equal(results[0].data.meta, null);
+  assert.ok(results.slice(1).every(event => !Object.hasOwn(event.data, 'meta')));
+  assert.equal(results[0].data.message.isError, true);
+  assert.deepEqual(results[0].data.message.content, [{ type: 'text', text: 'Exact result' }]);
   assert.ok(!JSON.stringify(messages).includes('Internal only'));
   assert.deepEqual(log.filter(event => event.type === 'tool/call').map(event => event.data.callId), ['a', 'b', 'c', 'd', 'e']);
   for (const event of results) {

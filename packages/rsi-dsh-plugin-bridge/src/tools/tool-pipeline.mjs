@@ -1,6 +1,16 @@
 import {isDeepStrictEqual} from 'node:util';
 import {AsyncLocalStorage} from 'node:async_hooks';
 
+/** The original batch stores error.info and meta beside the tool message. */
+export function resultMetadata({error, meta}) {
+  const info = error?.info;
+  if (!info && meta === undefined) return;
+  const dsh = {};
+  if (info) dsh.error = info;
+  if (meta !== undefined) dsh.meta = meta;
+  return {dsh};
+}
+
 /** The Rust Tool owner admits a single body. DSH owns policy, wrapping,
  * rendering and result finalization inside this invocation. */
 export function toolPipeline(ctx, {ToolExecutionPipeline}, {projectToolSchema}) {

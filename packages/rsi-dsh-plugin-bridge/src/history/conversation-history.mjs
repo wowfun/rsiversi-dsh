@@ -89,11 +89,11 @@ function observeCall(session, call, block, time) {
   call.callEvent = session.appendObserved('tool/call', { turn: call.turn, step: call.step, callId: call.id,
     name: block.name, arguments: block.arguments }, time).seq;
 }
-function result(session, mapping, call, time, content, isError, error) {
+function result(session, mapping, call, time, content, isError, error, meta) {
   if (call.callEvent === null) observeCall(session, call, callBlock(session, call), time);
   const message = { id: `rsi:${session.id}:result:${call.model}:${call.id}`, role: 'tool', toolCallId: call.id,
     source: { kind: 'tool', callId: call.id }, content, isError };
-  session.appendObserved('tool/result', { turn: call.turn, step: call.step, message, ...(error ? { error } : {}) }, time,
+  session.appendObserved('tool/result', { turn: call.turn, step: call.step, message, ...(error ? { error } : {}), ...(meta !== undefined ? { meta } : {}) }, time,
     { surfaceOp: 'append', sourceEventSeqs: [call.callEvent] });
   mapping.calls.splice(mapping.calls.indexOf(call), 1);
 }
@@ -121,7 +121,8 @@ export function observeTool(session, mapping, fact) {
     if (!call) return; // Program-origin internal results do not join the model conversation.
     if (fact.identity.call_id !== call.id) throw new Error('Tool result identity mismatch');
     const content = fact.result.content.length ? contentBlocks(fact.result.content) : [{ type: 'text', text: JSON.stringify(fact.result.value) }];
-    result(session, mapping, call, fact.timestamp_ms, content, fact.result.is_error);
+    const details=fact.result.metadata?.dsh;
+    result(session, mapping, call, fact.timestamp_ms, content, fact.result.is_error, details?.error, details?.meta);
   } else {
     const selected = [...mapping.calls].filter(call => fact.type === 'turn_terminal' || call.model === fact.source_model_effect_id && call.effect === null);
     for (const call of selected) {

@@ -198,10 +198,11 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     async page(request,signal) {
       const window=windowOf(request);
       const {session}=await open(request,signal);
-      const through=request.throughSeq,before=request.beforeSeq??through+1;
-      if(!Number.isSafeInteger(through)||through< -1||through>=session.seq||!Number.isSafeInteger(before)||before<0)
+      const through=request.throughSeq??session.seq-1,before=request.beforeSeq??through+1;
+      if(!Number.isSafeInteger(through)||through< -1||through>=session.seq||Object.is(through,-0)
+        ||!Number.isSafeInteger(before)||before<0||Object.is(before,-0))
         throw new Error('Invalid Session history cursor');
-      return pageOf(session,api,Math.min(before,through+1),window);
+      return {cursor:through,...pageOf(session,api,Math.min(before,through+1),window)};
     },
     async *follow(request,signal) {
       const window=windowOf(request);

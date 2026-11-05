@@ -107,7 +107,8 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
       }
       finally{lifetime.abort();await observation;}
     }
-    page(request,signal) {return history.page(request,signal);}
+    events(request,signal) {return history.page(request,signal);}
+    page(request,signal) {return this.events(request,signal);}
     projections(request,signal) {return history.projections(request,signal);}
     observeProjections(request,signal) {return history.observeProjections(request,signal);}
     control(signal) {return history.control(signal);}

@@ -164,6 +164,11 @@ test('released Session surface projects paged snapshots and follows only events 
   const changes=controller.observeProjections({sessionId:'native-session'},signal.signal);
   assert.deepEqual((await changes.next()).value,{type:'ready'});await changes.return();
   const page=await controller.page({...request,throughSeq:snapshot.cursor,beforeSeq:snapshot.cursor},signal.signal);
+  assert.equal(page.cursor,snapshot.cursor);
+  const latest=await controller.page(request,signal.signal);
+  assert.equal(latest.cursor,snapshot.cursor);
+  assert.deepEqual(latest.records,snapshot.records);
+  assert.deepEqual(await controller.page({...request,throughSeq:-1},signal.signal),{cursor:-1,records:[],hasMore:false});
   assert.ok(page.records.some(row=>row.event.type==='turn/start'));
   assert.equal((await stream.next()).value.event.seq,snapshot.cursor+1);
   assert.equal((await stream.next()).value.event.type,'turn/end');

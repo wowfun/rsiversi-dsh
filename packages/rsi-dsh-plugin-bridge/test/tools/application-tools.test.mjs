@@ -189,7 +189,7 @@ test('a captured Cordis registration settles once in its own Session and survive
     let post=await open(),calls=0,escaped;
     const definition=tools.defineTool({name:'session_probe',description:'Return the calling workspace.',
       parameters:{attempt:{type:'number',required:true}},
-      output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
+      output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}],presentationMeta:()=>null},
       async execute(_,exec){
         calls++;
         const cwd=await ctx.workingDirectory.ensure(exec.agent,exec.signal);
@@ -241,6 +241,7 @@ test('a captured Cordis registration settles once in its own Session and survive
       const selected=await capture(session),input=request(selected,session);
       inputs.push(input);
       const started=await outcome('start',input);
+      assert.deepEqual(started.result.metadata,{dsh:{meta:null}});
       assert.equal(started.result.value,join(directory,session));assert.deepEqual(started.result.additional_contexts,contexts);
       await assert.rejects(escaped(),/no longer owns/);
       assert.equal((await post('start',input)).status,200);
@@ -256,6 +257,7 @@ test('a captured Cordis registration settles once in its own Session and survive
     post=await open();
     for(const input of inputs){
       const recovered=await outcome('outcome',input);
+      assert.deepEqual(recovered.result.metadata,{dsh:{meta:null}});
       assert.equal(recovered.result.value,join(directory,input.session));assert.deepEqual(recovered.result.additional_contexts,contexts);
       assert.equal((await post('start',input)).status,200);
     }
@@ -283,6 +285,7 @@ test('a captured Cordis registration settles once in its own Session and survive
         input.args={};
         const result=(await outcome('start',input)).result;
         assert.equal(result.is_error,true);assert.match(JSON.stringify(result),/denied by the market mod/);
+        assert.equal(result.metadata.dsh.error.code,'MOD_DENIED');
         assert.equal(observed,join(directory,'two'));assert.equal(calls,2);
         const handled=request(await capture('two'),'two');
         handled.args={};handledCall=handled.identity.call_id;

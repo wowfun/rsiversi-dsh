@@ -270,6 +270,7 @@ integration('original Todo argument errors settle with a receipt and no Todo mut
     arguments:{todos:[{content:'x',status:'pending',hidden:true}]}});
   assert.equal(invalid.kind,'staged',invalid.diagnostic);
   assert.equal(invalid.result.is_error,true);
+  assert.equal(invalid.result.metadata.dsh.error.code,'INVALID_ARGS');
   assert.match(invalid.result.content[0].text,/invalid arguments:.*hidden/);
   assert.deepEqual(invalid.events,[]);
   await bridge.receipt('session-one','invalid',invalid.token,'committed',1);

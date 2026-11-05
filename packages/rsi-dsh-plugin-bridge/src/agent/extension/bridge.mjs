@@ -4,7 +4,7 @@ import {stagedMutations} from './mutations.mjs';
 import {nativeWorkingDirectory} from '../../session/working-directory.mjs';
 import { PlanIntentAdapter } from '../plan-intent.mjs';
 import { inactiveFiber } from '../fiber.mjs';
-import { toolPipeline } from '../../tools/tool-pipeline.mjs';
+import { resultMetadata, toolPipeline } from '../../tools/tool-pipeline.mjs';
 import { toolContextOutput } from '../../history/step-messages.mjs';
 import { prepareRows, runtimeContextProjection } from '../request-input.mjs';
 import { claimedRows } from '../../history/input-history.mjs';
@@ -152,7 +152,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
           if(operation.inputs.some(input=>input.kind!=='inject'))throw Error('Tool steering requires native interrupt admission');
           const deferred=[...operation.inputs.map(input=>input.message),...(result.additionalContexts??[])];
           operation.inputs=[];
-          return {value:result.value??null,content:result.content,isError:result.isError===true,concludeTurn:result.concludesTurn===true,
+          return {value:result.value??null,content:result.content,isError:result.isError===true,metadata:resultMetadata(result),concludeTurn:result.concludesTurn===true,
             contexts:toolContextOutput(deferred)};
         } finally { selection.dispose(); }
       }, signal);

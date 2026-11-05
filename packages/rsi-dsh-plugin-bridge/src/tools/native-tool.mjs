@@ -2,6 +2,7 @@ import {once} from 'node:events';
 import {isDeepStrictEqual} from 'node:util';
 import {contentBlocks} from '../history/conversation-history.mjs';
 import {nativeMedia} from '../agent/file-input.mjs';
+import {resultMetadata} from './tool-pipeline.mjs';
 import {toolContextOutput,toolUserMessage} from '../history/step-messages.mjs';
 
 function nativeBlock(block) {
@@ -41,14 +42,15 @@ async function invoke(row,input,execute,next,ask,signal) {
   const output={value:isError?(failure && result.error?.message===failure?original.value:result.error??null):result.value,
     is_error:isError,content:result.content.map(nativeBlock),additional_contexts:toolContextOutput(result.additionalContexts??[]),
     ...(result.concludesTurn?{concludes_turn:true}:{})};
+  const metadata=resultMetadata(result);
   if(original && original.is_error===isError && isDeepStrictEqual(original.value,output.value)){
     if(isDeepStrictEqual(original.content,output.content) && isDeepStrictEqual(original.additional_contexts??[],output.additional_contexts)
-      && Boolean(original.concludes_turn)===Boolean(output.concludes_turn))
+      && Boolean(original.concludes_turn)===Boolean(output.concludes_turn) && !metadata)
       return {state:'unchanged'};
-    return {state:'rendered',content:output.content,additional_contexts:output.additional_contexts,
+    return {state:'rendered',content:output.content,metadata,additional_contexts:output.additional_contexts,
       ...(output.concludes_turn?{concludes_turn:true}:{})};
   }
-  return {state:'settled',result:output};
+  return {state:'settled',result:{...output,metadata}};
 }
 
 /** Socket lifetime binds the only continuation; nothing is stored or redispatched on disconnect. */

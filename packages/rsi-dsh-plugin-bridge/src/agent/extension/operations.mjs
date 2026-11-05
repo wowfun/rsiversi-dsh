@@ -8,6 +8,7 @@ export function agentOperations({get,registry,request}) {
         return { kind: 'staged', operation_id, expected_revision: payload.expectedRevision, token, events: payload.suffix,
           checkpoint: payload.checkpoint, conclude_turn: payload.result.concludeTurn,
           result: { value: payload.result.value, content: payload.result.content, is_error: payload.result.isError, enforcement: [],
+            ...(payload.result.metadata === undefined ? {} : {metadata: payload.result.metadata}),
             ...(payload.result.contexts.length ? {additional_contexts:payload.result.contexts} : {}) } };
       } catch (error) {
         await this.abandon(session_id, operation_id);

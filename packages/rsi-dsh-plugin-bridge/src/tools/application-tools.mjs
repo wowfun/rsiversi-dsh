@@ -1,6 +1,6 @@
 import {createServer} from 'node:http';
 import {timingSafeEqual,randomUUID} from 'node:crypto';
-import {toolPipeline} from './tool-pipeline.mjs';
+import {resultMetadata,toolPipeline} from './tool-pipeline.mjs';
 import {toolLedger} from './application-tool-ledger.mjs';
 import {toolContextOutput} from '../history/step-messages.mjs';
 import {prepareRequestInputs,runtimeContextProjection} from '../agent/request-input.mjs';
@@ -97,7 +97,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     const result=await sessions.withToolAgent(view.agent,()=>execute({agent:view.agent,callId:identity.call_id,name,
       arguments:args,toolSet:view.selection,signal}));
     const contexts=toolContextOutput(result.additionalContexts??[]);
-    return {value:result.value??null,content:result.content,is_error:result.isError===true,
+    return {value:result.value??null,content:result.content,is_error:result.isError===true,metadata:resultMetadata(result),
       ...(result.concludesTurn?{concludes_turn:true}:{}),
       ...(contexts.length?{additional_contexts:contexts}:{})};
   }
@@ -151,5 +151,5 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     closeNative();server.close();server.closeAllConnections();await ledger.close();
     for(const id of views.keys())release(id);
   },'close application tool source');
-  return {protocol:13,generation,port:server.address().port};
+  return {protocol:14,generation,port:server.address().port};
 }

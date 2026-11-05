@@ -224,3 +224,14 @@ DSH message ID and position for an edit, with a new native acceptance ID for
 mutation and claim. A journal records the end of any previously published
 source prefix that presented replacements as fresh insertions. Replay keeps
 those published events intact and applies slot semantics to new controls.
+
+DSH writes `error.info` and `presentationMeta` to the Session's
+`tool/result` event as `error` and `meta`. Both adapters retain those fields
+under `metadata.dsh` on the native Tool result. History restores the fields
+from the committed Fact, including an explicitly null presentation. The
+model receives the original rendered content.
+
+The workbench serves these recorded events through the published
+`session.events` method and its `session.page` alias. Both return the
+inclusive cursor of the read. Omitting `throughSeq` selects the observed
+end, and `beforeSeq` pages backwards within that cut.
