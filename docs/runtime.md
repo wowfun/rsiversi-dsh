@@ -286,7 +286,7 @@ and withdrawal. An admitted native body belongs to that invocation's DSH
 execution source. Public registry lookups made by hooks still see the actual
 registered plugin, including when it has the same name as the native tool.
 A started invocation is recorded under its native
-Session and effect before entering the original pipeline. Protocol 10 keeps
+Session and effect before entering the original pipeline. Protocol 11 keeps
 the initial start request open and returns the committed JSON snapshot after
 the atomic outcome write. A repeated start for the same retained invocation returns its
 recorded state. A read of its outcome never dispatches the tool. An interrupted
@@ -299,6 +299,9 @@ When the application retires, a call still writing its admission receipt cannot
 enter the plugin body. Retirement cancels bodies already running and waits for
 their final receipt writes before releasing the captured tool sets.
 Market tool hooks return text `additionalContexts` through this receipt.
+On success the same receipt preserves the original pipeline's `concludesTurn`
+marker. The native Executor decides at the batch boundary whether pending input
+needs another model request.
 When policy prevents a native body from starting, the refusal frame carries
 the original pipeline's final deferred messages. The Kernel records them with
 the model call's rejection and claims them on its next preparation.

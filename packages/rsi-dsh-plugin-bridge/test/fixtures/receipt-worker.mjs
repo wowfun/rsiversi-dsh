@@ -21,6 +21,7 @@ ctx.tools.register(tools.defineTool({name:'receipt_probe',description:'Record on
     const id=execution.agent.session.id;
     await appendFile(join(directory,'body-calls'),id+'\n');
     if(id==='unfinished')await new Promise(()=>{});
+    execution.concludeTurn();
     return id;
   }}));
 process.send(await applicationTools(ctx,{load,key,generation:String(process.pid),directory,sessions}));

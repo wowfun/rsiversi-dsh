@@ -23,7 +23,7 @@ test('a killed Cordis process leaves settled and orphaned receipts without repla
       worker=fork(new URL('../fixtures/receipt-worker.mjs',import.meta.url),[directory,key],
         {execArgv:[],windowsHide:true,stdio:['ignore','ignore','inherit','ipc']});
       const [hello]=await once(worker,'message',{signal:AbortSignal.timeout(10000)});
-      assert.equal(hello.protocol,10);
+      assert.equal(hello.protocol,11);
       return async(op,body)=>{
         const response=await fetch('http://127.0.0.1:'+hello.port+'/v1/'+op,{method:'POST',headers:{authorization:key},
           body:JSON.stringify(body)});
@@ -46,7 +46,9 @@ test('a killed Cordis process leaves settled and orphaned receipts without repla
       if((await bodies()).includes('unfinished'))break;
       await delay(10);
     }
-    assert.equal((await post('outcome',done)).result.value,'completed');
+    const recovered=await post('outcome',done);
+    assert.equal(recovered.result.value,'completed');
+    assert.equal(recovered.result.concludes_turn,true);
     assert.equal((await post('outcome',pending)).state,'pending');
     assert.deepEqual((await bodies()).trim().split('\n').sort(),['completed','unfinished']);
     await kill();await interrupted;

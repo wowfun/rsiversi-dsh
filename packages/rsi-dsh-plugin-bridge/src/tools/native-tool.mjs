@@ -26,6 +26,7 @@ async function invoke(row,input,execute,next,ask,signal) {
         failure=content.filter(b=>b.type==='text').map(b=>b.text).join('\n')||'Native tool failed';
         throw Error(failure);
       }
+      if(original.concludes_turn)exec.concludeTurn();
       return original.value;
     }};
   const result=await execute({agent:row.agent,callId:input.call_id,
@@ -38,11 +39,14 @@ async function invoke(row,input,execute,next,ask,signal) {
       ...(contexts.length?{additional_contexts:contexts}:{})};
   }
   const output={value:isError?(failure && result.error?.message===failure?original.value:result.error??null):result.value,
-    is_error:isError,content:result.content.map(nativeBlock),additional_contexts:toolContextOutput(result.additionalContexts??[])};
+    is_error:isError,content:result.content.map(nativeBlock),additional_contexts:toolContextOutput(result.additionalContexts??[]),
+    ...(result.concludesTurn?{concludes_turn:true}:{})};
   if(original && original.is_error===isError && isDeepStrictEqual(original.value,output.value)){
-    if(isDeepStrictEqual(original.content,output.content) && isDeepStrictEqual(original.additional_contexts??[],output.additional_contexts))
+    if(isDeepStrictEqual(original.content,output.content) && isDeepStrictEqual(original.additional_contexts??[],output.additional_contexts)
+      && Boolean(original.concludes_turn)===Boolean(output.concludes_turn))
       return {state:'unchanged'};
-    return {state:'rendered',content:output.content,additional_contexts:output.additional_contexts};
+    return {state:'rendered',content:output.content,additional_contexts:output.additional_contexts,
+      ...(output.concludes_turn?{concludes_turn:true}:{})};
   }
   return {state:'settled',result:output};
 }

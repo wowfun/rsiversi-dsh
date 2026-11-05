@@ -85,6 +85,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       arguments:args,toolSet:view.selection,signal}));
     const contexts=toolContextOutput(result.additionalContexts??[]);
     return {value:result.value??null,content:result.content,is_error:result.isError===true,
+      ...(result.concludesTurn?{concludes_turn:true}:{}),
       ...(contexts.length?{additional_contexts:contexts}:{})};
   }
   async function dispatch(path,input,signal){
@@ -129,5 +130,5 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     closeNative();server.close();server.closeAllConnections();await ledger.close();
     for(const id of views.keys())release(id);
   },'close application tool source');
-  return {protocol:10,generation,port:server.address().port};
+  return {protocol:11,generation,port:server.address().port};
 }

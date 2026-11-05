@@ -26,7 +26,8 @@ test('original application policy allows by default, asks once when requested an
     ctx.on('tools/pre-execute',(_,next)=>decision??next());
     ctx.tools.guard(()=>guardDenied?'local guard denied':undefined);
     ctx.tools.register(tools.defineTool({name:'policy_probe',description:'Count actual body execution',parameters:{},
-      output:{schema:{type:'number'},render:(_,value)=>[{type:'text',text:String(value)}]},execute(){calls++;return invalidOutput?'invalid number':calls;}}));
+      output:{schema:{type:'number'},render:(_,value)=>[{type:'text',text:String(value)}]},
+      execute(_,exec){calls++;exec.concludeTurn();return invalidOutput?'invalid number':calls;}}));
     const countedLoad=async name=>name==='@deepseek-ai/dsh-tools'?{...tools,validateJsonSchemaValue(schema,...args){
       if(schema.type==='number')outputChecks++;return tools.validateJsonSchemaValue(schema,...args);
     }}:load(name);
@@ -43,7 +44,8 @@ test('original application policy allows by default, asks once when requested an
       const outcome=await post('start',input);
       assert.equal(outcome.state,'settled');return outcome.result;
     };
-    assert.equal((await invoke()).is_error,false);assert.equal(asks,0);assert.equal(calls,1);
+    const success=await invoke();
+    assert.equal(success.is_error,false);assert.equal(success.concludes_turn,true);assert.equal(asks,0);assert.equal(calls,1);
     decision={kind:'ask',reason:'installed policy'};
     assert.equal((await invoke()).is_error,false);assert.equal(asks,1);assert.equal(calls,2);
     answer='rejected';
@@ -53,7 +55,7 @@ test('original application policy allows by default, asks once when requested an
     decision=undefined;guardDenied=true;
     assert.equal((await invoke()).is_error,true);assert.equal(asks,2);assert.equal(calls,2);
     guardDenied=false;invalidOutput=true;
-    const invalid=await invoke();assert.equal(invalid.is_error,true);assert.equal(calls,3);
+    const invalid=await invoke();assert.equal(invalid.is_error,true);assert.equal(invalid.concludes_turn,undefined);assert.equal(calls,3);
     assert.match(JSON.stringify(invalid.content),/number|output|contract/i);
     assert.equal(outputChecks,0,'The original pipeline owns output validation; the bridge does not repeat it');
   });
@@ -78,7 +80,7 @@ test('original model-dependent activation uses the native request choice instead
     });
     const sessions=applicationSessions(()=>{throw Error('capture must not infer selection from another native request');});
     const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions,resolveAgent:async()=>agent});
-    assert.equal(listener.protocol,10);
+    assert.equal(listener.protocol,11);
     t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
     const post=async input=>{
       const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/capture',{method:'POST',headers:{authorization:key,'content-type':'application/json'},
