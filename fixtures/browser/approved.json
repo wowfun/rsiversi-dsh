@@ -1,0 +1,17 @@
+[
+  {
+    "id": "@deepseek-ai/dsh-client-ui-tool",
+    "url": "/ui-tool.js",
+    "integrity": "sha256-qYUR5ZEgR8iXppkYWhTXHSsfsBkxmOixrb4ZmBgyCqw="
+  },
+  {
+    "id": "@deepseek-ai/dsh-client-ui-plan",
+    "url": "/ui-plan.js",
+    "integrity": "sha256-6kOqKiZcGbdW6QjtdM+3eP1KsPtAAnuV0Gxztvzon58="
+  },
+  {
+    "id": "@deepseek-ai/dsh-client-ui-theme",
+    "url": "/ui-theme.js",
+    "integrity": "sha256-08IYF0m3qDRZ7CEX4/t6XpvcGDgO4Q4+PZ/PG0wdhi4="
+  }
+]

@@ -1,0 +1,7 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #242628; background: #f4f5f6;
+  --ds-primary: #4576e8; --ds-text-primary: #242628; --ds-text-secondary: #69717b; --ds-text-tertiary: #8a9098; --ds-border: #dfe2e5; --ds-background: #fff; }
+* { box-sizing: border-box; }
+body { margin: 0; } main { max-width: 1320px; padding: 36px; margin: auto; } header p { color: #69717b; font-size: 13px; } h1 { margin: 10px 0; font-size: 30px; } header > span { color: #287543; font-size: 13px; }
+.workspace { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 26px; } article, aside { border: 1px solid #dfe2e5; background: white; border-radius: 12px; padding: 22px; min-width: 0; } h2 { font-size: 16px; margin: 0 0 24px; }
+.composer { margin-top: 36px; padding: 16px; border: 1px solid #dfe2e5; border-radius: 12px; } label { display: block; font-size: 12px; color: #69717b; } textarea { display: block; width: 100%; height: 70px; resize: vertical; border: 0; padding: 8px 0; font: inherit; } output, footer { display: block; margin-top: 18px; font-size: 12px; color: #69717b; }
+@media(max-width:800px) { main { padding: 20px; } .workspace { grid-template-columns: 1fr; } }
