@@ -1,0 +1,208 @@
+# Application Session journal
+
+The compact metadata prefix includes the committed event count. Along with
+the native Fact and control watermarks it identifies a Session log revision
+without opening the event body. Older prefixes acquire a count on their next
+publication.
+
+`SessionProjectionJournal` owns the application event log shared by attached
+Agents, workbench history and cold persistence. Native Kernel owns execution.
+The attached Agent's model-selection append and the ordinary workbench model
+selector both use this log and its native command driver.
+
+The journal owns one dense immutable event sequence. Local acceptance is
+synchronous and returns the exact stored event; persistence is asynchronous.
+When a plugin creates a seeded child, the native fork identifies the stable
+parent Turn. Reference-free `working-directory/change` and
+`subagent/descriptor` events supplied at the end of the inherited prefix
+belong to the constructor. The journal keeps their order, times and payloads
+immediately before the child's tagged `session/end-seed`. They count as
+inherited events for DSH projections and have no native Fact position.
+Cold replay uses the same boundary. A child created before these events
+were recorded has only the metadata present in its log.
+Already prepared invocation metadata is installed before synchronous observers
+see its event. Readiness walks the journal's event-position index only through
+the boundary captured by the calling mutation, retaining progress across calls.
+Observer errors cannot undo acceptance or prevent later events, and reentrant
+mutations are rejected before modifying the log. Native observation batches are
+validated as a whole before publication.
+Source-map additions and changed mutation records are staged as a delta; a live
+delta does not copy the retained source map, enumerate settled mutations or take
+a full event snapshot. Existing immutable events are read by position. Validation
+failure leaves all three logs unchanged. A batch that only acknowledges existing
+local events does not construct a new Session branch or Surface manager.
+A caller can catch a synchronous validation failure without failing other
+accepted mutations in that publication. No native intent is created for the
+rejected call, and it triggers no native refresh; already accepted operations
+still settle normally.
+
+Each consumed native event retains its source position, content digest and
+application position. Digests verify that the same source prefix has not changed;
+they are not a runtime-version compatibility gate. Surface positions, source
+event references, developer header references and command-result references are
+translated into application coordinates. A native event explicitly correlated
+with a local mutation must describe the same event body. Normally it aliases that
+event and does not publish it again. A correlation marked `reconcile` instead
+publishes the counterpart at the current application position. This preserves an
+intervening external model choice and the later effective choice without moving
+the original accepted event. One native source event can acknowledge one local
+mutation only once; cold reconciliation preserves its original aliasing decision.
+
+Inbox observations carry native message identities and command provenance in
+addition to the original DSH message envelope. Their positional splices are
+translated against the application prefix at publication, rather than applied
+using native queue indices. A command acceptance aliases a local insertion only
+when its prepared invocation digest, command, request ID, ordinal and complete
+message match. Other native insertions follow the visible native predecessors;
+unconfirmed local insertions retain their accepted identity. Local withdrawal
+events remove a particular acceptance, so a later claim of that native input
+cannot remove a newly accepted message reusing its presentation ID.
+
+The inbox owner supplies projected event data to the journal. The source digest
+always covers the unmodified native event; translation changes neither its type
+nor its source references. Cold reconciliation derives the same projection from
+the application prefix before the stored source position. A native transition
+whose input is already locally withdrawn is represented by an empty splice;
+native claim notifications still describe actual execution. Promotion cannot
+resurrect that withdrawn acceptance. This observation contract is a prerequisite
+for the Agent's synchronous inbox mutation driver. Native observations alone do
+not prove withdrawal succeeded natively.
+
+The inbox reader retains an application event cursor and folds only new events.
+Unchanged reads reuse the immutable pending snapshot. Operation metadata is read
+through the journal's event-position index: preparation and receipts become
+visible without replaying the event prefix or changing an earlier public snapshot.
+Native identity correlation remains a separate boundary check when a new native
+transition is folded. An invalid splice leaves the last valid fold intact and is
+rejected again on a later read; it cannot be skipped by advancing the cursor.
+Native observations publish the source map and projection together before readers
+run. No read cache survives a new owner or replaces cold boundary validation.
+
+Attached Agents accept text `inject()`, `followup()` and `steer()` calls into this
+journal before returning. Injection targets the next step without waking;
+followup targets the next turn and steering targets the next step with waking.
+The immutable original message is immediately visible through the Agent inbox,
+Session events and workbench projections. Duplicate pending presentation IDs are
+rejected synchronously. Native execution request IDs are independent generated IDs;
+the caller's original ID and source remain presentation attribution. A finite
+publication flushes the prepared invocation before native dispatch and records
+its exact receipt. A later human submission waits for prior input intents.
+
+Waking inputs prepare direct native submission with the complete original
+attribution, ordered content and delivery intent. Recovery retries that exact
+submission when the input is still wanted. A read-only native message-status
+lookup and immutable acceptance read can settle a lost receipt without sending
+again. Only the stable acceptance identity and cursor are retained as completion;
+later claim or discard state is an observation, not a different receipt.
+Idle native steering resolves to next-turn execution. Its acknowledgement aliases
+the original next-step application acceptance; later removal locates that same
+acceptance across the two presentation queues. Native promotion remains a real
+transition. Neither case changes the immutable originally accepted event.
+
+`remove()` appends a canceled splice for one acceptance. `clear()` appends at
+most two canceled splices, next-step before next-turn, and settles them with one
+native inbox-only clear. Agent cancellation uses the same synchronous projection
+and one native Session stop; its default clears input, while `keepInbox` retains
+it. An input removed before preparation is never sent. A prepared
+invocation also remains known to be unsent in its live owner until dispatch is
+actually attempted, including across a failed preparation flush. That live
+knowledge permits local withdrawal; a prepared record loaded after restart does
+not establish it. A prepared
+input with an uncertain result is queried, not executed again merely to withdraw
+it. An absent command or message receipt does not prove non-execution; the withdrawal stays
+unconfirmed in that case. Confirmed durable inputs use the idempotent native queue
+withdrawal bound to their original slot and message, never Turn cancellation.
+An I/O failure preserves the accepted removal and diagnostic; a later readiness
+check retries that same identity-bound single removal. A native claim remains a truthful rejection
+of withdrawal, and does not retract the already published local removal.
+
+A bulk clear captures native work once and is never replayed after an uncertain
+result. While its live publication is pending, observers preserve its synchronous
+projection. If no acknowledgement survives, an authoritative inbox snapshot
+reconciles it before later dispatch: still-pending native inputs are restored by
+new observation events referring to the original cleared acceptance. Those
+events neither create a new execution identity nor resubmit a message. Inputs
+known only locally stay withdrawn. Late native claim/discard events still refer
+to the original acceptance and cannot remove a newer reused presentation ID.
+The same reconciliation runs after cold journal loading.
+
+An attached Agent also records native held draft inputs as observed acceptances.
+Those records carry native identity and provenance, not a command to replay.
+External removal while still a draft records a canceled observation. Publication
+correlates surviving draft acceptances with their durable native controls. Draft
+discard remains idempotent by message identity while that draft exists; a lost
+draft after Host restart is not recreated by the application journal.
+If publication races draft discard, the driver rechecks the native lifecycle and
+withdraws the same identity durably. A missing durable slot after a confirmed
+draft input proves that input was never published; it does not imply a claim.
+
+Cold reconciliation verifies the complete native prefix. A live owner can instead
+advance with a delta at the exact retained native cursor; it does not rescan or
+rehash unchanged history. Batch validation shares the already validated immutable
+prefix and publishes only after the whole new batch is accepted.
+
+Each local mutation retains a unique request identity and its event position.
+Preparation records the complete exact native invocation; completion records its
+receipt. These metadata transitions are immutable once assigned. A driver must
+flush preparation before dispatching, and must recover with the same invocation.
+The journal itself executes no command and owns no scheduler or retry policy.
+
+`modelIntents` drives local `model/selection` operations through the native Session
+command contract. It prepares one invocation from the advertised command and
+revision, flushes that invocation before execution, and retains the actual receipt
+before a publication can succeed. A lost reply is recovered by replaying the same
+invocation; no new request ID or revision is substituted. A local selection made
+later supersedes retries of older selections. Already dispatched work settles
+before the later selection executes. The latest unresolved choice prevents the
+driver's dependent submission from proceeding under an older choice.
+
+An attempt failure is retained separately from a successful receipt. The current
+native transport does not distinguish a rejected command from an unknown outcome,
+so this driver reports an unconfirmed selection, not a definitive rejection. An
+explicit retry can resolve the same operation. A later selection can supersede it.
+Original accepted events are never erased. A stored failure is bounded diagnostic
+text, not an instruction or an execution receipt.
+
+Native model controls correlate only by the complete prepared invocation. A
+matching value alone is insufficient. Draft publication folds several commands
+into a baseline and carries no individual operation correlation; that baseline
+remains its own observed event. A draft receipt proves process-local acceptance,
+not persistence of the native draft after a Host restart.
+
+Loading the model driver verifies retained invocations against their accepted
+choices and receipts against the native command digest and successor revision.
+An observed exact control can confirm an uncertain outcome without another
+dispatch. Retained diagnostics do not negate a later successful receipt.
+
+Runtime integration preserves model order across interleaving external
+choices: aliasing an earlier local event is insufficient if a different native
+choice was observed after it and the local command subsequently takes effect.
+The owner publishes an explicit reconciliation event in that case. If a newer
+locally accepted choice is pending, an older acknowledgement aliases its own
+event and leaves that newer choice pending. The original Side Chat model fold
+consumes these ordinary model-selection events.
+
+The shared workbench owner stages native observation against a private branch.
+Fact mappings, model state, inbox state and the native source cursor advance only
+after the entire batch is projected successfully. Each caller supplies its own
+authorized read function and cancellation signal; a retained projector does not
+retain a browser request. Source positions remain separate from application
+positions, including assistant-start and settlement cursors.
+
+Snapshots contain the Session header, inherited count, events, source map and
+mutation records in one versioned JSON document. The supplied persistence writer
+must atomically replace that document. Flushes serialize snapshots in acceptance
+order; equal pending flushes join. A failed write leaves accepted memory intact
+and a later flush may retry. Loading validates the complete document through the
+selected DSH event codec and reference rules before exposing it. The existing
+Session event budget applies, and a persisted document is bounded at 128 MiB.
+
+The application profile stores these snapshots in its private selection state,
+using the original DSH atomic writer. Native-only read mirrors need no durable
+application file; once a local event exists, its source map and later observations
+are flushed as well. The Host retires its application process before starting a
+replacement. A configured application profile owns one writer. Live readers and
+Agents retain their shared owner; inactive owners may be collected and reopened
+from disk. Unchanged native cuts reuse the retained projector. New cuts project
+only their source delta. Whole-document snapshot encoding remains bounded by the
+Session budget; paged history and incremental persistence remain separate work.
