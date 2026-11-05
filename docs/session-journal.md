@@ -10,6 +10,10 @@ Agents, workbench history and cold persistence. Native Kernel owns execution.
 The attached Agent's model-selection append and the ordinary workbench model
 selector both use this log and its native command driver.
 
+DSH hook handlers append their log-only `hook/invoked` and `hook/result`
+records to the same Session. Their turn, point and handler ID survive cold
+replay. Neither record changes the model-visible conversation.
+
 The journal owns one dense immutable event sequence. Local acceptance is
 synchronous and returns the exact stored event; persistence is asynchronous.
 When a plugin creates a seeded child, the native fork identifies the stable

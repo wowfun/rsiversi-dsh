@@ -41,6 +41,20 @@ test('log-only Session events survive cold reload without allocating native muta
   assert.throws(()=>restore(JSON.stringify(corrupt)),/unowned event/);
 });
 
+test('log-only hook invocation and result stay in their turn across cold replay', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t);
+  const start={seq:0,time:1,type:'turn/start',data:{turn:1}};
+  journal.merge([start],new Map(),0);
+  const invoked={turn:1,point:'Stop',dialect:'claude-code',handlerId:'stop-1'};
+  const result={turn:1,point:'Stop',handlerId:'stop-1',decision:'deny',durationMs:3};
+  journal.append('hook/invoked',invoked);
+  journal.append('hook/result',result);
+  assert.throws(()=>journal.append('hook/result',result,{surfaceOp:'append'}),/Log-only/);
+  const cold=new SessionProjectionJournal(ctx,api,{header},{document:journal.encode()});
+  assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
+  assert.deepEqual(cold.session.surface.nodes,[]);
+});
+
 test('constructor annotations keep the original DSH inherited cut through deltas and cold replay', {skip:!root},async t=>{
   const {ctx,api,load}=await fixture(t);
   const {foldSubagentDescriptor,snapshotSubagentDescriptor}=await load('dsh-subagent');

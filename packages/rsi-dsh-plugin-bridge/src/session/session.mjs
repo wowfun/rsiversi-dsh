@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
 
-const journalEvents = new Set(['session/title', 'approval/asked', 'approval/decided', 'approval/policy', 'command/run', 'command/done']);
+const journalEvents = new Set(['session/title', 'approval/asked', 'approval/decided', 'approval/policy',
+  'command/run', 'command/done', 'hook/invoked', 'hook/result']);
 export const isJournalEvent = type => journalEvents.has(type);
 const allowed = new Set([...journalEvents, 'todo/write', 'plan/mode', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
