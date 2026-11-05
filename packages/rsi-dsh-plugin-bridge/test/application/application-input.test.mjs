@@ -53,11 +53,17 @@ test('stopping awaits listeners on the captured Agent and propagates failures', 
     await Promise.resolve();seen.push('first');
   });
   f.world.ctx.on('agent/turn-stopping',()=>{seen.push('second');});
+  await assert.rejects(f.post('callback-outcome',{view,callback:'stopping'}),/outcome unavailable/i);
   assert.equal(await f.post('stopping',{view}),null);
+  assert.equal(await f.post('callback-outcome',{view,callback:'stopping'}),null);
   assert.deepEqual(seen,['first','second']);
   const second=await f.capture();
   f.world.ctx.on('agent/turn-stopping',()=>{throw Error('stop hook failed');});
   await assert.rejects(f.post('stopping',{view:second.view}),/stop hook failed/);
+  await assert.rejects(f.post('callback-outcome',{view:second.view,callback:'stopping'}),/stop hook failed/);
+  assert.deepEqual(seen,['first','second','first','second']);
+  await f.post('release',{view});
+  await assert.rejects(f.post('callback-outcome',{view,callback:'stopping'}),/outcome unavailable/i);
 });
 
 async function nativeCall(f,captured,command,callId=randomUUID()){
@@ -229,6 +235,7 @@ test('same captured Fiber prepares input once with its original selection and as
   const capture = await f.capture(); assert.deepEqual(capture.tools, []);
   const request = { view: capture.view, session: f.agent.id, input: f.input };
   const [first, second] = await Promise.all([f.post('prepare', request), f.post('prepare', request)]);
+  assert.deepEqual(await f.post('callback-outcome',{view:capture.view,callback:'prepare'}),first);
   assert.deepEqual(second, first); assert.equal(hooks, 1); assert.equal(assemblies, 1);
   assert.deepEqual(first.messages.slice(0, 2).map(row => [row.kind, row.claim.fact_seq]), [['claimed', 5], ['replacement', 4]]);
   assert.deepEqual(first.messages[1].message.content, []);

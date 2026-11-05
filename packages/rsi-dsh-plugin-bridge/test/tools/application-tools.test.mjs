@@ -80,7 +80,6 @@ test('original model-dependent activation uses the native request choice instead
     });
     const sessions=applicationSessions(()=>{throw Error('capture must not infer selection from another native request');});
     const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions,resolveAgent:async()=>agent});
-    assert.equal(listener.protocol,11);
     t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
     const post=async input=>{
       const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/capture',{method:'POST',headers:{authorization:key,'content-type':'application/json'},

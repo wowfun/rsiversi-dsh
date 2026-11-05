@@ -14,6 +14,10 @@ The market dispatches `agent/turn-stopping` serially on the producing Agent
 after its Step has settled and before its Turn ends. Listeners read the
 settled Session and can steer through the normal inbox. The reply waits for
 those publications so the native Executor can admit them in the same Turn.
+While the producing view is retained, a read-only outcome request can observe
+the existing preparation or stopping promise, including a plugin rejection.
+Releasing the view ends that recovery window. Tool body receipts have their
+own durable lifetime.
 
 Verbatim file prompts use the original `fileUploads` receipts and binding guard.
 The bridge resolves receipts against the uploading Agent's exact Session,

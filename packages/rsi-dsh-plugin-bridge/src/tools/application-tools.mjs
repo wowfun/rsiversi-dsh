@@ -109,6 +109,12 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       case '/v1/capture':return capture(input,signal);
       case '/v1/prepare':return prepare(input,signal);
       case '/v1/stopping':return stopping(input,signal);
+      case '/v1/callback-outcome':{
+        const row=views.get(input.view);
+        if(input.callback==='prepare'&&row?.preparation)return row.preparation;
+        if(input.callback==='stopping'&&row?.stopping)return row.stopping;
+        throw Error('Callback outcome unavailable for this view');
+      }
       case '/v1/start':return ledger.start(input,stop=>run(input,stop));
       case '/v1/outcome':return ledger.outcome(input);
       case '/v1/cancel':return ledger.cancel(input);
@@ -132,7 +138,8 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       const value=await dispatch(req.url,JSON.parse(Buffer.concat(chunks).toString()),abort.signal);
       if(res.destroyed)return;
       const json=JSON.stringify(value);
-      if(Buffer.byteLength(json)>(req.url==='/v1/prepare'?36*1024*1024:maxBytes))throw Error('Tool response exceeds capacity');
+      const responseLimit=req.url==='/v1/prepare'||req.url==='/v1/callback-outcome'?36*1024*1024:maxBytes;
+      if(Buffer.byteLength(json)>responseLimit)throw Error('Tool response exceeds capacity');
       res.writeHead(200,{'content-type':'application/json'}).end(json);
     }catch(error){
       const cause=error instanceof AggregateError&&!error.message?error.errors[0]:error;
@@ -147,5 +154,5 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     closeNative();server.close();server.closeAllConnections();await ledger.close();
     for(const id of views.keys())release(id);
   },'close application tool source');
-  return {protocol:12,generation,port:server.address().port};
+  return {protocol:13,generation,port:server.address().port};
 }
