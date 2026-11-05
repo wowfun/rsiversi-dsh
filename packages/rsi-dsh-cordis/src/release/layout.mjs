@@ -113,3 +113,17 @@ export function splitPayloads(packages) {
   if(current.length) shards.push(current);
   return shards;
 }
+
+/** A separately launched Node runner uses ordinary on-disk npm resolution. */
+export function runtimePayloads(packages) {
+  const byLocation=new Map(packages.map(pkg=>[pkg.location,pkg]));
+  const runners=new Set(packages.filter(pkg=>pkg.location.endsWith('/@deepseek-ai/dsh-subprocess-local') ||
+    pkg.location.endsWith('/@deepseek-ai/dsh-sandbox-windows-acl')));
+  // Set iteration visits newly added packages and terminates on shared or cyclic edges.
+  for(const pkg of runners)
+    for(const location of Object.values(pkg.dependencies))runners.add(byLocation.get(location));
+  const shards=splitPayloads([...runners,...packages.filter(pkg=>!runners.has(pkg))]);
+  if(runners.size && shards[0].length<runners.size)
+    throw new Error('The DSH subprocess runners and their dependencies exceed one runtime payload');
+  return shards;
+}

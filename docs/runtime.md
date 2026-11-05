@@ -113,6 +113,17 @@ rows, groups and reconciliation. Failed activation releases the root Fiber and p
 the original diagnostic. A registry install and a profile enable are distinct
 operations; the market's request specifies which to perform.
 
+The market workbench mounts the release's local subprocess service, sandbox,
+sandbox policy and platform shell. Installed plugins can use `ctx.shell`
+without registering another model tool. Claude Code and Codex command hooks
+use their own config files, stdin dialects and result decoding. They run in
+the Session cwd and use the DSH deployment policy, as the published hook
+runner supplies a working directory without a per-call sandbox policy.
+The default deployment write root for such calls is the profile's private
+`shell-workspace` directory. Set the original `sandbox-policy` row's
+`workspaceRoot` to the project when hooks need to write there. A provider
+that passes a Session to the policy service gets its Session workspace.
+
 Application opening uses protocol 5. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
@@ -621,6 +632,11 @@ profile, preserving downloaded data. Each build still resolves into an empty
 staging tree. The importer
 declares that toolchain as a strong dependency and resolves the application
 layout and runtime shards from its own lease.
+
+The release packer keeps DSH's managed subprocess runner and Windows ACL
+runner with their transitive installed dependencies in one runtime payload.
+Their child Node processes resolve packages directly from the npm tree on
+disk. The application process's resolver only serves its own process.
 Registry metadata and npm staging use the Host's HTTP(S) proxy and bypass
 settings. The generated application profile and npm subprocess omit proxy
 URLs with user information and keep their private package configuration.

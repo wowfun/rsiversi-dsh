@@ -1,9 +1,10 @@
-import {readFile} from 'node:fs/promises';
+import {mkdir,readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 const hostServices=new Set(['dsh-host-plugin-inventory','dsh-commands','dsh-session-title','dsh-storage',
   'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-attachment-local','dsh-session-query-sqlite',
-  'dsh-cordis-host-runner'].map(name=>'@deepseek-ai/'+name));
+  'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy',
+  'dsh-bash-sandbox','dsh-pwsh-sandbox'].map(name=>'@deepseek-ai/'+name));
 
 /** Use the released app's ordered client entries and published dsh.client
  * declarations. A backend requiring a missing service remains pending; third
@@ -24,6 +25,12 @@ export async function workbenchProfile(modules,boot,state) {
     if(name==='@deepseek-ai/dsh-client-connection')rows.push({id:entry.id,name});
     else if(name==='@deepseek-ai/dsh-storage-json')rows.push({...entry,config:{...entry.config,root:join(state,'storages')}});
     else if(name==='@deepseek-ai/dsh-attachment-local')rows.push({...entry,config:{...entry.config,dshHome:state}});
+    else if(name==='@deepseek-ai/dsh-sandbox-policy'){
+      // The application launches in a leased package, outside any user workspace.
+      const workspaceRoot=join(state,'shell-workspace');
+      await mkdir(workspaceRoot,{recursive:true,mode:0o700});
+      rows.push({...entry,config:{...entry.config,workspaceRoot}});
+    }
     else rows.push(entry);
     // The module table observes the original Loader fiber and publishes its
     // client face independently of the backend service becoming available.

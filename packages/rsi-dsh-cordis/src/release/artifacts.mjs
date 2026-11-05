@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {splitPayloads} from './layout.mjs';
+import {runtimePayloads,splitPayloads} from './layout.mjs';
 import {writePayloadFiles} from '../archive/payload.mjs';
 
 export const digest = bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -9,7 +9,8 @@ export const json = value=>Buffer.from(JSON.stringify(value,null,2)+'\n');
 export async function writeShards(destination,groups,version,target,signal) {
   const artifacts=[],locations={};
 for(const [owner,packages] of groups) {
-  for(const [i,part] of splitPayloads(packages).entries()) {
+  const parts=owner==='runtime'?runtimePayloads(packages):splitPayloads(packages);
+  for(const [i,part] of parts.entries()) {
     const name='rsi-dsh-'+(owner==='runtime'?'runtime':digest(owner).slice(0,16))+'-'+i;
     const dir=join(destination,name); await mkdir(dir);
     const data=await writePayloadFiles(part.flatMap(pkg=>pkg.files),join(dir,'payload.rsi'),signal);

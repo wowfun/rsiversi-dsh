@@ -5,13 +5,29 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
-import {packageLocation, splitPayloads} from '../../src/release/layout.mjs';
+import {packageLocation, runtimePayloads, splitPayloads} from '../../src/release/layout.mjs';
 import {installReleaseResolver} from '../../src/release/resolver.mjs';
 
 test('two large independent plugins partition at a package boundary',()=>{
   const group = n=>({location:'node_modules/pkg'+n,files:Array.from({length:9000},(_,i)=>({path:'node_modules/pkg'+n+'/'+i,bytes:1}))});
   assert.deepEqual(splitPayloads([group(1),group(2)]).map(part=>part.length),[1,1]);
   assert.throws(()=>packageLocation('node_modules/pkg/../../secrets'));
+});
+
+test('child runners keep transitive npm dependencies in their own physical payload',()=>{
+  const pkg=(name,bytes,dependencies={})=>({location:'node_modules/'+name,dependencies,
+    files:[{path:'node_modules/'+name+'/index.js',bytes}]});
+  const helper=pkg('helper',100),library=pkg('library',100,{helper:helper.location});
+  const runner=pkg('@deepseek-ai/dsh-subprocess-local',100,{library:library.location});
+  const acl=pkg('host/node_modules/@deepseek-ai/dsh-sandbox-windows-acl',100,{helper:helper.location});
+  const large=pkg('independent',4*1024**3-200);
+  const packages=[runner,large,acl,library,helper];
+  assert.ok(!splitPayloads(packages)[0].includes(helper));
+  const [first,second]=runtimePayloads(packages);
+  assert.deepEqual(new Set(first),new Set([runner,library,helper,acl]));
+  assert.deepEqual(second,[large]);
+  runner.dependencies.large=large.location;
+  assert.throws(()=>runtimePayloads(packages),/exceed one runtime payload/);
 });
 
 test('installation bundle lookup keeps the runtime dependency across a market shadow',t=>{
