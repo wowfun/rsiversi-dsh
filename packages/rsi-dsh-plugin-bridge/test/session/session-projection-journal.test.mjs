@@ -30,6 +30,10 @@ test('log-only Session events survive cold reload without allocating native muta
   journal.append('session/title',title);
   journal.append('command/run',{commandId:'web-export',name:'export',source:{kind:'user'}});
   journal.append('command/done',{commandId:'web-export',kind:'success'});
+  const job={jobId:'bash-first',owner:header.id,kind:'bash',label:'sleep 1',startedAt:1,
+    toolCall:{callId:'shell-call',rootCallId:'shell-call'}};
+  journal.append('job/registered',job);
+  journal.append('job/settled',{...job,finishedAt:2,status:'completed',cause:'producer',producerReported:true});
   assert.throws(()=>journal.append('model/selection',selection),/owning native command/);
   assert.throws(()=>journal.append('approval/decided',{id:'one',outcome:'allowed-once'},{surfaceOp:'append'}),/Log-only/);
   const restore=document=>new SessionProjectionJournal(ctx,api,{header},{document});

@@ -14,6 +14,12 @@ DSH hook handlers append their log-only `hook/invoked` and `hook/result`
 records to the same Session. Their turn, point and handler ID survive cold
 replay. Neither record changes the model-visible conversation.
 
+The DSH job registry appends `job/registered` and `job/settled` to the
+owning Agent's Session. These log-only records preserve the original job ID,
+tool-call identity, timing and outcome across cold reads. The live registry
+owns the process and its output cursor. `dsh-tool-jobs` delivers an uncollected
+completion to the Agent through its inbox.
+
 The journal owns one dense immutable event sequence. Local acceptance is
 synchronous and returns the exact stored event; persistence is asynchronous.
 When a plugin creates a seeded child, the native fork identifies the stable
