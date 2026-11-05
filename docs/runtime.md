@@ -149,8 +149,12 @@ To exercise both compositions, set `RSI_DSH_MARKET_COHORT` to the absolute
 path of a release npm installation for the current OS and run
 `node --test packages/rsi-dsh-plugin-bridge/test/workbench/workbench-shell.test.mjs`
 from the repository root. Run it once with native Windows Node and once
-with Linux Node. The test checks foreground exit status 7, background output
-and cancellation. Two Agents sharing a working directory keep separate
+with Linux Node and a Linux-native release installation. The standard tool runs
+under the release's `workspace-write` policy. The test checks that a relative
+`workdir` can write inside the Session workspace, that a sibling write is
+denied, and that the next command starts in the Session cwd. It also checks
+foreground exit status 7, background output and cancellation. Two Agents
+sharing a working directory keep separate
 persistent shell environments. A new tool selection for the same Agent sees
 its existing environment.
 

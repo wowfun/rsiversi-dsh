@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {mkdtemp,rm,stat,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,rm,stat,writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
-import {tmpdir} from 'node:os';
+import {homedir} from 'node:os';
 import {dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {pathToFileURL} from 'node:url';
@@ -14,7 +14,9 @@ import {shellPreset} from '../../../../fixtures/market/shell-preset.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('the market profile runs the release shell service and platform model tools', {skip:!root},async t=>{
-  const profile=await mkdtemp(join(tmpdir(),'rsi-hook-shell-'));
+  // bwrap gives the child a private /tmp. Keep the fixture on the host filesystem.
+  const profile=await mkdtemp(join(homedir(),'.rsi-dsh-shell-'));
+  const workspace=join(profile,'session');
   let app;
   const agents=[];
   const sessions=applicationSessions(()=>{throw Error('Unexpected Session RPC');});
@@ -27,6 +29,7 @@ test('the market profile runs the release shell service and platform model tools
     await sessions.close();
     await rm(profile,{recursive:true,force:true});
   });
+  await mkdir(join(workspace,'nested dir'),{recursive:true});
   const require=createRequire(join(root,'package.json'));
   const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
@@ -48,10 +51,9 @@ test('the market profile runs the release shell service and platform model tools
   const {default:Executor}=await import(pathToFileURL(modules.entry('@deepseek-ai/'+platformShell)));
   assert.ok(shell instanceof Executor);
   const command=process.platform==='win32'?'[Console]::Write([Console]::In.ReadToEnd())':'cat';
-  const spec=shell.resolve({command,stdin:'hook input',workdir:profile});
+  const spec=shell.resolve({command,stdin:'hook input',workdir:policy.workspaceRoot});
   assert.deepEqual(spec.sandboxPolicy,policy);
-  const unconfined=app.ctx.sandboxPolicy.resolve({mode:'danger-full-access'});
-  const result=await (await shell.execute({...spec,sandboxPolicy:unconfined})).result();
+  const result=await (await shell.execute(spec)).result();
   assert.equal(result.exitCode,0);
   assert.equal(result.stdout.text,'hook input');
 
@@ -60,7 +62,7 @@ test('the market profile runs the release shell service and platform model tools
   const load=name=>import(pathToFileURL(modules.entry('@deepseek-ai/'+name)));
   const {createScope}=await load('dsh-scope');
   function enterAgent(id){
-    const header={version:4,id,createdAt:0,cwd:profile,isSeeded:false};
+    const header={version:4,id,createdAt:0,cwd:workspace,isSeeded:false};
     const agent={id,session:Session.create(id,[],header),inbox:{nextStep:[]}};
     const world=createScope(app.ctx,agent);
     agent.ctx=world.ctx;
@@ -70,28 +72,39 @@ test('the market profile runs the release shell service and platform model tools
   const agent=enterAgent('shell-test');
   const tools=await load('dsh-tools');
   const execute=toolPipeline(app.ctx,await load('dsh-tools/pipeline'),tools);
-  // The deterministic fixture lives in OS temp. Live release acceptance
-  // exercises workspace-write in a private Session directory on each OS.
-  const testServices=services.map(row=>row.id==='sandbox-policy'?{...row,config:{...row.config,mode:'danger-full-access'}}:row);
   const token=randomUUID();
-  await writeFile(join(profile,'proof.txt'),token);
+  await writeFile(join(workspace,'proof.txt'),token);
   const select=agent=>app.ctx.tools.resolve({agent,modelSelection:{provider:'test',model:'test'},signal:t.signal});
   const invoke=(agent,toolSet,name,args)=>sessions.withToolAgent(agent,()=>execute({agent,name,callId:randomUUID(),
     toolSet,arguments:args,signal:t.signal}));
   for(const preset of ['standard','minimal'])await t.test(preset+' executes the original platform model tool',async()=>{
-    await app.reconcile([{insert:[...testServices,...await shellPreset(root,preset)]}]);
+    await app.reconcile([{insert:[...services,...await shellPreset(root,preset)]}]);
     const selection=await select(agent);
     try {
       const controls=preset==='standard'?['job_list','job_output','job_kill']:[];
       assert.deepEqual(new Set(selection.view(agent).keys()),new Set([name,...controls]));
       const run=(name,args)=>invoke(agent,selection,name,args);
       if(preset==='standard'){
+        const allowed=await run(name,{workdir:'nested dir',description:'Write in the Session workspace',
+          command:name==='pwsh'?'Set-Content -NoNewline -LiteralPath allowed.txt -Value $env:DSH_SESSION_ID':
+            'printf %s "$DSH_SESSION_ID" > allowed.txt'});
+        assert.equal(allowed.value?.exitCode,0,JSON.stringify(allowed));
+        assert.equal(allowed.value.cwd,join(workspace,'nested dir'));
+        assert.equal(allowed.value.sandbox.mode,'workspace-write');
+        assert.equal(allowed.value.sandbox.denied,false);
+        assert.equal(await readFile(join(workspace,'nested dir','allowed.txt'),'utf8'),agent.id);
+        const denied=await run(name,{description:'Check the Session workspace boundary',
+          command:name==='pwsh'?'Set-Content -LiteralPath ../outside.txt -Value probe':'printf probe > ../outside.txt'});
+        assert.equal(denied.value?.cwd,workspace,JSON.stringify(denied));
+        assert.notEqual(denied.value.exitCode,0);
+        assert.equal(denied.value.sandbox.denied,true,JSON.stringify(denied));
+        await assert.rejects(stat(join(profile,'outside.txt')),{code:'ENOENT'});
         const command=name==='pwsh'?"[Console]::Write((Get-Content -Raw proof.txt)); [Console]::Error.Write($env:DSH_SESSION_ID); exit 7":
           'cat proof.txt; printf %s "$DSH_SESSION_ID" >&2; exit 7';
         const {value}=await run(name,{command,description:'Shell acceptance'});
         assert.equal(value.kind,'foreground',JSON.stringify(value));
         assert.equal(value.exitCode,7);
-        assert.equal(value.cwd,profile);
+        assert.equal(value.cwd,workspace);
         assert.equal(value.stdout.text,token);
         assert.equal(value.stderr.text,agent.id);
         const background=await run(name,{description:'Background acceptance',run_in_background:true,
