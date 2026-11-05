@@ -666,6 +666,16 @@ directory link at the currently leased package, including when the previous
 link is stale or dangling. A regular file or directory at that location is a
 collision and is preserved.
 
+Bundle activation follows the order in the portable profile. A bundle shipped
+as a dependency of the selected DSH runtime resolves through that runtime's
+leased dependency graph. Enabling it uses the existing installation, even if
+the profile also declares its name. Other bundles resolve through their
+committed market selections. Both sources use DSH's platform and version
+checks, including the profile's exact version exemptions, before loading
+patches from the owning package. An unreadable or incompatible bundle skipped
+at startup is evaluated again on reconciliation, so correcting the profile
+can activate it without restarting the Host.
+
 The application keeps its Store selections in per-profile Host state outside
 the portable DSH profile. Package view changes record the previous selections
 before modifying links or the manifest. Cancellation, failure and interruption

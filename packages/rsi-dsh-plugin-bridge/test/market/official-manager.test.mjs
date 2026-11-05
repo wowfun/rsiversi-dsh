@@ -22,7 +22,9 @@ test('released Discover manager runs its configured package command and can inst
   const document='- id: existing-profile-row\n  name: "@deepseek-ai/dsh-plugin-manager"\n  disabled: true\n';
   await writeFile(join(profile,'cordis.yml'),document);
   const require=createRequire(join(root,'package.json'));
-  const modules={entry:name=>require.resolve(name),directory:name=>join(root,'node_modules',name),add(){}};
+  const shipped='@deepseek-ai/dsh-experimental-cot-translation-bundle';
+  const modules={entry:name=>require.resolve(name),directory:name=>join(root,'node_modules',name),add(){},
+    installationDependency:name=>name===shipped?join(root,'node_modules',name):undefined};
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   let imports=0;
   const roots=rootSet();
@@ -73,7 +75,17 @@ test('released Discover manager runs its configured package command and can inst
   const index='https://example.test/market/index.json';
   await app.ctx.pluginMarket.setIndexes([index]);
   assert.ok((await readFile(join(profile,'cordis.patch.yml'),'utf8')).includes(index));
-  assert.ok(Array.isArray(await app.ctx.pluginManager.listBundles()));
+  const listed=async bundle=>(await app.ctx.pluginManager.listBundles()).find(item=>item.name===bundle);
+  assert.equal((await listed(shipped)).availability,'installation');
+  const manifestPath=join(profile,'package.json'),saved=await readFile(manifestPath),edited=JSON.parse(saved);
+  edited.dsh.profile.bundles.push(shipped);
+  await writeFile(manifestPath,JSON.stringify(edited));
+  assert.equal((await listed(shipped)).enabled,true);
+  assert.deepEqual((await managed.layers()).flat(),boot.loadProfileDirectory('dsh',profile,
+    join(modules.directory('@deepseek-ai/dsh'),'package.json')).layers.find(layer=>layer.packageName===shipped).patches);
+  await writeFile(manifestPath,saved);
+  assert.equal((await listed(shipped)).enabled,false);
+  assert.deepEqual(await managed.layers(),[]);
   const preview=await app.ctx.pluginManager.inspect(spec);
   assert.equal(preview.name,name,JSON.stringify(preview));
   assert.equal(imports,0);
@@ -98,6 +110,7 @@ test('released Discover manager runs its configured package command and can inst
   assert.ok([...app.ctx.loader.entries()].some(entry=>entry.options.id==='better-sidebar' && entry.fiber?.state===app.ctx.fiber.state));
   const removed=await app.ctx.pluginManager.removeBundle(name);
   assert.equal(removed.application,'applied',JSON.stringify(removed));
+  assert.ok(!(await listed(name))?.installed);
   const fresh=await runtime.runPlugin(basename(profile),['add',spec]);
   assert.equal(fresh.exitCode,0,fresh.stderr);
   assert.equal(imports,3);

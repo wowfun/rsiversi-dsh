@@ -1,8 +1,9 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {lstat, mkdir} from 'node:fs/promises';
-import {basename, isAbsolute, join, relative, sep} from 'node:path';
+import {basename, join} from 'node:path';
 import {packageLocation} from '../../../rsi-dsh-cordis/src/release/layout.mjs';
 import {applicationBundle} from '../application/application.mjs';
+import {bundlePatches} from './bundles.mjs';
 import {packageRunners} from './package-runners.mjs';
 import {buildDecisions, linkProfilePackage, publishReleaseAgeDefault, readJson, readSelections, save, unlinkProfilePackage} from './profile-files.mjs';
 
@@ -28,10 +29,10 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
     pinned=next;
   }
   const unavailable=new Map();
-  function reportUnavailable(name,error) {
+  function reportUnavailable(name,error,issues) {
     const diagnostic=name+': '+String(error.message??error).slice(0,500);
-    unavailable.set(name,diagnostic);
-    console.warn('DSH profile:',diagnostic);
+    if(issues.get(name)!==diagnostic) console.warn('DSH profile:',diagnostic);
+    issues.set(name,diagnostic);
   }
   const retiring=new Set();
   function retireBinding(name) {
@@ -106,7 +107,7 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
         unavailable.delete(name);
       } catch(error) {
         if(!restoring) throw error;
-        reportUnavailable(name,error);
+        reportUnavailable(name,error,unavailable);
       }
     }
     await save(path,value);
@@ -211,24 +212,26 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
       throw new Error(failed.join('\n'));
     }
   }
+  const skippedBundles=new Map();
   async function layers(restoring=false) {
     const value=await manifest();
     const patches=[];
-    for (const name of value.dsh?.profile?.bundles ?? []) {
-      if(name===applicationBundle || unavailable.has(name)) continue;
+    const selected=(value.dsh?.profile?.bundles??[]).filter(name=>name!==applicationBundle);
+    for(const name of skippedBundles.keys()) if(!selected.includes(name))skippedBundles.delete(name);
+    if(!selected.length)return patches;
+    const exemptions=boot.readProfileVersionExemptions(profile),runtimeVersion=boot.getDshRuntimeVersion();
+    for (const name of selected) {
       try {
-        if (!Object.hasOwn(installed,name) || !installed[name]) throw new Error('Bundle has no installed RSI selection: '+name);
-        const directory=modules.directory(name);
-        const pkg=await readJson(join(directory,'package.json'));
-        for(const patch of boot.bundlePatchPaths(directory,pkg.dsh.bundle)) {
-          const local=relative(directory,patch);
-          if(!local||local==='..'||local.startsWith('..'+sep)||isAbsolute(local))
-            throw new Error('Bundle patch is outside its package: '+name);
-          patches.push(boot.loadOverlayPatches('rsi-dsh',patch));
-        }
+        const shipped=modules.installationDependency(name);
+        if(!shipped&&unavailable.has(name))continue;
+        const directory=shipped ??
+          (Object.hasOwn(installed,name) && installed[name] ? modules.directory(name) : undefined);
+        if(!directory) throw new Error('Bundle is absent from the DSH installation and market selections: '+name);
+        patches.push(...bundlePatches(boot,directory,exemptions,runtimeVersion));
+        skippedBundles.delete(name);
       } catch(error) {
-        if(!restoring) throw error;
-        reportUnavailable(name,error);
+        if(!restoring&&!skippedBundles.has(name)) throw error;
+        reportUnavailable(name,error,skippedBundles);
       }
     }
     return patches;
@@ -243,7 +246,7 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
         await call('application.release',{digest});
         loaded.delete(digest);
       }
-      const diagnostics=[...unavailable.values(),...(warnings??[])];
+      const diagnostics=[...unavailable.values(),...skippedBundles.values(),...(warnings??[])];
       return diagnostics.length?{ok:true,warnings:diagnostics}:{ok:true};
     }
     catch(error) {return {ok:false,error:String(error.message ?? error)};}

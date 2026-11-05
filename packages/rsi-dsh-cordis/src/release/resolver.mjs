@@ -89,6 +89,10 @@ export function installReleaseResolver(layout, roots, profile) {
     };
   }
   add(layout,roots);
+  const installation=release.get('node_modules/'+layout.runtime);
+  function installationDependency(name) {
+    return release.get(installation?.dependencies[name])?.directory;
+  }
   const host=new Map(rootsByName);
   for(const name of layout.plugins??[]) host.delete(name);
   function destinationFor(owner,name) {
@@ -176,5 +180,5 @@ export function installReleaseResolver(layout, roots, profile) {
     if (!target) throw new Error('Not a profile package: '+name);
     return createRequire(target.parent).resolve(specifier);
   }
-  return {entry,directory,bindingFor,packageAt,setProfileLink,add,close:()=>hook.deregister()};
+  return {entry,directory,installationDependency,bindingFor,packageAt,setProfileLink,add,close:()=>hook.deregister()};
 }

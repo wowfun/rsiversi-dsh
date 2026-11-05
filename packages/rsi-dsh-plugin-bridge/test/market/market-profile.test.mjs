@@ -11,6 +11,34 @@ import {createApplication} from '../../src/application/application.mjs';
 import {rootSet,stage} from '../fixtures/fixture-roots.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('restored bundle layers follow current platform, version exemptions and package boundaries',{skip:!root},async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-bundle-'));
+  t.after(()=>rm(profile,{recursive:true,force:true}));
+  const name='bundled-plugin',directory=join(profile,name);
+  const boot=await import(pathToFileURL(createRequire(join(root,'package.json')).resolve('@deepseek-ai/dsh-app-boot')));
+  const version=boot.getDshRuntimeVersion(),patches=[{insert:[{id:'probe',name:'probe'}]}];
+  await mkdir(directory);
+  await writeFile(join(directory,'ok.yml'),JSON.stringify(patches));
+  const bundle={patch:'ok.yml',platforms:[process.platform==='win32'?'linux':'win32']};
+  const manifest={name,version:'1.0.0',engines:{dsh:'999.0.0'},dsh:{bundle}};
+  const publish=()=>writeFile(join(directory,'package.json'),JSON.stringify(manifest));
+  await publish();
+  await writeFile(join(profile,'package.json'),JSON.stringify({dsh:{profile:{bundles:[name]}}}));
+  const reconciled=[];
+  const market=await createMarketProfile({profile,state:join(profile,'state'),boot,
+    modules:{installationDependency:id=>id===name?directory:undefined},call:async()=>({}),
+    reconcile:layers=>{reconciled.push(layers.flat());}});
+  assert.deepEqual(await market.layers(true),[]);
+  assert.match((await market.activate()).warnings.join(' '),/platform/i);
+  bundle.platforms=[process.platform];await publish();
+  assert.match((await market.activate()).warnings.join(' '),/999\.0\.0/);
+  await writeFile(join(profile,'compatibility.json'),JSON.stringify({[name+'@1.0.0']:[version]}));
+  assert.deepEqual(await market.activate(),{ok:true});assert.deepEqual(reconciled.at(-1),patches);
+  bundle.patch='../outside.yml';await publish();
+  assert.match((await market.activate()).error,/outside its package/);
+  assert.equal(reconciled.length,3);
+});
+
 test('managed profiles advertise the installer release age and preserve operator policy',{skip:!root},async t=>{
   const base=await mkdtemp(join(tmpdir(),'rsi-market-age-'));t.after(()=>rm(base,{recursive:true,force:true}));
   const require=createRequire(join(root,'package.json'));
@@ -127,7 +155,7 @@ test('published dshmarket managed runtime installs once, reconciles, restores an
     const state=join(held,'state'),journal=join(state,'selections.json'),roots=rootSet();
     const require=createRequire(join(root,'package.json'));
     const boot=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')));
-    const options={profile,state,modules:{add(){},directory:()=>entry},boot:{bundlePatchPaths:boot.bundlePatchPaths,loadOverlayPatches:(_,path)=>path},
+    const options={profile,state,modules:{add(){},directory:()=>entry,installationDependency(){}},boot:{...boot,loadOverlayPatches:(_,path)=>path},
       async call(method,request) {
         if(method==='application.roots') return roots(request);
         if (method==='application.import') {imports++;assert.deepEqual(request.specifications,[spec]);

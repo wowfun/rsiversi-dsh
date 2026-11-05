@@ -14,6 +14,21 @@ test('two large independent plugins partition at a package boundary',()=>{
   assert.throws(()=>packageLocation('node_modules/pkg/../../secrets'));
 });
 
+test('installation bundle lookup keeps the runtime dependency across a market shadow',t=>{
+  const runtime='node_modules/runtime',bundle='node_modules/bundle';
+  const nested=runtime+'/'+bundle;
+  const roots=new Map([['release',tmpdir()],['market',join(tmpdir(),'market')]]);
+  const resolver=installReleaseResolver({format:1,runtime:'runtime',locations:{
+    [runtime]:{package:'release',dependencies:{bundle:nested}},
+    [nested]:{package:'release',dependencies:{}},
+  }},roots);
+  t.after(()=>resolver.close());
+  resolver.add({format:1,locations:{[bundle]:{package:'market',dependencies:{}}}},roots,['bundle']);
+  assert.equal(resolver.directory('bundle'),join(roots.get('market'),bundle));
+  assert.equal(resolver.installationDependency('bundle'),join(roots.get('release'),nested));
+  assert.equal(resolver.installationDependency('runtime'),undefined);
+});
+
 test('a repacked host owns a captured peer and its internal dependencies even after hoisting',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'rsi-repacked-peer-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const shared='node_modules/shared',ext='node_modules/ext',oldShared=ext+'/node_modules/shared';
