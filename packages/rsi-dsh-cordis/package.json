@@ -1,0 +1,10 @@
+{
+  "name": "rsi-dsh-cordis",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "engines": {"node": ">=24.9.0"},
+  "exports": {"./transport": "./src/runtime/transport.mjs", "./node": "./src/runtime/node.mjs", "./cohort": "./src/runtime/cohort.mjs", "./browser": "./src/runtime/browser.mjs", "./payload": "./src/archive/payload.mjs", "./import": "./src/registry/import.mjs", "./host": "./src/host.mjs"},
+  "files": ["src"],
+  "dependencies": {"npm": "11.17.0"}
+}

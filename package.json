@@ -1,0 +1,12 @@
+{
+  "name": "rsiversi-dsh",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "engines": {"node": ">=24.9.0"},
+  "devDependencies": {"esbuild": "0.28.1"},
+  "scripts": {
+    "test": "node --test packages/*/test/**/*.test.mjs",
+    "build:upstream": "node scripts/build-upstream.mjs"
+  }
+}
