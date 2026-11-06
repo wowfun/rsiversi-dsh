@@ -5,8 +5,43 @@ import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {followAssistant} from '../../src/workbench/assistant.mjs';
+import {workbenchSource} from '../../src/workbench/source.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+
+test('native controls split observation without splitting the captured Fact page',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const baseline={model:{deployment:'native',model:'configured'},reasoning_effort:'high'};
+  const facts=[
+    {type:'message_turn_accepted',turn_id:'one'},
+    {type:'step_started',turn_id:'one',step_id:'step'},
+    {type:'input_message_claimed',turn_id:'one',step_id:'step',source:{type:'human',message_id:'input'},content:[{type:'text',text:'original'}]},
+    {type:'step_inputs_prepared',turn_id:'one',step_id:'step',decision:{kind:'enter',messages:[{kind:'claimed',claim:{fact_seq:3,ordinal:0}}]}},
+    {type:'step_ended',turn_id:'one',step_id:'step'},
+    {type:'turn_terminal',turn_id:'one',outcome:{status:'completed'}},
+  ].map((fact,i)=>({...fact,seq:i+1,timestamp_ms:100+i}));
+  const controls=[1,3,5].map((after_fact_seq,i)=>({kind:'model',seq:i+1,after_fact_seq,time:i+1,
+    selection:{...baseline,reasoning_effort:i===1?'low':'high'}}));
+  const requests=[];
+  const call=async op=>{
+    if(op.type==='controls')return {through:op.after_seq+1,events:[controls[op.after_seq]]};
+    assert.equal(op.type,'fact');requests.push([op.after_seq,op.through_seq]);
+    const json=JSON.stringify(facts.slice(op.after_seq,op.through_seq)),bytes=Buffer.byteLength(json);
+    return {through_seq:op.through_seq,offset:0,next_offset:bytes,total_bytes:bytes,json};
+  };
+  const source=await workbenchSource({ctx,api,llm:await load('dsh-llm'),header:{version:4,id:'one',createdAt:1,isSeeded:false},
+    meta:{model_baseline:baseline,selection_cursor:{kind:'durable',fact_seq:6,control_seq:3}},call});
+  const staged=await source.stage(call,undefined,6,3);
+  assert.equal(source.current.session.seq,0,'staging must not expose even a fully decoded page');
+  assert.deepEqual(staged.value.session.snapshotEvents().map(event=>event.type),[
+    'turn/start','model/selection','model/selection','step/start','system/message','user/message','step/end','model/selection','turn/end',
+  ]);
+  assert.deepEqual(requests,[[0,6]],'all anchors share the same bounded captured page');
+  staged.commit();assert.equal(source.current.mapping.factCursor,6);assert.equal(source.current.controlThrough,3);
+});
 
 test('passive projection readiness performs no native read even before the Session exists',async()=>{
   const history=workbenchHistory({read(){throw Error('Native history read');}});

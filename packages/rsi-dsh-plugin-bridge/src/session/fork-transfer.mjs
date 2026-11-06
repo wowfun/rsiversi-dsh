@@ -1,5 +1,6 @@
 import { SessionFacade } from './session.mjs';
-import { restoreMapping, readHistory, observeFact } from '../history/history.mjs';
+import { restoreMapping, observeFact } from '../history/history.mjs';
+import { readHistory } from '../history/pages.mjs';
 import { forkSnapshot, validateLineage } from './fork.mjs';
 
 const bytes = value => Buffer.byteLength(JSON.stringify(value));

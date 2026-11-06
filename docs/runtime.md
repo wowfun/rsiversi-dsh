@@ -880,6 +880,13 @@ readiness from fetching the baseline.
 Refreshing an Agent's model options reads its Session owner's selection
 directly. A transcript or an explicit projection request reads the full view.
 Unpublished drafts still have no durable control history.
+One native projection update reads Facts toward its complete captured horizon,
+retaining one forward page while merging controls at their Fact anchors. An
+anchor limits observation, not the page fetch. Later anchors consume the retained
+page before requesting another one; they cannot expose later Facts early. The
+cursor belongs to that update and is discarded after success, cancellation or
+failure. References outside that page still use bounded point reads. There is no
+cross-request page cache or additional durable corpus.
 The application supplies shared Session journals and read-only Session persistence.
 `stat` and `list` observe the same immutable headers and opaque revisions from
 native metadata and the application journal. Listing reads authorized durable

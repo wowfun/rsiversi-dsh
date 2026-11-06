@@ -5,7 +5,7 @@ import {inboxObservationProjection} from '../session/inbox/inbox-observations.mj
 import {inputIntents} from '../session/inbox/input-intents.mjs';
 import {workbenchSource} from './source.mjs';
 import {workbenchModel} from './model.mjs';
-import {readNativeMessage} from '../history/history.mjs';
+import {readNativeMessage} from '../history/pages.mjs';
 import {readJournalDocument} from '../session/journal-document.mjs';
 
 const cut=meta=>meta.selection_cursor??{kind:'durable',fact_seq:meta.through,control_seq:0};

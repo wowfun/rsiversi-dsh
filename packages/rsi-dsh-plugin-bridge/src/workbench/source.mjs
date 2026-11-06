@@ -1,6 +1,6 @@
 import {SessionFacade} from '../session/session.mjs';
 import {restoreMapping} from '../history/history.mjs';
-import {inheritedSession,projectFacts} from './seed.mjs';
+import {inheritedSession,factProjector} from './seed.mjs';
 import {workbenchModel} from './model.mjs';
 import {workbenchInbox} from './inbox.mjs';
 import {cloneMapping} from '../history/input-history.mjs';
@@ -21,7 +21,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
         spawning:new Set(original.spawning),spawned:new Map(original.spawned),
         settled:new Map(original.settled),origins:new Map()};
       const fetch=(_method,{after_seq,through_seq,offset})=>call({type:'fact',after_seq,through_seq,offset});
-      const project=until=>projectFacts(next.session,next.mapping,fetch,until,signal,llm,fact=>{
+      const project=factProjector(next.session,next.mapping,fetch,through,signal,llm,fact=>{
         if(fact.type==='model_started'&&next.mapping.model?.effectId===fact.effect_id)
           next.mapping.model.startedAfterSeq=next.session.seq-1;
         if(fact.type==='model_attempt_settled') {

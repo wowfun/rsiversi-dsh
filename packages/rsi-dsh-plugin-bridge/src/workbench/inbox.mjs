@@ -1,5 +1,5 @@
 import {contentBlocks,nativeMessageSource,nativeMessageId} from '../history/conversation-history.mjs';
-import {readNativeMessage} from '../history/history.mjs';
+import {readNativeMessage} from '../history/pages.mjs';
 
 /** Fold committed controls; the native queue remains the only execution owner. */
 export function workbenchInbox(seed) {

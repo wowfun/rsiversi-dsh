@@ -8,7 +8,8 @@ import { resultMetadata, toolPipeline } from '../../tools/tool-pipeline.mjs';
 import { toolContextOutput } from '../../history/step-messages.mjs';
 import { prepareRows, runtimeContextProjection } from '../request-input.mjs';
 import { claimedRows } from '../../history/input-history.mjs';
-import { readHistory, observeFact } from '../../history/history.mjs';
+import { observeFact } from '../../history/history.mjs';
+import { readHistory } from '../../history/pages.mjs';
 
 /** Original Cordis + original Todo/Plan, with RSI-owned receipt and Session seams. */
 export async function createBridge({ cohortRoot, cohortLoader, configuration, request, ask = async () => { throw new Error('question channel unavailable'); }, section = 'Plan the work before making changes.' }) {

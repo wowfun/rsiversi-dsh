@@ -1,11 +1,17 @@
 import {randomUUID} from 'node:crypto';
 import {forkSnapshot} from '../session/fork.mjs';
-import {observeFact,readHistory,restoreMapping} from '../history/history.mjs';
+import {observeFact,restoreMapping} from '../history/history.mjs';
+import {historyReader,readHistory} from '../history/pages.mjs';
 import {SessionFacade} from '../session/session.mjs';
 
 export async function projectFacts(session,mapping,fetch,through,signal,llm,observed){
+  return factProjector(session,mapping,fetch,through,signal,llm,observed)(through);
+}
+
+export function factProjector(session,mapping,fetch,horizon,signal,llm,observed){
   const identity={session_id:session.id};
-  let page=[];
+  const advance=historyReader(fetch,identity,mapping.factCursor,horizon,signal);
+  let page;
   const readFact=async seq=>{
     const retained=page[seq-page[0]?.seq];
     if(retained?.seq===seq)return retained;
@@ -14,14 +20,18 @@ export async function projectFacts(session,mapping,fetch,through,signal,llm,obse
     if(fact?.seq!==seq)throw new Error('Referenced Fact is unavailable');
     return fact;
   };
-  session.begin();
-  try{
-    mapping.factCursor=await readHistory(fetch,identity,mapping.factCursor,through,async (fact,facts)=>{
-      page=facts;
-      await observeFact(session,mapping,fact,readFact,llm);
-      observed?.(fact);
-    },signal);
-  }finally{session.end();}
+  return async through=>{
+    session.begin();
+    try{
+      mapping.factCursor=await advance(through,async (fact,facts)=>{
+        page=facts;
+        try {
+          await observeFact(session,mapping,fact,readFact,llm);
+          observed?.(fact);
+        } finally {page=undefined;}
+      });
+    }finally{session.end();}
+  };
 }
 
 export async function inheritedSession(ctx,api,llm,call,release,header,signal){

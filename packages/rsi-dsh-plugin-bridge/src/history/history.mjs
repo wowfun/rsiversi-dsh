@@ -35,43 +35,6 @@ export function restoreMapping(value) {
   return structuredClone(value);
 }
 
-/** Fragments belong to one captured, claim-visible horizon, never the mutable Store tail. */
-export async function readHistory(request, identity, after, horizon, consume, signal) {
-  if (!integer(after) || !integer(horizon) || after > horizon) throw new Error('invalid history horizon');
-  let cursor = after;
-  while (cursor < horizon) {
-    const { through, value: facts } = await readPage(request, 'agent.history.read', { ...identity, through_seq: horizon }, cursor, horizon, signal);
-    if (!Array.isArray(facts) || facts.length > 512 || facts.some((fact, i) => !integer(fact.seq) || fact.seq <= (i ? facts[i - 1].seq : cursor) || fact.seq > through)) {
-      throw new Error('invalid captured Fact page');
-    }
-    for (const fact of facts) await consume(fact, facts);
-    cursor = through;
-  }
-  return cursor;
-}
-
-async function readPage(request, method, identity, after, horizon, signal) {
-  let offset = 0, through, total; const fragments = [];
-  do {
-    signal?.throwIfAborted();
-    const page = await request(method, { ...identity, after_seq: after, offset }, signal);
-    if (!integer(page.through_seq) || page.through_seq <= after || page.through_seq > horizon
-        || !integer(page.total_bytes) || page.total_bytes < 2 || page.total_bytes > 36 * 1024 * 1024 + 2
-        || page.offset !== offset || !integer(page.next_offset) || page.next_offset <= offset
-        || page.next_offset > page.total_bytes || typeof page.json !== 'string'
-        || page.next_offset - offset > 128 * 1024 || Buffer.byteLength(page.json) !== page.next_offset - offset
-        || through !== undefined && (through !== page.through_seq || total !== page.total_bytes)) throw new Error('invalid history fragment');
-    through = page.through_seq; total = page.total_bytes; offset = page.next_offset; fragments.push(page.json);
-  } while (offset < total);
-  return { through, value: JSON.parse(fragments.join('')) };
-}
-export async function readNativeMessage(call, messageId, seq, signal) {
-  const {through,value}=await readPage((_method,{offset})=>call({type:'message',message_id:messageId,
-    accepted_control_seq:seq,offset}), 'message', {}, seq-1, seq, signal);
-  if(through!==seq||value.message_id!==messageId)throw new Error('Native inbox acceptance identity mismatch');
-  return value;
-}
-
 function closeStep(session, mapping, time) {
   if (mapping.pendingMessages.length) throw new Error('Step closed before its committed messages');
   if (mapping.stepOpen) session.appendObserved('step/end', { turn: mapping.turn, step: mapping.step }, time);
