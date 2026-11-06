@@ -23,6 +23,16 @@ sample count and corpus dimensions; a small fixture does not establish behavior
 for a larger corpus. Do not count provider generation, package verification, or
 browser startup as search latency.
 
+Native transport measurements use RSI's Rust start/observe client, including
+typed response decoding and validation. Report a Node HTTP controller's timing
+separately: its request dispatch scheduling can add latency before the application
+receives a request. Keep benchmark control I/O outside the native client's
+interval, record both intervals, and retain auxiliary HTTP results with their
+actual scope. Browser startup requests must finish or the browser must close
+before backend sampling; verify the original workbench separately afterwards.
+The native client probe does not by itself measure Kernel admission or later
+Fact publication, which still require live Kernel and recovery acceptance.
+
 A benchmark of an in-memory native transport fixture only measures the adapter.
 It cannot establish native Host or browser performance. Full acceptance also
 requires real native Session storage, the application tool transport, and visual
