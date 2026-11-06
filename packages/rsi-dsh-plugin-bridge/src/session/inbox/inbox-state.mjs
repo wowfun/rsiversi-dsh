@@ -1,24 +1,17 @@
 import {isDeepStrictEqual} from 'node:util';
-import {invocationDigest} from '../command-receipts.mjs';
-import {messageContent,submissionContent} from '../../agent/file-input.mjs';
 
 export const isDirectSubmission=source=>source?.type==='human'||source?.type==='application';
 
-export const submissionInput=(id,message,delivery)=>({kind:'submission',message_id:id,delivery,
-  content:submissionContent(message.content),attribution:{id:message.id,source:message.source}});
-
-export const contextInputArguments=message=>({content:messageContent(message.content),attribution:{id:message.id,source:message.source}});
-
 export function inputNativeId(operation) {
   const invocation=operation?.invocation;
-  return ['observed-input','submission'].includes(invocation?.kind)?invocation.message_id:
-    invocation?.command?`command-${invocationDigest(invocation)}-0`:undefined;
+  return invocation?.kind==='submission'?operation.id:invocation?.kind==='observed-input'?invocation.message_id:
+    invocation?.kind==='context-input'?`command-${invocation.sha256}-0`:undefined;
 }
 
 /** Bind native acceptances to local operations without using a reusable presentation ID. */
 export function inputIdentities(journal) {
   const observed=new Map(journal.operations().filter(row=>['observed-input','submission'].includes(row.invocation?.kind))
-    .map(row=>[row.invocation.message_id,row])),cache=new Map();
+    .map(row=>[inputNativeId(row),row])),cache=new Map();
   return row=>{
     if(cache.has(row.nativeId))return cache.get(row.nativeId);
     const source=row.source.type==='command'?row.source.source:undefined;
@@ -30,12 +23,10 @@ export function inputIdentities(journal) {
       const provenance=invocation?.kind==='observed-input'
         ?invocation.message_id===row.nativeId&&isDeepStrictEqual(invocation.source,row.source)
         :invocation?.kind==='submission'
-        ?invocation.message_id===row.nativeId&&isDirectSubmission(row.source)&&
-          isDeepStrictEqual(row.source.attribution,invocation.attribution)&&
-          isDeepStrictEqual(invocation,submissionInput(operation.id,row.message,invocation.delivery))
-        :invocation&&source?.command===invocation.command&&source.request_id===invocation.request_id&&source.ordinal===0
-          &&source.invocation_sha256===invocationDigest(invocation)&&row.nativeId===inputNativeId(operation)
-          &&isDeepStrictEqual(invocation.arguments,contextInputArguments(row.message));
+        ?operation.id===row.nativeId&&isDirectSubmission(row.source)&&
+          isDeepStrictEqual(row.source.attribution,{id:message?.id,source:message?.source})
+        :invocation?.kind==='context-input'&&source?.command===invocation.command&&source.request_id===operation.id&&source.ordinal===0
+          &&source.invocation_sha256===invocation.sha256&&row.nativeId===inputNativeId(operation);
       if(!provenance||operation.receipt?.kind==='not-dispatched'||!isDeepStrictEqual(message,row.message)||accepted.data.removedCount||accepted.data.outcome)
         throw Error('Native inbox acceptance disagrees with its prepared application input');
       key='local:'+operation.id;

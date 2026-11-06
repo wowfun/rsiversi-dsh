@@ -45,8 +45,10 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
     if(op.type==='open')return meta();
     if(op.type==='controls')return {through:op.through_seq,events:state.controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)};
     if(op.type==='message') {
-      const json=JSON.stringify(state.messages.get(op.message_id));
-      return {through_seq:op.accepted_control_seq,offset:0,next_offset:Buffer.byteLength(json),total_bytes:Buffer.byteLength(json),json};
+      const bytes=Buffer.from(JSON.stringify(state.messages.get(op.message_id))),offset=op.offset??0;
+      let end=Math.min(offset+128*1024,bytes.length);
+      while(end<bytes.length&&(bytes[end]&0xc0)===0x80)end--;
+      return {through_seq:op.accepted_control_seq,offset,next_offset:end,total_bytes:bytes.length,json:bytes.subarray(offset,end).toString()};
     }
     assert.equal(op.type,'wait');if(op.cursor.control_seq<state.control)return cursor();
     return new Promise((resolve,reject)=>{

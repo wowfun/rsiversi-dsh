@@ -85,7 +85,7 @@ test('a log-only approval with no native mutation receipt persists across owners
   owner.journal.append('approval/decided',{id:'proof',outcome:'rejected'});
   await owner.flush();
   const stored=JSON.parse(await f.options.storage.read('one'));
-  assert.equal(stored.version,2);
+  assert.equal(stored.version,3);
   assert.deepEqual(stored.events.map(row=>row.type),['approval/asked','approval/decided']);
   const before=f.reads;
   const cold=workbenchHistory(f.options);t.after(()=>cold.close());
@@ -106,7 +106,7 @@ test('an existing full journal is rewritten after canonical reconciliation witho
   assert.equal(f.reads-before,1);
   assert.deepEqual(reopened.snapshotEvents(),session.snapshotEvents());
   const stored=JSON.parse(await f.options.storage.read('one'));
-  assert.equal(stored.version,2);assert.deepEqual(stored.events,[]);assert.equal(stored.eventCount,1);
+  assert.equal(stored.version,3);assert.deepEqual(stored.events,[]);assert.equal(stored.eventCount,1);
   const again=workbenchHistory(f.options);t.after(()=>again.close());
   assert.deepEqual((await again.capture('one',await again.metadata('one'))).snapshotEvents(),session.snapshotEvents());
 });

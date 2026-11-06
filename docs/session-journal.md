@@ -176,8 +176,14 @@ rehash unchanged history. Batch validation shares the already validated immutabl
 prefix and publishes only after the whole new batch is accepted.
 
 Each local mutation retains a unique request identity and its event position.
-Preparation records the complete exact native invocation; completion records its
-receipt. These metadata transitions are immutable once assigned. A driver must
+Preparation fixes the exact native invocation; completion records its receipt.
+Input operations reference the already accepted inbox event for content,
+attribution, delivery and message identity. A waking submission records only its
+operation kind. A context-input command retains its command, native revision and
+invocation digest. Its request ID is the operation ID. The wire request is built
+from that immutable event when needed; no second input body is retained in memory
+or in the document. Cold loading verifies the command digest against this request.
+These metadata transitions are immutable once assigned. A driver must
 flush preparation before dispatching, and must recover with the same invocation.
 The journal itself executes no command and owns no scheduler or retry policy.
 
@@ -223,7 +229,7 @@ authorized read function and cancellation signal; a retained projector does not
 retain a browser request. Source positions remain separate from application
 positions, including assistant-start and settlement cursors.
 
-Version 2 snapshots contain the Session header, total and inherited event counts,
+Version 3 snapshots contain the Session header, total and inherited event counts,
 local-owned events at their original positions, the native source map and mutation
 records in one JSON document. Native-only event bodies are reconstructed from the
 captured Store history, including translated inbox splices. They are not copied
@@ -234,9 +240,11 @@ events and fork constructor annotations also remain application-owned.
 Cold loading validates source hashes and rebuilds the same dense application log
 before exposing it. Missing or changed native history is an error, never a reason
 to substitute a cached body. Restoration uses the same native read batch as the
-first observation. Version 1 documents are read once through the existing full-log
-validation and rewritten as version 2 after successful native reconciliation;
-there is no second durable format or body cache maintained alongside version 2.
+first observation. Older documents are validated and normalized once: version 1
+uses its complete log, and version 1/2 input invocations must agree exactly with
+their accepted event before their duplicate body is removed. Successful native
+reconciliation rewrites them as version 3; failed validation cannot replace the
+document. No second durable format or body cache is maintained alongside version 3.
 
 The supplied persistence writer
 must atomically replace that document. Flushes serialize snapshots in acceptance

@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workbenchHistory} from '../../../src/workbench/history.mjs';
 import {invocationDigest} from '../../../src/session/command-receipts.mjs';
+import {contextIntent,contextRequest} from '../../../src/session/inbox/input-invocation.mjs';
 import {inboxObservationProjection} from '../../../src/session/inbox/inbox-observations.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT,source=process.env.RSI_DSH_INBOX_SOURCE;
@@ -41,12 +42,12 @@ async function fixture(t) {
   const control=value=>controls.push({seq:controls.length+1,after_fact_seq:0,time:controls.length+10,...value});
   function accept(id,message) {
     const event=journal.accept(id,'agent/inbox/spliced',{target:'next-step',start:state()['next-step'].length,inserted:[message]}, {},1);
-    journal.prepare(id,{command:'rsi.context-input.command',request_id:id,expected_revision:{kind:'durable',control_seq:controls.length},
-      arguments:{content:message.content,attribution:{id:message.id,source:message.source}}});
+    journal.prepare(id,contextIntent('rsi.context-input.command',{kind:'durable',control_seq:controls.length},id,event));
     return event;
   }
   function acknowledgement(id) {
-    const invocation=journal.operation(id).invocation,digest=invocationDigest(invocation),nativeId=`command-${digest}-0`;
+    const operation=journal.operation(id),invocation=contextRequest(operation,journal.session.eventAt(operation.seq)),
+      digest=invocationDigest(invocation),nativeId=`command-${digest}-0`;
     const message=journal.session.eventAt(journal.operation(id).seq).data.inserted[0];
     messages.set(nativeId,{message_id:nativeId,source:{type:'command',source:{command:invocation.command,request_id:id,
       invocation_sha256:digest,ordinal:0,attribution:invocation.arguments.attribution}},content:message.content});

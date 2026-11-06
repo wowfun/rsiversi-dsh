@@ -1,4 +1,5 @@
 import {inboxObservationProjection} from './inbox/inbox-observations.mjs';
+import {restoreInputOperation} from './inbox/input-invocation.mjs';
 
 const maximumBytes=128*1024*1024;
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
@@ -10,7 +11,7 @@ export function readJournalDocument(document) {
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
   const state=JSON.parse(document);
   if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','inboxSlotFrom'])
-    ||![1,2].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
+    ||![1,2,3].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
   if(state.version===1) {
     if(state.eventCount===undefined)state.eventCount=state.events.length;
@@ -30,6 +31,8 @@ export function readJournalDocument(document) {
       throw Error('Invalid application source map');
     used.add(row.seq);
   }
+  const events=new Map(state.events.map(event=>[event?.seq,event]));
+  state.operations=state.operations.map(operation=>restoreInputOperation(operation,events.get(operation?.seq),state.version));
   return state;
 }
 
@@ -85,7 +88,7 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
 export function encodeJournalDocument(session,events,sources,operations,inboxSlotFrom) {
   const event=session.lastEvent('session/title');
   const prefix=JSON.stringify({header:session.header,eventCount:session.seq,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-  const document=JSON.stringify({version:2,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
+  const document=JSON.stringify({version:3,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
   const value=prefix.slice(0,-1)+',\n'+document.slice(1);
   if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
   return value;

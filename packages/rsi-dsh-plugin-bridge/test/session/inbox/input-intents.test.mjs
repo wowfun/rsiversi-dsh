@@ -3,6 +3,7 @@ import {test} from 'node:test';
 import {setImmediate} from 'node:timers/promises';
 import {nativeInboxFixture,message} from '../../fixtures/native-inbox-fixture.mjs';
 import {workbenchHistory} from '../../../src/workbench/history.mjs';
+import {readJournalDocument} from '../../../src/session/journal-document.mjs';
 
 const enabled={skip:!process.env.RSI_DSH_MARKET_COHORT||!process.env.RSI_DSH_INBOX_SOURCE,timeout:15000};
 const commands=f=>f.calls.filter(row=>row.method==='application.command'&&row.op.type==='execute');
@@ -10,6 +11,56 @@ const removals=f=>f.calls.filter(row=>row.method==='application.inbox'&&['mutate
 const submitted=f=>f.calls.filter(row=>row.method==='application.submit');
 const until=async predicate=>{for(let n=0;!predicate();n++){assert.ok(n<2000);await setImmediate();}};
 const statuses=f=>f.calls.filter(row=>row.method==='application.inbox'&&row.op.type==='message_status');
+
+for(const method of ['inject','followup'])test(`${method} owns a large input body once across persistence and cold receipt recovery`,enabled,async t=>{
+  const f=await nativeInboxFixture(t),text='unique-input-body-'+ '字'.repeat(100_000),original=message('large-input',text);
+  f.state.holdSubmissions=true;f.state[method==='inject'?'failExecute':'failSubmit']='after';
+  await assert.rejects(f.scope.runOwned(()=>f.agent[method](original)),/reply lost/);
+  const saved=f.documents.get('one');
+  assert.equal(saved.split(text).length-1,1,'the accepted event is the only durable input body');
+  assert.equal(JSON.stringify(f.owner.journal.operations()).includes(text),false,'recovery metadata retains no body');
+  t.diagnostic(JSON.stringify({method,inputTextBytes:Buffer.byteLength(text),journalBytes:Buffer.byteLength(saved),
+    operationBytes:Buffer.byteLength(JSON.stringify(f.owner.journal.operations()))}));
+  const previous=method==='inject'?commands(f)[0].op.invocation:submitted(f)[0].args;
+  f.state.failExecute=undefined;f.state.failSubmit=undefined;
+  const reopened=workbenchHistory(f.options);t.after(()=>reopened.close());
+  const session=await reopened.capture('one',await reopened.metadata('one')),owner=reopened.owner(session);
+  await f.scope.runOwned(()=>owner.input.ready());
+  assert.equal((method==='inject'?commands(f):submitted(f)).length,1,'recover the receipt without resending');
+  assert.deepEqual(owner.input.snapshot()[method==='inject'?'next-step':'next-turn'],[original]);
+  assert.deepEqual(method==='inject'?commands(f)[0].op.invocation:submitted(f)[0].args,previous);
+});
+
+for(const method of ['inject','followup'])test(`${method} validates and rewrites the previous input document without changing its request or event`,enabled,async t=>{
+  const f=await nativeInboxFixture(t),original=message('previous-input');
+  f.state.holdSubmissions=true;f.state[method==='inject'?'failExecute':'failSubmit']='after';
+  await assert.rejects(f.scope.runOwned(()=>f.agent[method](original)),/reply lost/);
+  const legacy=JSON.parse(f.documents.get('one')),operation=legacy.operations[0];legacy.version=2;
+  if(method==='inject')operation.invocation=commands(f)[0].op.invocation;
+  else {
+    const {message_id,delivery,content,attribution}=submitted(f)[0].args;
+    operation.invocation={kind:'submission',message_id,delivery,content,attribution};
+  }
+  const corrupt=structuredClone(legacy),invocation=corrupt.operations[0].invocation;
+  (method==='inject'?invocation.arguments.content:invocation.content)[0].text='changed';
+  f.documents.set('one',JSON.stringify(corrupt));
+  const bad=workbenchHistory(f.options);t.after(()=>bad.close());
+  await assert.rejects(bad.capture('one',await bad.metadata('one')),/disagrees with its accepted message/);
+  assert.deepEqual(JSON.parse(f.documents.get('one')),corrupt,'failed upgrade never rewrites a document');
+  f.documents.set('one',JSON.stringify(legacy));f.state.failExecute=undefined;f.state.failSubmit=undefined;
+  const good=workbenchHistory(f.options);t.after(()=>good.close());
+  const session=await good.capture('one',await good.metadata('one')),owner=good.owner(session);
+  assert.deepEqual(session.eventAt(operation.seq),legacy.events.find(event=>event.seq===operation.seq));
+  await f.scope.runOwned(()=>owner.input.ready());
+  const stored=JSON.parse(f.documents.get('one'));
+  assert.equal(stored.version,3);assert.equal(JSON.stringify(stored.operations).includes('previous-input'),false);
+  assert.equal((method==='inject'?commands(f):submitted(f)).length,1);
+  const changed=structuredClone(stored);
+  if(method==='inject')changed.events.find(event=>event.seq===operation.seq).data.inserted[0].content[0].text='changed';
+  else changed.operations[0].invocation.content=original.content;
+  assert.throws(()=>readJournalDocument(JSON.stringify(changed)),/Retained input invocation|retained submission descriptor/);
+});
+
 async function cold(t,f) {
   const history=workbenchHistory(f.options);t.after(()=>history.close());
   const session=await history.capture('one',await history.metadata('one'));
