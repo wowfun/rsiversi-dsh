@@ -64,6 +64,9 @@ original Typert service; the bridge does not emulate an empty successful reply.
 The original browser Connection entry uses RSI's authenticated carrier. Its
 host row depends on the running connection service. Listener flags and trusted
 hosts belong to the launcher that opens the listener.
+The original Typert Loader belongs to the base workbench, independently of the
+optional registry importer. It registers mounted packages' published `./typert`
+contracts for the Gateway, including the native Session and Workspace adapters.
 
 A profile owns one application Cordis root and one loader. A mixed plugin
 registers its routes and tools in that tree, sharing one instance of its

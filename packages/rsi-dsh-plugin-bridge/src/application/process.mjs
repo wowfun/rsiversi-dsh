@@ -132,7 +132,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       ctx.provide('profileContext',{name:market.desktopProfiles.current.name,dir:profile,
         patchPath:join(profile,'cordis.patch.yml'),installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),
         cwd:profile,home:dirname(profile),startedBundles:[],overlays:[],telemetryDisabledEnv:'1',packageManager:command.invocation});
-      for(const [id,name] of [['config-editor','dsh-config-editor'],['settings','dsh-settings'],['plugin-manager','dsh-plugin-manager'],['plugin-market','dsh-plugin-market'],['typert-loader','dsh-typert-loader']]) {
+      for(const [id,name] of [['config-editor','dsh-config-editor'],['settings','dsh-settings'],['plugin-manager','dsh-plugin-manager'],['plugin-market','dsh-plugin-market']]) {
         const selected={id,name:'@deepseek-ai/'+name};
         const index=base[0].insert.findIndex(row=>row.id===id);
         if(index===-1) base[0].insert.push(selected);else base[0].insert[index]=selected;
