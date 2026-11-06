@@ -22,6 +22,40 @@ async function fixture(t,options={}) {
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
 
+test('request headers freeze once at admission and share immutable schemas across journal transfer', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t,{nativeEventState:'shared-frozen'});
+  const freeze=api.deepFreeze,walks=[];
+  api.deepFreeze=value=>{walks.push(value);return freeze(value);};
+  const input=Object.freeze({reason:'initial',header:{config:{provider:'native',model:'chosen'},
+    adapterDefaults:{maxTokens:true},tools:[{name:'read',description:'Read',
+      parameters:{type:'object',properties:{path:{type:'string'}}}}]}});
+  const source=new SessionFacade(ctx,api,{header},false);
+  source.begin();const event=source.appendObserved('request/header',input,1);source.end();
+  input.header.tools[0].parameters.properties.path.type='outside mutation';
+  assert.equal(event.data.header.tools[0].parameters.properties.path.type,'string');
+  const canonical=source.requestHeader();
+  assert.notEqual(canonical,event.data.header);
+  assert.equal(canonical.tools,event.data.header.tools);
+  assert.equal(canonical.config,event.data.header.config);
+  assert.equal(canonical.adapterDefaults,event.data.header.adapterDefaults);
+  assert.ok(Object.isFrozen(canonical));
+  assert.ok(Object.isFrozen(canonical.tools[0].parameters.properties.path));
+  assert.deepEqual(walks,[event],'the shallow canonical wrapper must not walk the schema graph again');
+  journal.append('approval/policy',{policy:'ask'});walks.length=0;
+  journal.merge(source.snapshotEvents());
+  const transferred=journal.session.eventAt(1);
+  assert.notEqual(transferred,event);
+  assert.equal(transferred.data,event.data);
+  assert.ok(Object.isFrozen(transferred));
+  assert.equal(journal.session.requestHeader().tools,canonical.tools);
+  assert.ok(Object.isFrozen(journal.session.requestHeader()));
+  assert.deepEqual(walks,[],'shared native payloads need no full-graph freeze');
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode()),
+    native:source.snapshotEvents(),nativeEventState:'shared-frozen'});
+  assert.equal(cold.session.requestHeader().tools,canonical.tools);
+  assert.ok(Object.isFrozen(cold.session.requestHeader()));
+});
+
 test('native frozen bodies survive remapped positions and cold restore without duplication', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t,{nativeEventState:'shared-frozen'});
   const source=new SessionFacade(ctx,api,{header},false);
@@ -182,6 +216,10 @@ test('source, replacement, developer-header and command references retain their 
     assert.equal(events.find(event=>event.type==='command/done').data.sourceEventSeq,input+1);
     assert.deepEqual(events.at(-1).sourceEventSeqs,[system+1]);
     assert.deepEqual(events.at(-1).surfaceOp,{op:'replace',startSeq:system+1,endSeq:system+1});
+    assert.ok(Object.isFrozen(events.find(event=>event.type==='developer/message').data));
+    assert.ok(Object.isFrozen(events.find(event=>event.type==='command/done').data));
+    assert.ok(Object.isFrozen(events.at(-1).sourceEventSeqs));
+    assert.ok(Object.isFrozen(events.at(-1).surfaceOp));
     assert.equal(events[journal.session.surface.nodes[0]].data.message.id,'new');
     assert.equal(native.find(event=>event.type==='developer/message').data.headerSeq,request);
     assert.equal(native.find(event=>event.type==='command/done').data.sourceEventSeq,input);

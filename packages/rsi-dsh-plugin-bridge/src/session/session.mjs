@@ -62,6 +62,17 @@ export function validateHeader(header) {
 }
 export function digest(value) { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
 
+/** Internal transfer only: frozen children have already crossed the deep-freeze boundary. */
+function freezeTransferred(value) {
+  const pending=[value];
+  while(pending.length) {
+    const node=pending.pop();
+    if(node===null||typeof node!=='object'||Object.isFrozen(node))continue;
+    Object.freeze(node);
+    for(const key of Object.keys(node))pending.push(node[key]);
+  }
+}
+
 /** No upstream constructor: it appends seed/resume markers before attachment. */
 export class SessionFacade {
   #events = []; #ctx; #api; #surface; #active = false; #bytes = 0; #retired = false; #announced = false;
@@ -153,8 +164,8 @@ export class SessionFacade {
     if (this.#bytes + bytes > 64 * 1024 * 1024 || this.seq >= 100_000) throw new Error('Session mirror capacity');
     this.#api.adoptSessionEvent(event);
     this.#surface.validateNext(event);
-    this.#api.deepFreeze(event);
-    if(event.type==='request/header')this.#requestHeader=this.#api.deepFreeze(this.#api.canonicalHeader(event.data.header));
+    if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
+    if(event.type==='request/header')this.#requestHeader=Object.freeze(this.#api.canonicalHeader(event.data.header));
     if(event.type==='session/title')this.#titleEvent=event;
     this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;
     if (notify && this.#announced) this.#ctx.emit('session/event', this, event);

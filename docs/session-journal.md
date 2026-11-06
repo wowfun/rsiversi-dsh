@@ -71,8 +71,12 @@ remain independent, while unchanged message bodies retain their native object
 identity through live merge and cold reconstruction. Native inbox transition
 records refer to that same admitted message. The journal snapshots externally
 owned mutable inputs once; it does not infer safe ownership from a shallow
-`Object.isFrozen` check. Restored local records cross the lossless-JSON boundary
-before being combined with the frozen native prefix. Adoption still validates
+`Object.isFrozen` check. Inside the explicit shared-frozen transfer, the bridge's
+final freeze visits only newly owned containers and stops at frozen subtrees.
+The canonical request header freezes its new outer wrapper while sharing the
+event's immutable configuration and tool schemas. Restored local records cross
+the lossless-JSON boundary before being combined with the frozen native prefix.
+Adoption still validates
 event envelopes, surface relations and the retained-history budget before
 publication. No second durable body or global interning cache is created.
 A caller can catch a synchronous validation failure without failing other
