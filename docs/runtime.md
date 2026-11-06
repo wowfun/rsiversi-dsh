@@ -821,8 +821,9 @@ Header and local domain baseline. Published Sessions merge committed selection
 controls into the observed log at their native Fact anchors. Those real
 `model/selection` events advance the DSH cursor even without a model request.
 The original Host-wide `session/control` stream forwards changed projection
-values from active history readers after checking the receiving request's
-Session access. A new control reader receives all visible active baselines.
+values from active history readers, attached Agents and model commands after
+checking the receiving request's Session access. A new control reader receives
+all visible active baselines.
 An immediately available history snapshot and its control baseline share one
 projection read at the same Session cursor. A recovering assistant stream
 captures its baseline after catch-up. Both
@@ -830,6 +831,9 @@ captures its baseline after catch-up. Both
 event that changes a projection. Its `seq` identifies the event and `changes`
 contains the ordered `{key, val}` replacements. Readers can recover from a
 fresh baseline. Slow readers see intervening changes at their original cursors.
+Per-Session subscriptions use the same publisher without opening a history
+reader; their [passive subscription contract](session-journal.md) separates
+readiness from fetching the baseline.
 Refreshing an Agent's model options reads its Session owner's selection
 directly. A transcript or an explicit projection request reads the full view.
 Unpublished drafts still have no durable control history.

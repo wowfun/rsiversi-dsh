@@ -9,14 +9,14 @@ export function projectionFrame(previous,snapshot){
   if(changes.length)return {type:'projection',seq:snapshot.asOfSeq,changes};
 }
 
-/** Live mirrors supply original DSH projection frames; each receiver authorizes its own read. */
+/** Live mirrors share per-event changes; Host-wide readers authorize their baselines and updates. */
 export function workbenchControl(authorize) {
   const sessions=new Map(),listeners=new Set();
   function notify(id,previous,value){
     const change=projectionFrame(previous,value);
     if(!change)return;
     const frame={...change,sessionId:id};
-    for(const listener of listeners)listener(frame);
+    for(const listener of listeners)listener.push(frame,previous===undefined);
   }
   function open(id,value,intermediate){
     let entry=sessions.get(id);
@@ -40,29 +40,47 @@ export function workbenchControl(authorize) {
       if(--entry.references===0)sessions.delete(id);
     }};
   }
-  async function* control(signal){
+  async function* observe(signal,sessionId){
     signal.throwIfAborted();
-    let pending=[],wake;
-    const queue=frame=>{pending.push(frame);wake?.();};
-    const aborted=()=>wake?.();
+    let pending=[],wake,closed=false;
+    const listener={
+      push(frame,baseline){
+        if(sessionId!==undefined&&(baseline||frame.sessionId!==sessionId))return;
+        pending.push(frame);wake?.();
+      },
+      close(){
+        closed=true;pending=[];listeners.delete(listener);
+        signal.removeEventListener('abort',listener.close);wake?.();
+      },
+    };
     const visible=async id=>{try{await authorize(id,signal);return true;}catch(error){if(signal.aborted)throw error;return false;}};
-    listeners.add(queue);signal.addEventListener('abort',aborted,{once:true});
+    listeners.add(listener);signal.addEventListener('abort',listener.close,{once:true});
     try{
-      const projections=Object.create(null);
-      const initial=Array.from(sessions,([id,entry])=>[id,entry.value]);
-      for(const [id,value] of initial)if(await visible(id))projections[id]=value;
-      yield {type:'baseline',value:{projections}};
-      while(!signal.aborted){
+      if(sessionId===undefined){
+        const projections=Object.create(null);
+        const initial=Array.from(sessions,([id,entry])=>[id,entry.value]);
+        for(const [id,value] of initial)if(await visible(id))projections[id]=value;
+        yield {type:'baseline',value:{projections}};
+      }else yield {type:'ready'};
+      while(!closed){
         if(!pending.length){await new Promise(resolve=>{wake=resolve;});wake=undefined;continue;}
         const batch=pending;pending=[];
         let lastId,admitted;
         for(const frame of batch){
-          if(signal.aborted)return;
-          if(frame.sessionId!==lastId){lastId=frame.sessionId;admitted=await visible(lastId);}
-          if(admitted&&!signal.aborted)yield frame;
+          if(closed)return;
+          if(sessionId!==undefined){
+            const {sessionId:_,...change}=frame;
+            yield change;
+          }else{
+            if(frame.sessionId!==lastId){lastId=frame.sessionId;admitted=await visible(lastId);}
+            if(admitted&&!closed)yield frame;
+          }
         }
       }
-    }finally{listeners.delete(queue);signal.removeEventListener('abort',aborted);}
+    }finally{listener.close();}
   }
-  return {open,control};
+  return {open,control:signal=>observe(signal),
+    observeProjections:({sessionId},signal)=>observe(signal,sessionId),
+    close(){for(const listener of listeners)listener.close();listeners.clear();sessions.clear();},
+  };
 }

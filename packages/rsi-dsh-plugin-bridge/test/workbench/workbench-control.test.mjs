@@ -39,6 +39,36 @@ test('all admitted active histories are available in the reconnect baseline',asy
   } finally {await stream.return();for(const owner of owners)owner.close();}
 });
 
+test('passive subscribers precede a Session and share event changes without reading its baseline',async()=>{
+  const service=workbenchControl(()=>{throw Error('Passive stream made an authorization read');});
+  const life=new AbortController(),first=service.observeProjections({sessionId:'future'},life.signal),
+    second=service.observeProjections({sessionId:'future'},life.signal);
+  assert.deepEqual((await first.next()).value,{type:'ready'});
+  assert.deepEqual((await second.next()).value,{type:'ready'});
+  const owner=service.open('future',{asOfSeq:3,values:{title:'restored'}});
+  const other=service.open('other',{asOfSeq:0,values:{title:'other'}});
+  other.publish({asOfSeq:1,values:{title:'unrelated'}});
+  owner.publish({asOfSeq:4,values:{title:'new'}});
+  owner.publish({asOfSeq:5,values:{title:'restored'}});
+  for(const stream of [first,second]){
+    assert.deepEqual((await stream.next()).value,{type:'projection',seq:4,changes:[{key:'title',val:'new'}]});
+    assert.deepEqual((await stream.next()).value,{type:'projection',seq:5,changes:[{key:'title',val:'restored'}]});
+  }
+  const pending=first.next();life.abort();assert.equal((await pending).done,true);await second.return();
+  owner.close();other.close();
+  const idle=service.observeProjections({sessionId:'future'},new AbortController().signal);
+  await idle.next();const ended=idle.next();service.close();assert.equal((await ended).done,true);
+});
+
+test('cancellation releases a paused subscriber before its generator resumes',async()=>{
+  const service=workbenchControl(()=>{throw Error('Unexpected read');}),life=new AbortController();
+  const owner=service.open('session',{asOfSeq:0,values:{title:'initial'}});
+  const stream=service.observeProjections({sessionId:'session'},life.signal);
+  await stream.next();life.abort();
+  owner.publish({asOfSeq:2,values:{title:'later'}},()=>{throw Error('Cancelled subscriber retained its producer');});
+  assert.equal((await stream.next()).done,true);owner.close();service.close();
+});
+
 test('an empty native draft has a baseline cursor, never a negative projection event sequence',async()=>{
   const service=workbenchControl(async()=>{}),life=new AbortController(),flow=service.control(life.signal);
   assert.equal((await flow.next()).value.type,'baseline');

@@ -7,6 +7,13 @@ import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {followAssistant} from '../../src/workbench/assistant.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+
+test('passive projection readiness performs no native read even before the Session exists',async()=>{
+  const history=workbenchHistory({read(){throw Error('Native history read');}});
+  const stream=history.observeProjections({sessionId:'future'},new AbortController().signal);
+  assert.deepEqual((await stream.next()).value,{type:'ready'});
+  await stream.return();await history.close();
+});
 test('control-only choices reach host-wide projections and replay at identical event cursors despite clock rollback',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
@@ -48,6 +55,7 @@ test('control-only choices reach host-wide projections and replay at identical e
   assert.equal((await global.next()).value.value.projections.shared.asOfSeq,snapshot.cursor);
   const local=controller.observeProjections({sessionId:'shared'},life.signal);
   assert.deepEqual((await local.next()).value,{type:'ready'});
+  assert.equal(reads.mock.callCount(),1,'a passive subscriber reuses the producer without reading a projection baseline');
   const localNext=local.next(),next=flow.next();control=3;waiter.resolve({fact_seq:4,control_seq:control});waiter=Promise.withResolvers();
   const change=(await next).value.event;
   assert.equal(change.type,'model/selection');assert.equal(change.time,1);

@@ -62,6 +62,22 @@ async function fixture(t) {
   return {ctx,history,options,load,controls,change,capture,persistence,meta,hooks,get reads(){return reads;}};
 }
 
+test('model commands publish passive changes without a transcript or attached Agent', {skip:!root},async t=>{
+  const f=await fixture(t),life=new AbortController();
+  t.after(()=>life.abort());
+  const stream=f.history.observeProjections({sessionId:'one'},AbortSignal.any([life.signal,AbortSignal.timeout(10000)]));
+  assert.deepEqual((await stream.next()).value,{type:'ready'});
+  for(const reasoningEffort of ['high','low']){
+    await f.history.selectModel({sessionId:'one',...base,reasoningEffort});
+    const frame=(await stream.next()).value;
+    assert.equal(frame?.type,'projection');
+    const session=await f.capture(),event=session.eventAt(frame.seq);
+    assert.equal(event.type,'model/selection');assert.equal(event.data.reasoningEffort,reasoningEffort);
+    assert.deepEqual(frame.changes,[{key:'modelSelection',val:{lastUsed:null,next:event.data}}]);
+  }
+  await stream.return();
+});
+
 test('a log-only approval with no native mutation receipt persists across owners', {skip:!root},async t=>{
   const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session);
   assert.equal(await f.options.storage.read('one'),undefined);

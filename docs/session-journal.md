@@ -23,6 +23,17 @@ scope retain their original sequence. On creation, the listener includes
 events appended after that Session's `firstLiveSeq`, excluding restored
 history. Cancellation or owner disposal removes the listener.
 
+`session.observeProjections` also returns `ready` after registration, including
+for a Session that does not exist yet. It consumes the same committed changes
+as `session.control`. An active transcript, an attached Agent's native
+observer, or a model-selection command supplies the projection source. A
+model command publishes its accepted choice even without a retained Agent.
+Adding subscribers performs no
+history read, baseline calculation or native wait. Opening a source supplies
+the Host-wide baseline; passive per-Session listeners receive subsequent
+event changes. Model choices, inbox entries and native child catalogs retain
+their existing event coordinates.
+
 DSH hook handlers append their log-only `hook/invoked` and `hook/result`
 records to the same Session. Their turn, point and handler ID survive cold
 replay. Neither record changes the model-visible conversation.

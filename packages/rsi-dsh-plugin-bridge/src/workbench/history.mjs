@@ -1,6 +1,6 @@
 import {captureAgentView} from './agent-view.mjs';
 import {followAssistant,followAgentAssistant} from './assistant.mjs';
-import {projectionFrame,workbenchControl} from './control.mjs';
+import {workbenchControl} from './control.mjs';
 import {inboxReader} from '../session/inbox/inbox-state.mjs';
 import {lastUsedModel} from './model.mjs';
 import {workbenchOwners} from './owner.mjs';
@@ -103,7 +103,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     return view;
   }
   return {
-    close:owners.close,
+    async close(){live.close();await owners.close();},
     revision:owners.revision,
     async snapshot(meta) {
       const journal=owners.journal(meta.id);
@@ -122,7 +122,10 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     owner:session=>owners.get(session),
     async *observeAgent(id,signal) {
       const view=await open({address:{kind:'session',sessionId:id}},signal);
-      yield* followAgentAssistant(view,llm,signal);
+      const observer=live.open(id,await view.projections(),view.intermediate);
+      view.publish=observer.publish;
+      try{yield* followAgentAssistant(view,llm,signal);}
+      finally{observer.close();}
     },
     metadata:(id,signal,metadataOnly=false)=>read(id,{type:'open',...(metadataOnly?{metadata_only:true}:{})},signal),
     async queueItem(id,itemId,signal) {
@@ -137,8 +140,13 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     async selectModel({sessionId,provider,model,reasoningEffort},signal) {
       const view=await open({address:{kind:'session',sessionId}},signal);
       const selected={provider,model,...(reasoningEffort===undefined?{}:{reasoningEffort})};
-      view.owner.driver.accept(selected);await view.owner.driver.ready(signal);
-      return {selected};
+      const observer=live.open(sessionId,await view.projections(),view.intermediate);
+      try{
+        view.owner.driver.accept(selected);
+        observer.publish(await view.projections(),view.intermediate);
+        await view.owner.driver.ready(signal);
+        return {selected};
+      }finally{observer.close();}
     },
     async capture(id,meta,signal){
       const view=await open({address:{kind:'session',sessionId:id}},signal,meta);
@@ -179,22 +187,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       const view=await open({address:{kind:'session',sessionId}},signal);
       return {kind:'sequenced',...await view.projections()};
     },
-    async *observeProjections({sessionId},signal) {
-      const view=await open({address:{kind:'session',sessionId}},signal);
-      let previous=await view.projections(),cursor={control_seq:view.controlThrough,fact_seq:view.through},after=previous.asOfSeq+1;
-      yield {type:'ready'};
-      while(!signal.aborted){
-        cursor=await view.wait(cursor,after);
-        await view.advance(cursor.fact_seq,undefined,cursor.control_seq);
-        const next=await view.projections();
-        after=next.asOfSeq+1;
-        for(const step of view.intermediate(previous,next)){
-          const frame=projectionFrame(previous,step);previous=step;if(frame)yield frame;
-        }
-        const frame=projectionFrame(previous,next);if(frame)yield frame;
-        previous=next;
-      }
-    },
+    observeProjections:live.observeProjections,
     async page(request,signal) {
       const window=windowOf(request);
       const {session}=await open(request,signal);
