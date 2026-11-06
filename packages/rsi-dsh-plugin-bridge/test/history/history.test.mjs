@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { loadCohort } from '../../../rsi-dsh-cordis/src/runtime/cohort.mjs';
 import { createBridge } from '../../src/index.mjs';
@@ -34,8 +33,7 @@ const events = terminal => [[0, { type: 'content_started', index: 0, content: { 
   [27, terminal]];
 
 integration('canonical timed attempts survive original stream decoding, receipt, restart and exact rejection', async t => {
-  const lock = JSON.parse(await readFile(new URL('../../src/upstream-lock.json', import.meta.url), 'utf8'));
-  const llm = await (await loadCohort(cohortRoot, lock)).import('@deepseek-ai/dsh-llm');
+  const llm = await (await loadCohort(cohortRoot)).import('@deepseek-ai/dsh-llm');
   const facts = [{ seq: 1, timestamp_ms: 10, type: 'step_started', turn_id: 'turn', step_id: 'step' }];
   const attempts = new Map();
   const request = async (method, args) => {
@@ -177,8 +175,7 @@ test('disabled tools and unsupported request controls cannot publish misleading 
 });
 
 integration('original surface folds preserve roles, system replacements, raw calls and canonical outcome provenance', async t => {
-  const lock = JSON.parse(await readFile(new URL('../../src/upstream-lock.json', import.meta.url), 'utf8'));
-  const cohort = await loadCohort(cohortRoot, lock);
+  const cohort = await loadCohort(cohortRoot);
   const [cordis, sessionApi, surface, values, llm] = await Promise.all([
     cohort.import('@deepseek-ai/cordis'), cohort.import('@deepseek-ai/dsh-session'), cohort.subpath('@deepseek-ai/dsh-session', 'surface'),
     cohort.import('@deepseek-ai/dsh-util-values'), cohort.import('@deepseek-ai/dsh-llm')]);

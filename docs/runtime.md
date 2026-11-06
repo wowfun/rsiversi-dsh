@@ -429,7 +429,11 @@ waiting for a user answer does not hold the reader, writer or Session mutation
 lane. Cancellation replies use the same correlation identity. Loss of a process
 does not authorize replay of a callback.
 
-Original dependencies of the Agent reference are packed from its selected source. Shared peers, including
+The standalone Agent importer packs the shared peers actually installed in its
+leased host cohort: `@deepseek-ai/*`, React, React DOM and Zod. It does not use a
+source-revision package inventory, and resource-only packages need no JavaScript
+entry point. Other dependencies are resolved by npm from those packages' current
+manifests. Shared peers, including
 Cordis and UserQuestionError, resolve to one exact physical cohort. Private
 ordinary libraries may have multiple versions. Import uses a pinned npm CLI,
 isolated configuration/cache/home and explicit registry settings; lifecycle
@@ -449,6 +453,9 @@ that process export and pins the generated manifest digest; installation never
 enables code or edits a user's presets. Browser code still requires an explicitly
 rebuilt document. Unsupported injected services fail activation; unknown event
 schemas refuse history-window forks. No universal plugin compatibility is claimed.
+The import receipt records the running DSH and npm versions and the resulting
+npm lock digest. Its temporary installation is removed after payload publication
+or failure; the staged RSI package retains everything needed for execution.
 
 Fresh release builds and plugin imports ask npm to prefer a shared dependency
 placement when the declared versions and peers permit one. npm records the
@@ -462,8 +469,12 @@ unless the plugin requests it.
 The bundled npm resolves in an empty work directory with an explicit registry,
 private home/cache and empty user/global configuration. Pinned original packages
 are supplied as local archives from the leased cohort. Imports cannot replace
-them. Both their complete files and every shared-peer resolution are checked
-after installation. The importer checks the original engines.dsh rule first, otherwise the DSH peer ranges, including prereleases. Its tree reader caps files at 16,384, total entries at 65,536, path depth at 128 and total bytes at 4 GiB; file content is read in bounded chunks. The recorded npm lockfile binds the resolved dependency tree;
+them. Packaging checks their complete files; nested copies of a shared peer are
+rejected after installation. The importer checks the original engines.dsh rule
+first, otherwise the DSH peer ranges, including prereleases. npm receives the
+same prerelease peer overrides as the release importer. Its tree reader caps
+files at 16,384, total entries at 65,536, path depth at 128 and total bytes at
+4 GiB; file content is read in bounded chunks. The recorded npm lockfile binds the resolved dependency tree;
 Git/HTTP dependency specifications are refused at every depth. Local tarballs
 and directories are admitted only as explicit root inputs, including the pinned
 archives. Lifecycle scripts, executable links and filesystem links are refused. Build-required packages must be built before import. This

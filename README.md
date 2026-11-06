@@ -10,10 +10,9 @@ history. The DSH waterfall can edit, reorder, repeat, add or drop messages and
 reject the batch. Model requests and restored DSH history use the same
 committed result.
 
-The legacy Agent reference was built from **ce7073d51254c26cd63b22a60835b8f948deb447** of
-DeepSeek Harness, built and packed without source edits. Its version strings do
-not identify its bytes; the older `dsh-v0.2.2-alpha.2` tag is not interchangeable.
-Build receipts record source, lockfile, tools and artifact hashes.
+The Agent reference uses the selected installed DSH cohort. Build receipts record
+source, lockfile, tools and artifact hashes for provenance; compatibility follows
+the installed packages' service and peer contracts.
 
 The [runtime contract](docs/runtime.md) owns installation, process and Session
 semantics. The [browser contract](docs/browser.md) owns document composition.
