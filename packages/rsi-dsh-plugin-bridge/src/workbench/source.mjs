@@ -4,6 +4,7 @@ import {inheritedSession,factProjector} from './seed.mjs';
 import {workbenchModel} from './model.mjs';
 import {workbenchInbox} from './inbox.mjs';
 import {cloneMapping} from '../history/input-history.mjs';
+import {readControls} from '../history/pages.mjs';
 
 /** A retained native projector has no retained request authority or partial published batches. */
 export async function workbenchSource({ctx,api,llm,header,meta,call,release,signal}) {
@@ -40,9 +41,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
         if(fact.type==='turn_terminal')next.spawning.clear();
       });
       while(next.controlThrough<controlThrough) {
-        const page=await call({type:'controls',after_seq:next.controlThrough,through_seq:controlThrough});
-        if(!Number.isSafeInteger(page.through)||page.through<=next.controlThrough||page.through>controlThrough)
-          throw Error('Control history did not advance within its captured cut');
+        const page=await readControls(call,next.controlThrough,controlThrough,signal);
         for(const event of page.events) {
           if(event.after_fact_seq<next.mapping.factCursor||event.after_fact_seq>through)
             throw Error('Control history changed its Fact anchor');
@@ -52,7 +51,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
               const appended=next.model.observe(event,next.session);
               if(localRequests.has(event.invocation?.request_id))next.origins.set(appended.seq,event);
             }
-            else await next.inbox.observe(event,next.session,call,signal,next.mapping.turn,inboxSlotFrom);
+            else next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
           }finally{next.session.end();}
         }
         next.controlThrough=page.through;

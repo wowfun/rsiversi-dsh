@@ -31,6 +31,15 @@ export async function readHistory(request, identity, after, horizon, consume, si
   return historyReader(request, identity, after, horizon, signal)(horizon, consume);
 }
 
+export async function readControls(call, after, horizon, signal) {
+  const {through,value}=await readPage((_method,{offset})=>call({type:'controls',after_seq:after,
+    through_seq:horizon,offset}), 'controls', {}, after, horizon, signal);
+  if(!Array.isArray(value)||value.length>64||value.some((event,i)=>
+    !integer(event.seq)||event.seq<=(i?value[i-1].seq:after)||event.seq>through))
+    throw Error('Invalid captured control page');
+  return {through,events:value};
+}
+
 async function readPage(request, method, identity, after, horizon, signal) {
   let offset = 0, through, total; const fragments = [];
   do {

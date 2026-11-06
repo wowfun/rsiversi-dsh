@@ -10,6 +10,13 @@ share the same canonical mirror used to accept or undo staged Agent operations.
 The market's desktop pnpm and Plugin Manager invocations operate on the same
 profile selection journal and live package bindings.
 
+Control history pages carry the accepted native message with its immutable
+sequence and Fact anchor. The reader assembles the same bounded UTF-8 fragments
+as Fact pages and folds that body directly; it does not fetch each acceptance
+again. Ordinary control pages use a 128-KiB stored-body budget, with one larger
+record read alone. Exact-message reads remain for submission receipt recovery.
+This transport shares the canonical acceptance and adds no durable event body.
+
 The market dispatches `agent/turn-stopping` serially on the producing Agent
 after its Step has settled and before its Turn ends. Listeners read the
 settled Session and can steer through the normal inbox. The reply waits for

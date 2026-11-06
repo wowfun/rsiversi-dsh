@@ -9,6 +9,7 @@ import {workbenchHistory} from '../../../src/workbench/history.mjs';
 import {invocationDigest} from '../../../src/session/command-receipts.mjs';
 import {contextRequest} from '../../../src/session/inbox/input-invocation.mjs';
 import {contextIntent,nativeMessagePage} from '../../fixtures/native-inbox-fixture.mjs';
+import {historyPage} from '../../fixtures/history-page.mjs';
 import {inboxObservationProjection} from '../../../src/session/inbox/inbox-observations.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT,source=process.env.RSI_DSH_INBOX_SOURCE;
@@ -33,7 +34,8 @@ async function fixture(t) {
     async read(id,op) {
       assert.equal(id,'inbox');
       if(op.type==='open')return meta();
-      if(op.type==='controls')return {through:op.through_seq,events:controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)};
+      if(op.type==='controls')return historyPage(controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)
+        .map(row=>row.kind==='accepted'?{...row,message:messages.get(row.message_id)}:row),op.through_seq,op.offset);
       assert.equal(op.type,'message');return nativeMessagePage(messages.get(op.message_id),op);
     }};
   const history=workbenchHistory(options);t.after(()=>history.close());

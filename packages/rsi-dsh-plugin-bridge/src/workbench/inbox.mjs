@@ -1,5 +1,4 @@
 import {contentBlocks,nativeMessageSource,nativeMessageId} from '../history/conversation-history.mjs';
-import {readNativeMessage} from '../history/pages.mjs';
 
 /** Fold committed controls; the native queue remains the only execution owner. */
 export function workbenchInbox(seed) {
@@ -32,7 +31,7 @@ export function workbenchInbox(seed) {
   }
   return {transitions,branch:()=>workbenchInbox({rows:[...rows],transitions,successor}),
     snapshot:()=>({'next-step':list('next_step').map(row=>row.message),
-    'next-turn':list('next_turn').map(row=>row.message)}),async observe(event,session,call,signal,turn,inboxSlotFrom=0) {
+    'next-turn':list('next_turn').map(row=>row.message)}),observe(event,session,turn,inboxSlotFrom=0) {
     if(successor&&event.kind!=='accepted')throw Error('Native inbox successor lacks its next acceptance');
     if(event.kind==='successor') {
       const row=rows.get(event.predecessor_id);
@@ -41,7 +40,8 @@ export function workbenchInbox(seed) {
     }
     if(event.kind==='accepted') {
       if(rows.has(event.message_id)||!['next_step','next_turn'].includes(event.target))throw Error('Invalid native inbox acceptance');
-      const native=await readNativeMessage(call,event.message_id,event.seq,signal);
+      const native=event.message;
+      if(native?.message_id!==event.message_id)throw Error('Native inbox acceptance identity mismatch');
       const slotId=successor?.slot.id??event.message_id;
       const useSlot=session.seq>=inboxSlotFrom;
       const identity=useSlot?slotId:native.message_id;

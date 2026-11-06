@@ -6,8 +6,32 @@ import {test} from 'node:test';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {followAssistant} from '../../src/workbench/assistant.mjs';
 import {workbenchSource} from '../../src/workbench/source.mjs';
+import {historyPage} from '../fixtures/history-page.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+
+test('one control page reconstructs a full native inbox without per-message reads',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const baseline={model:{deployment:'native',model:'configured'}};
+  const controls=Array.from({length:64},(_,i)=>({kind:'accepted',seq:i+1,time:i+1,after_fact_seq:0,
+    target:'next_step',message_id:'input-'+i,
+    message:{message_id:'input-'+i,source:{type:'human'},content:[{type:'text',text:'context '+i}]}}));
+  const calls=[],call=async op=>{
+    calls.push(op);assert.equal(op.type,'controls');
+    return historyPage(controls,64,op.offset);
+  };
+  const source=await workbenchSource({ctx,api,header:{version:4,id:'full-inbox',createdAt:1,isSeeded:false},
+    meta:{model_baseline:baseline,selection_cursor:{kind:'durable',fact_seq:0,control_seq:64}},call});
+  const stage=await source.stage(call,undefined,0,64);
+  assert.equal(calls.length,1);
+  assert.equal(source.current.session.seq,0);
+  assert.deepEqual(stage.value.inbox.snapshot()['next-step'].map(message=>message.content[0].text),
+    controls.map(event=>event.message.content[0].text));
+  stage.commit();assert.equal(source.current.controlThrough,64);
+});
 
 test('native controls split observation without splitting the captured Fact page',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
@@ -27,7 +51,7 @@ test('native controls split observation without splitting the captured Fact page
     selection:{...baseline,reasoning_effort:i===1?'low':'high'}}));
   const requests=[];
   const call=async op=>{
-    if(op.type==='controls')return {through:op.after_seq+1,events:[controls[op.after_seq]]};
+    if(op.type==='controls')return historyPage([controls[op.after_seq]],op.after_seq+1,op.offset);
     assert.equal(op.type,'fact');requests.push([op.after_seq,op.through_seq]);
     const json=JSON.stringify(facts.slice(op.after_seq,op.through_seq)),bytes=Buffer.byteLength(json);
     return {through_seq:op.through_seq,offset:0,next_offset:bytes,total_bytes:bytes,json};
@@ -76,7 +100,7 @@ test('control-only choices reach host-wide projections and replay at identical e
     if(op.type==='wait')return waiter.promise;
     if(op.type==='controls'){
       const through=Math.min(op.after_seq+1,op.through_seq);
-      return {through,events:events.filter(event=>event.seq===through)};
+      return historyPage(events.filter(event=>event.seq===through),through,op.offset);
     }
     assert.equal(op.type,'fact');
     assert.equal(op.through_seq,4);factReads++;
@@ -187,7 +211,7 @@ test('released Session surface projects paged snapshots and follows only events 
     if(op.type==='open')return {id,created_at:900,through,inherited:false,
       model_selection:{model:{deployment:'native',model:'configured'}}};
     if(op.type==='wait'){assert.equal(op.cursor.fact_seq,4);return {fact_seq:6,control_seq:2};}
-    if(op.type==='controls')return {through:op.through_seq,events:[]};
+    if(op.type==='controls')return historyPage([],op.through_seq,op.offset);
     assert.equal(op.type,'fact');
     const fact=facts[op.after_seq],data=JSON.stringify([fact]);
     return {through_seq:fact.seq,offset:0,next_offset:Buffer.byteLength(data),total_bytes:Buffer.byteLength(data),json:data};

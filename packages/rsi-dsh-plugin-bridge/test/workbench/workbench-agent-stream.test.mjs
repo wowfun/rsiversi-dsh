@@ -55,7 +55,7 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
       assert.equal(method,'application.history');const op=args.operation;
       if(op.type==='open')return {id:'thread',created_at:1,inherited:false,through:facts.length,
         model_baseline:selection,model_selection:selection,selection_cursor:{kind:'durable',...cursor()}};
-      if(op.type==='controls')return {through:1,events:[]};
+      if(op.type==='controls')return fragment([],1);
       if(op.type==='fact')return fragment([facts[op.after_seq]],op.after_seq+1);
       if(op.type==='wait') {
         if(op.cursor.fact_seq<facts.length)return cursor();

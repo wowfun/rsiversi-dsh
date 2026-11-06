@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
+import {historyPage} from '../fixtures/history-page.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('a delayed capture does not hold other Sessions; point reads stay at the opening cut without copying the log',async()=>{
@@ -106,7 +107,7 @@ test('cold persistence reconstructs native controls while live projection reads 
         selection_cursor:{kind:'durable',fact_seq:0,control_seq:controls.length}};
     }
     assert.equal(op.type,'controls');
-    return {through:op.through_seq,events:controls.slice(op.after_seq,op.through_seq)};
+    return historyPage(controls.slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
   }});
   t.after(()=>history.close());
   const persistence=workbenchPersistence(history,await load('dsh-session-persistence'));

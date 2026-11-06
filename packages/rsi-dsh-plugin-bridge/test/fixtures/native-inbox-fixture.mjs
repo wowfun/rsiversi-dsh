@@ -11,6 +11,7 @@ import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {workbenchAgents} from '../../src/workbench/agents.mjs';
 import {invocationDigest} from '../../src/session/command-receipts.mjs';
 import {contextRequest} from '../../src/session/inbox/input-invocation.mjs';
+import {historyPage} from './history-page.mjs';
 
 export function contextIntent(command,expected_revision,id,event) {
   const invocation={command,expected_revision};
@@ -18,10 +19,7 @@ export function contextIntent(command,expected_revision,id,event) {
 }
 
 export function nativeMessagePage(message,op) {
-  const bytes=Buffer.from(JSON.stringify(message)),offset=op.offset??0;
-  let end=Math.min(offset+128*1024,bytes.length);
-  while(end<bytes.length&&(bytes[end]&0xc0)===0x80)end--;
-  return {through_seq:op.accepted_control_seq,offset,next_offset:end,total_bytes:bytes.length,json:bytes.subarray(offset,end).toString()};
+  return historyPage(message,op.accepted_control_seq,op.offset);
 }
 
 export const message=(id,text=id)=>({id,role:'user',source:{kind:'plugin:test',tag:{n:1}},content:[{type:'text',text},{type:'text',text:'第二块'}]});
@@ -56,7 +54,11 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
   const read=async(id,op,signal)=>{
     assert.equal(id,'one');signal?.throwIfAborted();
     if(op.type==='open')return meta();
-    if(op.type==='controls')return {through:op.through_seq,events:state.controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)};
+    if(op.type==='controls'){
+      const through=Math.min(op.after_seq+64,op.through_seq);
+      return historyPage(state.controls.filter(row=>row.seq>op.after_seq&&row.seq<=through)
+        .map(row=>row.kind==='accepted'?{...row,message:state.messages.get(row.message_id)}:row),through,op.offset);
+    }
     if(op.type==='message')return nativeMessagePage(state.messages.get(op.message_id),op);
     assert.equal(op.type,'wait');if(op.cursor.control_seq<state.control)return cursor();
     return new Promise((resolve,reject)=>{

@@ -11,6 +11,7 @@ import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchAgents} from '../../src/workbench/agents.mjs';
+import {historyPage} from '../fixtures/history-page.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 const base={provider:'native',model:'configured',reasoningEffort:'low'};
@@ -34,8 +35,8 @@ async function fixture(t) {
   const read=async(id,operation,signal)=>{
     assert.equal(id,'one');signal?.throwIfAborted();
     if(operation.type==='open')return meta();
-    if(operation.type==='controls'){reads++;return {through:operation.through_seq,
-      events:controls.filter(event=>event.seq>operation.after_seq&&event.seq<=operation.through_seq)};}
+    if(operation.type==='controls'){reads++;return historyPage(
+      controls.filter(event=>event.seq>operation.after_seq&&event.seq<=operation.through_seq),operation.through_seq,operation.offset);}
     assert.equal(operation.type,'wait');
     if(operation.cursor.control_seq<cursor().control_seq)return cursor();
     return new Promise((resolve,reject)=>{
