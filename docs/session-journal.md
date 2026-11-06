@@ -65,6 +65,16 @@ delta does not copy the retained source map, enumerate settled mutations or take
 a full event snapshot. Existing immutable events are read by position. Validation
 failure leaves all three logs unchanged. A batch that only acknowledges existing
 local events does not construct a new Session branch or Surface manager.
+The native projector transfers deeply frozen event values under an explicit
+`shared-frozen` ownership contract. Journal envelopes and translated coordinates
+remain independent, while unchanged message bodies retain their native object
+identity through live merge and cold reconstruction. Native inbox transition
+records refer to that same admitted message. The journal snapshots externally
+owned mutable inputs once; it does not infer safe ownership from a shallow
+`Object.isFrozen` check. Restored local records cross the lossless-JSON boundary
+before being combined with the frozen native prefix. Adoption still validates
+event envelopes, surface relations and the retained-history budget before
+publication. No second durable body or global interning cache is created.
 A caller can catch a synchronous validation failure without failing other
 accepted mutations in that publication. No native intent is created for the
 rejected call, and it triggers no native refresh; already accepted operations

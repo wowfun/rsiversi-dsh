@@ -59,6 +59,8 @@ for(const sourceType of ['command','human'])test(`${sourceType} inbox transition
       session.begin();try{await inbox.observe({time:300,...control,seq:index+1},session,call,undefined,1);}finally{session.end();}
       inbox=inbox.branch();
       assert.deepEqual(ctx.sessionProjections.snapshot(session).values.inbox,inbox.snapshot());
+      for(const [seq,transition] of inbox.transitions)for(const [position,row] of transition.inserted.entries())
+        assert.equal(row.message,session.eventAt(seq).data.inserted[position],'transitions retain the admitted frozen message');
       if(index===4)assert.deepEqual(inbox.snapshot()['next-turn'].map(row=>row.id),['a','b']);
       if(index===7)assert.deepEqual(inbox.snapshot()['next-turn'].map(row=>row.id),['a','b','original:c']);
     }

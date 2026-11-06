@@ -12,12 +12,14 @@ const body=({seq,time,...value})=>value;
 export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
   #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
-  #save;#notify;#report;#inboxSlotFrom=0;#owned=[];
-  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions}={}) {
+  #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
+  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions,nativeEventState}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
+    this.#sharedNative=nativeEventState==='shared-frozen';
     if(restore!==undefined) {
       if(!isDeepStrictEqual(restore.header,seed.header))throw Error('Invalid application journal identity');
-      seed={header:restore.header,events:restoreJournalEvents(restore,native,transitions),inheritedEventCount:restore.inheritedEventCount};
+      restore=this.#snapshot(restore);
+      seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native,transitions)),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
       this.#restore(restore.sources,restore.operations);
       this.#saved=0;this.#rewrite=restore.version<5;
@@ -26,12 +28,13 @@ export class SessionProjectionJournal {
       this.#session=this.#create(seed);
     }
   }
-  #create(seed) {return new SessionFacade(this.#ctx,this.#api,seed,false);}
+  #create(seed) {return new SessionFacade(this.#ctx,this.#api,{...seed,eventState:'shared-frozen'},false);}
   #snapshot(value) {
     const result=this.#api.snapshotJsonValue(value);
     if(result===undefined)throw Error('Application journal requires lossless JSON');
     return this.#api.deepFreeze(result);
   }
+  #nativeInput(value) {return this.#sharedNative?value:this.#snapshot(value);}
   #restore(sources,operations) {
     const used=new Set(sources.map(row=>row.seq));
     const positions=new Set();
@@ -44,7 +47,7 @@ export class SessionProjectionJournal {
         ||operation.source!==undefined&&(!integer(operation.source)||sources[operation.source]?.operation!==operation.id
           ||!isDeepStrictEqual(body(this.#session.eventAt(sources[operation.source].seq)),
             body(this.#session.eventAt(operation.seq)))))throw Error('Invalid application mutation record');
-      positions.add(operation.seq);this.#operations.set(operation.id,this.#snapshot(operation));
+      positions.add(operation.seq);this.#operations.set(operation.id,operation);
       this.#operationIds[operation.seq]=operation.id;
     }
     for(const [index,row] of sources.entries()) {
@@ -63,7 +66,7 @@ export class SessionProjectionJournal {
         throw Error('Application journal contains unowned event positions');
       if(!used.has(seq)||positions.has(seq))this.#owned.push(this.#session.eventAt(seq));
     }
-    this.#sources=[...this.#snapshot(sources)];
+    this.#sources=[...sources];
   }
   get session(){return this.#session;}
   get seq(){return this.#session.seq;}
@@ -135,7 +138,7 @@ export class SessionProjectionJournal {
   }
   #merge(nativeEvents,correlations,inheritedEventCount,after,projections,annotations) {
     this.#entry();
-    const input=this.#snapshot(nativeEvents);
+    const input=this.#nativeInput(nativeEvents);
     if(!Array.isArray(input)||after+input.length<this.#sources.length||!integer(inheritedEventCount)
       ||inheritedEventCount>after+input.length)throw Error('Native event prefix moved backwards');
     if(annotations.length&&(this.seq||after||!this.#session.header.isSeeded||!isInheritedMarker(input[inheritedEventCount])))
@@ -153,9 +156,9 @@ export class SessionProjectionJournal {
       if(event.seq!==after+index)throw Error('Native event positions are not dense');
       if(event.seq===inheritedEventCount)for(const annotation of annotations) {
         if(!isForkAnnotation(annotation.type))throw Error('Unknown fork annotation');
-        events.push({...annotation,seq:start+events.length});
+        events.push({...this.#snapshot(annotation),seq:start+events.length});
       }
-      const translated=projections.has(event.seq)?{...event,data:this.#snapshot(projections.get(event.seq))}:event;
+      const translated=projections.has(event.seq)?{...event,data:this.#nativeInput(projections.get(event.seq))}:event;
       const existing=sourceAt(event.seq),correlation=correlations.get(event.seq);
       if(correlation!==undefined&&typeof correlation!=='string'&&
         (!shape(correlation,['id','reconcile'])||!identity(correlation.id)||correlation.reconcile!==true))
@@ -191,10 +194,7 @@ export class SessionProjectionJournal {
     if(events.length) {
       const candidate=this.#session.branch();candidate.inheritedEventCount=inherited;
       candidate.begin();
-      try {for(const event of events) {
-        const {type,data,time,seq,...opts}=event;
-        candidate.appendObserved(type,data,time,opts);
-      }}finally{candidate.end();}
+      try {for(const event of events)candidate.adoptObserved(event);}finally{candidate.end();}
       this.#session.adoptBranch(candidate);
     }
     for(let index=0;index<annotations.length;index++) {

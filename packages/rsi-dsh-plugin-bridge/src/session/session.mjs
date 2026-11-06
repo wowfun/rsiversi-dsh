@@ -67,12 +67,12 @@ export class SessionFacade {
   #events = []; #ctx; #api; #surface; #active = false; #bytes = 0; #retired = false; #announced = false;
   #branch; #requestHeader; #titleEvent;
   #eventsSnapshot; #derived;
-  constructor(ctx, api, { header, events = [], inheritedEventCount = 0 }, announce = true) {
+  constructor(ctx, api, { header, events = [], inheritedEventCount = 0, eventState }, announce = true) {
     this.header = validateHeader(header); this.id = header.id;
     if (!integer(inheritedEventCount) || inheritedEventCount > events.length) throw new Error('invalid inherited prefix');
     this.inheritedEventCount = inheritedEventCount;
     this.#ctx = ctx; this.#api = api; this.#surface = new api.SurfaceManager(this.#events);
-    for (const event of events) this.#admit(event, false);
+    for (const event of events) this.#admit(event, false, eventState === 'shared-frozen');
     this.firstLiveSeq = this.seq;
     if (announce) this.attach();
   }
@@ -140,8 +140,13 @@ export class SessionFacade {
     if (!shape(opts, ['surfaceOp', 'sourceEventSeqs', 'ignorable'])) throw new Error('invalid observed append metadata');
     return this.#admit({ type, seq: this.seq, time, data, ...opts }, true);
   }
-  #admit(input, notify) {
-    const event = this.#api.snapshotJsonValue(input);
+  /** Internal transfer: owned containers may alias only validated, deeply frozen values. */
+  adoptObserved(event) {
+    if (!this.#active || this.#retired || !integer(event.time)) throw new Error('observed append outside owning transaction');
+    return this.#admit(event, true, true);
+  }
+  #admit(input, notify, adopt = false) {
+    const event = adopt ? input : this.#api.snapshotJsonValue(input);
     if (!event) throw new Error('event must be lossless JSON');
     envelope(event, this.seq);
     const bytes = Buffer.byteLength(JSON.stringify(event));

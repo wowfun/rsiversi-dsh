@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import {test} from 'node:test';
 import {readJournalDocument} from '../../src/session/journal-document.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
+import {SessionFacade} from '../../src/session/session.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -20,6 +21,38 @@ async function fixture(t,options={}) {
   const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
+
+test('native frozen bodies survive remapped positions and cold restore without duplication', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t,{nativeEventState:'shared-frozen'});
+  const source=new SessionFacade(ctx,api,{header},false);
+  source.begin();
+  const first=source.appendObserved('user/message',message('one','user','retained body'),1,{surfaceOp:'append'});
+  source.end();
+  journal.append('approval/policy',{policy:'ask'});
+  journal.merge(source.snapshotEvents());
+  assert.equal(journal.session.eventAt(1).seq,1);assert.equal(first.seq,0);
+  assert.equal(journal.session.eventAt(1).data,first.data);
+  assert.notEqual(journal.session.eventAt(1),first,'application positions own their envelopes');
+  const saved=readJournalDocument(journal.encode());
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:saved,native:source.snapshotEvents(),nativeEventState:'shared-frozen'});
+  cold.merge(source.snapshotEvents());
+  assert.equal(cold.session.eventAt(1).data,first.data);
+  assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
+  saved.events[0].data.policy='changed outside';
+  assert.equal(cold.session.eventAt(0).data.policy,'ask');
+});
+
+test('mutable native inputs are detached once and never frozen on behalf of the caller', {skip:!root},async t=>{
+  const {journal}=await fixture(t);
+  const input={seq:0,time:1,type:'user/message',data:message('one','user','original'),surfaceOp:'append'};
+  journal.merge([input]);
+  assert.equal(Object.isFrozen(input.data),false);
+  input.data.content[0].text='outside mutation';
+  assert.equal(journal.session.eventAt(0).data.content[0].text,'original');
+  assert.ok(Object.isFrozen(journal.session.eventAt(0).data.content[0]));
+  assert.throws(()=>journal.advance(1,[{...input,seq:1,data:{...input.data,bad:NaN}}]),/lossless JSON/);
+  assert.equal(journal.seq,1);
+});
 
 test('log-only Session events survive cold reload without allocating native mutation identities', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t);

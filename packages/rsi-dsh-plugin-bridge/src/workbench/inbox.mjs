@@ -13,6 +13,8 @@ export function workbenchInbox(seed) {
       target:target.replace('_','-'),start,...(removed?{removedCount:removed}:{}),inserted,
       ...(outcome?{outcome}:{}),
     },time);
+    for(let index=0;index<transition.inserted.length;index++)
+      transition.inserted[index].message=event.data.inserted[index];
     if(effects.length)transition.notifications=effects.map(effect=>effect.type==='agent/inbox/inserted'
       ?{...effect,data:{message:event.data.inserted.find(message=>message.id===effect.data.message.id)}}:effect);
     transitions.set(event.seq,transition);
