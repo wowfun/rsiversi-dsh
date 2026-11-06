@@ -122,12 +122,19 @@ the caller's original ID and source remain presentation attribution. A finite
 publication flushes the prepared invocation before native dispatch and records
 its exact receipt. A later human submission waits for prior input intents.
 
-Waking inputs prepare direct native submission with the complete original
+All new input accepts prepare direct native submission with the complete original
 attribution, ordered content and delivery intent. Recovery retries that exact
 submission when the input is still wanted. A read-only native message-status
 lookup and immutable acceptance read can settle a lost receipt without sending
 again. Only the stable acceptance identity and cursor are retained as completion;
 later claim or discard state is an observation, not a different receipt.
+Injection uses non-waking `next_step` delivery. Its first acceptance publishes
+the native Session and held input, without starting a Turn or resuming a paused
+inbox. Empty drafts remain unpublished. The native Store therefore owns recovery
+of accepted context even before the first question; no command catalog lookup,
+command argument encoding or separate draft-input body is needed. Already
+prepared command operations in older journals retain their original identity
+until settled; they are never reissued as a different submission.
 Idle native steering resolves to next-turn execution. Its acknowledgement aliases
 the original next-step application acceptance; later removal locates that same
 acceptance across the two presentation queues. Native promotion remains a real
@@ -178,8 +185,9 @@ prefix and publishes only after the whole new batch is accepted.
 Each local mutation retains a unique request identity and its event position.
 Preparation fixes the exact native invocation; completion records its receipt.
 Input operations reference the already accepted inbox event for content,
-attribution, delivery and message identity. A waking submission records only its
-operation kind. A context-input command retains its command, native revision and
+attribution, delivery and message identity. A submission records its operation
+kind, plus `delivery: 'next_step'` for non-waking input. Previously
+prepared context-input commands retain their command, native revision and
 invocation digest. Its request ID is the operation ID. The wire request is built
 from that immutable event when needed; no second input body is retained in memory
 or in the document. Cold loading verifies the command digest against this request.
@@ -229,7 +237,7 @@ authorized read function and cancellation signal; a retained projector does not
 retain a browser request. Source positions remain separate from application
 positions, including assistant-start and settlement cursors.
 
-Version 3 snapshots contain the Session header, total and inherited event counts,
+Version 4 snapshots contain the Session header, total and inherited event counts,
 local-owned events at their original positions, the native source map and mutation
 records in one JSON document. Native-only event bodies are reconstructed from the
 captured Store history, including translated inbox splices. They are not copied
@@ -243,8 +251,9 @@ to substitute a cached body. Restoration uses the same native read batch as the
 first observation. Older documents are validated and normalized once: version 1
 uses its complete log, and version 1/2 input invocations must agree exactly with
 their accepted event before their duplicate body is removed. Successful native
-reconciliation rewrites them as version 3; failed validation cannot replace the
-document. No second durable format or body cache is maintained alongside version 3.
+reconciliation rewrites them as version 4; failed validation cannot replace the
+document. Version 3 input recovery descriptors retain their existing meaning.
+No second durable format or body cache is maintained alongside version 4.
 
 The supplied persistence writer
 must atomically replace that document. Flushes serialize snapshots in acceptance

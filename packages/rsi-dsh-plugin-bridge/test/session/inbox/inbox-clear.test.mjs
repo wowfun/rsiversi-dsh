@@ -83,7 +83,7 @@ test('settled readiness does not enumerate all historical operations again',enab
   const original=f.owner.journal.operations;let enumerations=0;
   f.owner.journal.operations=function(){enumerations++;return original.call(this);};
   for(let i=0;i<20;i++)await f.scope.runOwned(()=>f.owner.input.ready());
-  assert.equal(enumerations,0);assert.equal(f.calls.filter(row=>row.method==='application.command'&&row.op.type==='execute').length,1);
+  assert.equal(enumerations,0);assert.equal(sends(f).length,1);
 });
 
 for(const kind of ['draft','durable'])for(const failure of ['before','after'])

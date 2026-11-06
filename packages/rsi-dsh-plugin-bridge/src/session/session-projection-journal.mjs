@@ -20,7 +20,7 @@ export class SessionProjectionJournal {
       seed={header:restore.header,events:restoreJournalEvents(restore,native,transitions),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
       this.#restore(restore.sources,restore.operations);
-      this.#saved=0;this.#rewrite=restore.version<3;
+      this.#saved=0;this.#rewrite=restore.version<4;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
       this.#session=this.#create(seed);

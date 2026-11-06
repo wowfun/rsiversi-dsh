@@ -178,7 +178,7 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 6. The native Host supplies an opaque `owner`
+Application opening uses protocol 7. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -288,11 +288,11 @@ tools are labeled as such, with no claimed result. The snapshot retains at most
 An empty native prefix selects before the source's first local Turn. When a
 plugin already truncated its open tail and supplies its own snapshot through
 inject, that original input remains the snapshot owner.
-Inject stages the native non-waking context command with ordered native content
+Inject submits native non-waking `NextStep` input with ordered native content
 blocks and presentation attribution (`id` and `source`). Text and verbatim files
 use the same conversion as waking submissions; native admission verifies file
 objects before publication. Native pending and
-consumed history readers expose that original message while native command
+consumed history readers expose that original message while native message
 identity remains the key for receipts, queue mutation and transition correlation.
 This survives cold replay and inherited history without a local metadata map.
 Followup submits a human
@@ -1105,8 +1105,8 @@ optimistic clears reconcile against an authoritative inbox snapshot, restoring
 still-pending native messages with their original acceptance identity; restoring
 a projection does not resubmit input. The shared journal owns that reconciliation.
 
-Waking `followup()` and `steer()` submissions use native direct application/user
-ingress with `NextTurn` and `Steer` intent. Each call captures the original
+`inject()`, `followup()` and `steer()` submissions use native direct application/user
+ingress with `NextStep`, `NextTurn` and `Steer` intent. Each call captures the original
 message ID, source and text/file blocks before asynchronous publication and allocates
 an independent native request ID. Native accepted inputs and consumed Facts
 retain that attribution, so pending projections and cold history show the same

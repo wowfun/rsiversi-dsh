@@ -11,7 +11,7 @@ export function readJournalDocument(document) {
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
   const state=JSON.parse(document);
   if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','inboxSlotFrom'])
-    ||![1,2,3].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
+    ||![1,2,3,4].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
   if(state.version===1) {
     if(state.eventCount===undefined)state.eventCount=state.events.length;
@@ -88,7 +88,7 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
 export function encodeJournalDocument(session,events,sources,operations,inboxSlotFrom) {
   const event=session.lastEvent('session/title');
   const prefix=JSON.stringify({header:session.header,eventCount:session.seq,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-  const document=JSON.stringify({version:3,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
+  const document=JSON.stringify({version:4,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
   const value=prefix.slice(0,-1)+',\n'+document.slice(1);
   if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
   return value;

@@ -3,7 +3,7 @@ import {RemoteRequestError} from '../../../../rsi-dsh-cordis/src/runtime/transpo
 import {isDeepStrictEqual} from 'node:util';
 import {commandReceipt} from '../command-receipts.mjs';
 import {inboxReader,inputNativeId,isDirectSubmission} from './inbox-state.mjs';
-import {contextIntent,contextRequest,submissionRequest} from './input-invocation.mjs';
+import {contextRequest,submissionRequest} from './input-invocation.mjs';
 import {contentBlocks,nativeMessageId,nativeMessageSource} from '../../history/conversation-history.mjs';
 const mutationFor=(id,input)=>({operation_id:id,slot_id:input.slot_id,expected_message_id:input.message_id,mutation:{action:'withdraw'}});
 function queueReceipt(id,input,receipt) {
@@ -14,7 +14,7 @@ function queueReceipt(id,input,receipt) {
   return receipt;
 }
 
-/** Application acceptance is synchronous; the native command/queue remains the execution owner. */
+/** Application acceptance is synchronous; the native mailbox remains the execution owner. */
 export function inputIntents(journal,{command,submit,messageStatus,readMessage,beforeSubmit,inbox,transitions}) {
   let tail=Promise.resolve(),settledThrough=0;const undispatched=new Set(),reader=inboxReader(journal,transitions);
   const read=()=>reader.prefix();
@@ -86,7 +86,11 @@ export function inputIntents(journal,{command,submit,messageStatus,readMessage,b
     if(operation.receipt||read().withdrawn.has('local:'+id))return;
     if(blockedRestorations.has(journal.session.eventAt(operation.seq).data.inserted[0].id))
       throw Error('A reused message ID still has native pending input after an unconfirmed clear');
-    if(operation.invocation?.kind!=='submission')return inject(operation,signal);
+    if(!operation.invocation) {
+      // An older acceptance without preparation has never reached native dispatch.
+      journal.prepare(id,{kind:'submission',delivery:'next_step'});operation=journal.operation(id);undispatched.add(id);
+    }
+    if(operation.invocation.kind!=='submission')return settleCommandInput(operation,signal);
     await journal.flush();signal?.throwIfAborted();
     if(read().withdrawn.has('local:'+id))return;
     let receipt=!undispatched.has(id)?await submittedStatus(operation,signal):undefined;
@@ -111,26 +115,13 @@ export function inputIntents(journal,{command,submit,messageStatus,readMessage,b
     }
     journal.complete(id,receipt);await journal.flush();
   }
-  async function inject(operation,signal) {
+  async function settleCommandInput(operation,signal) {
     const id=operation.id;
-    if(operation.receipt||read().withdrawn.has('local:'+id))return;
-    if(!operation.invocation) {
-      const catalog=await command({type:'list'},signal);
-      if(read().withdrawn.has('local:'+id))return;
-      const descriptor=catalog.commands.find(row=>row.name==='context-input');
-      if(!descriptor)throw Error('Native Session has no context-input command');
-      journal.prepare(id,contextIntent(descriptor.id,catalog.revision,id,journal.session.eventAt(operation.seq)));
-      operation=journal.operation(id);undispatched.add(id);
-    }
     await journal.flush();signal?.throwIfAborted();
-    if(read().withdrawn.has('local:'+id)) {
-      if(undispatched.delete(id))journal.complete(id,{kind:'not-dispatched'});
-      return;
-    }
-    let receipt=!undispatched.has(id)?await command({type:'status',request_id:id},signal):undefined;
+    if(read().withdrawn.has('local:'+id))return;
+    let receipt=await command({type:'status',request_id:id},signal);
     if(!receipt) {
       if(read().withdrawn.has('local:'+id))return;
-      undispatched.delete(id);
       receipt=await command({type:'execute',invocation:contextRequest(operation,journal.session.eventAt(operation.seq))},signal);
     }
     journal.complete(id,commandReceipt(operation,receipt,operation.invocation.sha256));await journal.flush();
@@ -245,10 +236,8 @@ export function inputIntents(journal,{command,submit,messageStatus,readMessage,b
         throw Error('Native Agent input requires text, file or image user content');
       if(delivery!==undefined&&!['next_turn','steer'].includes(delivery))throw Error('Invalid native input delivery');
       const accepted=insert(message,delivery==='next_turn'?'next-turn':'next-step');
-      if(delivery) {
-        journal.prepare(accepted.id,{kind:'submission'});
-        undispatched.add(accepted.id);
-      }
+      journal.prepare(accepted.id,{kind:'submission',...(!delivery?{delivery:'next_step'}:{})});
+      undispatched.add(accepted.id);
       return accepted;
     },remove,clear,reconcileClears,
     get needsClearReconciliation(){return pendingClears.size>0&&activeClears.size===0;},

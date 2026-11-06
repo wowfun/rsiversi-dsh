@@ -9,7 +9,6 @@ import {workbenchAgents} from '../../src/workbench/agents.mjs';
 import {captureAgentView} from '../../src/workbench/agent-view.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
 import {inputIntents} from '../../src/session/inbox/input-intents.mjs';
-import {invocationDigest} from '../../src/session/command-receipts.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 for(const open of [false,true])test(`original registry owns ${open?'open':'completed'} native fork setup, input receipts and ordered stop before scoped teardown`,{skip:!root,timeout:10000},async t=>{
@@ -66,17 +65,17 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
         assert.match(args.operation.invocation.arguments.text,/Open parent context/);
         state.seed=args.operation.invocation.arguments.text;state.revision++;return {committed:true};
       }
-      assert.notEqual(args.operation.invocation.request_id,'boundary');
-      assert.deepEqual(args.operation.invocation.arguments.attribution,{id:'boundary',source:{kind:'plugin:sidechat',tag:{n:1}}});
-      const invocation=args.operation.invocation,hash=invocationDigest(invocation),nativeId=`command-${hash}-0`;
-      state.pending.push({message_id:nativeId,source_kind:'command',target:'next_step',
-        message:{message_id:nativeId,source:{type:'command',source:{command:invocation.command,request_id:invocation.request_id,
-          invocation_sha256:hash,ordinal:0,attribution:invocation.arguments.attribution}},
-          content:args.operation.invocation.arguments.content}});
-      state.revision++;return {command:invocation.command,request_id:invocation.request_id,invocation_sha256:hash,state_sha256:'a'.repeat(64),
-        outcome:{kind:'draft_changed',revision:state.revision}};
+      assert.fail('injection must not execute a native command');
     }
     if(method==='application.submit'){
+      if(args.delivery==='next_step') {
+        assert.notEqual(args.message_id,'boundary');
+        assert.deepEqual(args.attribution,{id:'boundary',source:{kind:'plugin:sidechat',tag:{n:1}}});
+        state.pending.push({message_id:args.message_id,source_kind:'human',target:'next_step',
+          message:{message_id:args.message_id,source:{type:'human',attribution:args.attribution},
+            content:args.content.map(({kind,...part})=>({type:kind,...part}))}});
+        state.revision++;return {session_id:args.session_id,message_id:args.message_id,accepted_control_seq:1};
+      }
       assert.equal(state.pending.length,1,'context was committed before human submit');
       assert.deepEqual(state.pending[0].message.content,[{type:'text',text:'context'},{type:'text',text:'第二块'}]);
       assert.deepEqual(args.content,[{kind:'text',text:'question'}]);
@@ -150,7 +149,7 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
   handle.agent.inject(boundary);boundary.source.tag.n=2;boundary.content[1].text='changed';
   const question={id:'question',role:'user',source:{kind:'user',label:{value:'original'}},content:[{type:'text',text:'question'}]};
   handle.agent.followup(question);question.id='changed';question.content[0].text='changed';question.source.label.value='changed';
-  while(handle.agent.status!=='running')await setImmediate();
+  for(let i=0;handle.agent.status!=='running';i++){assert.ok(i<2000,'input publication did not start the question');await setImmediate();}
   assert.equal(handle.agent.status,'running');
   const notified=Promise.withResolvers();
   ctx.on('session/event',(session,event)=>{if(session===handle.agent.session)notified.resolve(event);});

@@ -7,7 +7,8 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workbenchHistory} from '../../../src/workbench/history.mjs';
 import {invocationDigest} from '../../../src/session/command-receipts.mjs';
-import {contextIntent,contextRequest} from '../../../src/session/inbox/input-invocation.mjs';
+import {contextRequest} from '../../../src/session/inbox/input-invocation.mjs';
+import {contextIntent} from '../../fixtures/native-inbox-fixture.mjs';
 import {inboxObservationProjection} from '../../../src/session/inbox/inbox-observations.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT,source=process.env.RSI_DSH_INBOX_SOURCE;
@@ -69,6 +70,14 @@ async function fixture(t) {
   }
   return {session,owner,journal,capture,state,control,accept,acknowledgement,external,remove,cold,messages,controls};
 }
+
+test('non-waking submission cannot be acknowledged as idle steering',enabled,async t=>{
+  const f=await fixture(t),message=user('held');
+  f.journal.accept('held-native','agent/inbox/spliced',{target:'next-step',start:0,inserted:[message]}, {},1,{kind:'submission',delivery:'next_step'});
+  f.messages.set('held-native',{message_id:'held-native',source:{type:'human',attribution:{id:message.id,source:message.source}},content:message.content});
+  f.control({kind:'accepted',message_id:'held-native',target:'next_turn'});
+  await assert.rejects(f.capture(),/changed its target/);
+});
 
 test('the shared owner translates interleaved queue positions and aliases exact native acknowledgements',enabled,async t=>{
   const f=await fixture(t),first=f.accept('first',user('原始 id'));

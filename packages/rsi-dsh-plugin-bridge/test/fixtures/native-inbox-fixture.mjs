@@ -10,6 +10,12 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {workbenchAgents} from '../../src/workbench/agents.mjs';
 import {invocationDigest} from '../../src/session/command-receipts.mjs';
+import {contextRequest} from '../../src/session/inbox/input-invocation.mjs';
+
+export function contextIntent(command,expected_revision,id,event) {
+  const invocation={command,expected_revision};
+  return {kind:'context-input',...invocation,sha256:invocationDigest(contextRequest({id,invocation},event))};
+}
 
 export const message=(id,text=id)=>({id,role:'user',source:{kind:'plugin:test',tag:{n:1}},content:[{type:'text',text},{type:'text',text:'第二块'}]});
 export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
@@ -38,7 +44,7 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
   const meta=()=>({id:'one',created_at:1,cwd:process.cwd(),inherited:false,through:0,model_baseline:baseline,model_selection:baseline,
     selection_cursor:state.kind==='draft'?{kind:'draft',revision:state.revision}:{kind:'durable',...cursor()}});
   const snapshot=()=>structuredClone({kind:state.kind,session_id:'one',pending:state.pending,active_turn_id:state.activeTurn?'turn':null,
-    driver_active:!!(state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.source_kind==='human'))),
+    driver_active:!!(state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.target==='next_turn'))),
     ...(state.kind==='draft'?{revision:state.revision}:{cursor:cursor()})});
   const read=async(id,op,signal)=>{
     assert.equal(id,'one');signal?.throwIfAborted();
@@ -94,7 +100,7 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
     if(method==='application.inbox') {
       if(op.type==='wait_idle') {
         await state.idleGate?.promise;
-        const busy=()=>state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.source_kind==='human'));
+        const busy=()=>state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.target==='next_turn'));
         if(!busy())return null;
         return new Promise((resolve,reject)=>{
           const done=()=>{if(busy())return;waiters.delete(done);signal?.removeEventListener('abort',aborted);resolve(null);};
@@ -147,16 +153,16 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
       if(state.failSubmit==='rejected')throw new RemoteRequestError('mailbox refused');
       const {request,...input}=args,prior=state.submissions.get(args.message_id);
       if(prior){assert.deepEqual(prior.input,input);return prior.receipt;}
-      state.paused=false;
+      if(args.delivery!=='next_step')state.paused=false;
       if(state.kind==='draft') {state.kind='durable';for(const row of state.pending)control({kind:'accepted',message_id:row.message_id,target:row.target});}
       const native={message_id:args.message_id,source:{type:args.origin==='application'?'application':'human',attribution:args.attribution},
         content:args.content.map(({kind,...part})=>({type:kind,...part}))};state.messages.set(args.message_id,native);
-      const target=args.delivery==='steer'&&state.activeTurn?'next_step':'next_turn';
+      const target=args.delivery==='next_step'||args.delivery==='steer'&&state.activeTurn?'next_step':'next_turn';
       state.pending.push({message_id:args.message_id,source_kind:native.source.type,target,queue_slot:{id:args.message_id},message:native});
       control({kind:'accepted',message_id:args.message_id,target});
       const receipt={session_id:'one',message_id:args.message_id,accepted_control_seq:state.control};
       state.submissions.set(args.message_id,{input,receipt});
-      if(!state.holdSubmissions){for(const row of state.pending)control({kind:'claimed',message_id:row.message_id});state.pending=[];}
+      if(args.delivery!=='next_step'&&!state.holdSubmissions){for(const row of state.pending)control({kind:'claimed',message_id:row.message_id});state.pending=[];}
       if(state.failSubmit==='after')throw Error('submission reply lost');
       if(state.failSubmit==='committed-error')throw new RemoteRequestError('reply failed after commit');
       return receipt;
