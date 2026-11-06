@@ -355,17 +355,23 @@ one native request series. The DSH registry owns registration, activation
 and withdrawal. An admitted native body belongs to that invocation's DSH
 execution source. Public registry lookups made by hooks still see the actual
 registered plugin, including when it has the same name as the native tool.
-A started invocation is recorded under its native
-Session and effect before entering the original pipeline. Protocol 11 keeps
+A started invocation is bound in memory under its native
+Session and effect before entering the original pipeline. The native Tool intent
+owns durable admission; the application persists only settled results. Protocol 11 keeps
 the initial start request open and returns the committed JSON snapshot after
 the atomic outcome write. A repeated start for the same retained invocation returns its
 recorded state. A read of its outcome never dispatches the tool. An interrupted
 body without a recorded result reports uncertainty. Reads and cancellation bind to the
 original registration and native Tool result identity, including the caller's
-argument digest. A cancellation arriving during admission observes the pending
-write before deciding whether the body is running. Lost HTTP responses can be followed by another outcome read
-on the current or replacement process. At most eight calls run at once.
-When the application retires, a call still writing its admission receipt cannot
+argument digest. A cancellation arriving during admission waits for that ordered
+admission before deciding whether the body is running. Lost HTTP responses are followed
+only by outcome reads on the current or replacement process. A new execution requires
+the original live captured view and registration; duplicate start may read an existing
+matching receipt without that view. Missing receipts in a replacement process remain
+unknown. At most eight calls run at once. Pending and unknown live bindings share the
+128-record retention limit with settled files; only settled files count toward the
+64 MiB disk budget. Identity fields follow the native 256-byte identifier bound.
+When the application retires, a call still awaiting admission cannot
 enter the plugin body. Retirement cancels bodies already running and waits for
 their final receipt writes before releasing the captured tool sets.
 Market tool hooks return text `additionalContexts` through this receipt.

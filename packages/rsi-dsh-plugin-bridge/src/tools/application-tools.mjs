@@ -89,9 +89,9 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     }
     return row.stopping;
   }
-  async function run(input,signal){
-    const {name,args,registration,session,identity}=input,view=views.get(input.view);
-    if(!view||view.session.id!==session||view.bindings.get(registration)!==name)
+  async function run(input,signal,view){
+    const {name,args,identity}=input;
+    if(view.controller.signal.aborted)
       return failure('UNKNOWN_TOOL','The captured tool is no longer available');
     if(!view.selection.view(view.agent).has(name))return failure('UNKNOWN_TOOL','The captured tool registration was withdrawn');
     const result=await sessions.withToolAgent(view.agent,()=>execute({agent:view.agent,callId:identity.call_id,name,
@@ -112,7 +112,11 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
         if(input.callback==='stopping'&&row?.stopping)return row.stopping;
         throw Error('Callback outcome unavailable for this view');
       }
-      case '/v1/start':return ledger.start(input,stop=>run(input,stop));
+      case '/v1/start':{
+        const view=views.get(input.view);
+        const admitted=view&&view.session.id===input.session&&view.bindings.get(input.registration)===input.name;
+        return ledger.start(input,admitted?stop=>run(input,stop,view):undefined);
+      }
       case '/v1/outcome':return ledger.outcome(input);
       case '/v1/cancel':return ledger.cancel(input);
       case '/v1/release':release(input.view);return {};

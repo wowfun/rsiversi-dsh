@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomUUID} from 'node:crypto';
-import {mkdir,mkdtemp,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,rm,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
@@ -12,6 +12,52 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 const nativeSelection={provider:'native',model:'selected',reasoningEffort:'low'};
+
+test('replacement processes only query old effects and cannot restart them through a new captured view', {skip:!root},async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-tool-replacement-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+  const tools=await load('@deepseek-ai/dsh-tools');let calls=0,failWrite=true;
+  async function host(){
+    const ctx=new (await load('@deepseek-ai/cordis')).Context();
+    for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
+    await ctx.plugin(tools.default);
+    ctx.tools.register(tools.defineTool({name:'counter',description:'Count executions',parameters:{},
+      output:{schema:{type:'number'},render:(_,value)=>[{type:'text',text:String(value)}]},execute(){return ++calls;}}));
+    const sessions=applicationSessions(()=>{throw Error('unexpected native Session access');}),key=randomUUID();
+    const listener=await applicationTools(ctx,{key,generation:randomUUID(),directory,sessions,
+      load:async name=>name==='@deepseek-ai/dsh-atomic-write'?{writeFileAtomic:async(...args)=>{
+        if(failWrite)throw Error('result write lost');return (await load(name)).writeFileAtomic(...args);
+      }}:load(name)});
+    const close=async()=>{await ctx.fiber.dispose();await sessions.close();};t.after(close);
+    const post=async(path,input,status=200)=>{
+      const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,{method:'POST',
+        headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input)});
+      const value=await response.json();assert.equal(response.status,status,JSON.stringify(value));return value;
+    };
+    return {close,post,capture:()=>post('capture',{view:randomUUID(),header:{id:'session',cwd:directory},reserved:[],modelSelection:nativeSelection})};
+  }
+  const first=await host(),captured=await first.capture(),effect=randomUUID();
+  const input={view:captured.view,session:'session',effect,name:'counter',args:{},registration:captured.tools[0].registration,
+    identity:{owner_id:'owner',invocation_id:effect,call_id:randomUUID(),request_sha256:'a'.repeat(64)}};
+  assert.deepEqual(await first.post('start',input),{state:'unknown'});
+  assert.deepEqual(await first.post('start',input),{state:'unknown'});assert.equal(calls,1);
+  assert.deepEqual(await readdir(directory),[]);await first.close();
+  failWrite=false;
+  const replacement=await host(),next=await replacement.capture();
+  assert.deepEqual(await replacement.post('outcome',input),{state:'unknown'});
+  assert.deepEqual(await replacement.post('start',input),{state:'unknown'});
+  assert.deepEqual(await replacement.post('start',{...input,view:next.view}),{state:'unknown'});
+  assert.equal(calls,1,'an old registration cannot enter the replacement plugin');
+  const nextEffect=randomUUID(),fresh={...input,view:next.view,effect:nextEffect,registration:next.tools[0].registration,
+    identity:{...input.identity,invocation_id:nextEffect,call_id:randomUUID()}};
+  const settled=await replacement.post('start',fresh);assert.equal(settled.state,'settled');assert.equal(settled.result.value,2);
+  assert.equal((await readdir(directory)).length,1);
+  await replacement.post('release',{view:next.view});assert.deepEqual(await replacement.post('start',fresh),settled);
+  assert.deepEqual(await replacement.post('outcome',fresh),settled);await replacement.close();
+  const cold=await host();assert.deepEqual(await cold.post('outcome',fresh),settled);
+  assert.deepEqual(await cold.post('start',fresh),settled);assert.equal(calls,2);
+});
 
 test('original application policy allows by default, asks once when requested and preserves denial and guards',
   {skip:!root,timeout:30000},async t=>{
@@ -249,7 +295,7 @@ test('a captured Cordis registration settles once in its own Session and survive
       assert.equal((await post('outcome',{...input,identity:{...input.identity,request_sha256:'b'.repeat(64)}})).value.state,'unknown');
       assert.equal((await post('outcome',{...input,registration:randomUUID()})).value.state,'unknown');
       const wrong=request(selected,session==='one'?'two':'one');
-      assert.equal((await outcome('start',wrong)).result.value.code,'UNKNOWN_TOOL');
+      assert.deepEqual(await outcome('start',wrong),{state:'unknown'});
       await post('release',{view:selected.view});
     }
     assert.equal(calls,2);
