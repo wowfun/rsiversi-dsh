@@ -13,8 +13,8 @@ export function readJournalDocument(document) {
     ||![1,2].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
   if(state.version===1) {
-    state.eventCount??=state.events.length;
-    state.inboxSlotFrom??=state.sources.length;
+    if(state.eventCount===undefined)state.eventCount=state.events.length;
+    if(state.inboxSlotFrom===undefined)state.inboxSlotFrom=state.sources.length;
     if(state.eventCount!==state.events.length)throw Error('Invalid application journal event count');
   }
   if(!integer(state.eventCount)||state.eventCount>100_000||!integer(state.inheritedEventCount)

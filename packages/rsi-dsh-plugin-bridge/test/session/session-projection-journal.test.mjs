@@ -431,4 +431,6 @@ test('saved journals retain the native prefix that used predecessor-based inbox 
   cold.merge([...native,{...native[1],seq:2}]);
   assert.equal(restore(JSON.parse(cold.encode()),[...native,{...native[1],seq:2}]).inboxSlotFrom,2);
   assert.throws(()=>restore({...saved,inboxSlotFrom:3},native),/source boundary/);
+  assert.throws(()=>restore({...saved,inboxSlotFrom:null},native),/source boundary/);
+  assert.throws(()=>restore({...saved,eventCount:null},native),/event count/);
 });
