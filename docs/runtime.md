@@ -178,7 +178,7 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 7. The native Host supplies an opaque `owner`
+Application opening uses protocol 8. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -907,9 +907,11 @@ drafts, preserve inherited event counts and return frozen event values in fresh
 outer arrays. Read handles cannot append or flush. Closing is idempotent and
 invalidates later reads. The bounded captured-view cache includes the native
 draft revision or durable Fact/control pair and the application journal revision.
-A retained durable view checks the indexed revision through the metadata-only
-native read. Only a changed or absent view needs the full model-selection opening
-snapshot and history projection. Draft capture still uses its live snapshot.
+Persisted opens and reads use the metadata-only native read, including a cold
+open. Its immutable model baseline and indexed Fact/control cut are sufficient
+to project history and model changes. A changed revision passes that exact cut
+to the projector without a second opening request or a live model projection.
+Draft capture still uses its live snapshot; persistence never opens a draft.
 A pending capture orders later captures for the same Session. Readers of other
 Sessions proceed independently. Point and last-event lookups stay within the
 captured prefix and allocate no event array.

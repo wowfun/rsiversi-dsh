@@ -41,20 +41,24 @@ test('native read handles refresh control-only history, bind opening authority, 
   let control=2,allowed=true,captures=0,reads=0,paused;const metadataOnlyReads=[];
   const events=[Object.freeze({seq:0,type:'session/end-seed',data:Object.freeze({})}),Object.freeze({seq:1,type:'user/message',data:Object.freeze({content:'owned'})})];
   const service=workbenchPersistence({async metadata(id,signal,metadataOnly=false){
+    assert.equal(metadataOnly,true,'stored reads must work without a live projection, including cold open');
     metadataOnlyReads.push(metadataOnly);
     reads++;assert.equal(scope.getStore(),'opening');signal?.throwIfAborted();
     if(paused)await paused.promise;
     if(!allowed)throw Error('Request authority withdrawn');
-    return {id,created_at:1,inherited:true,parent:'parent',preset:'native',selection_cursor:{kind:'durable',control_seq:control,fact_seq:5}};
+    return {id,created_at:1,inherited:true,parent:'parent',preset:'native',through:5,
+      model_baseline:{model:{deployment:'test',model:'baseline'}},selection_cursor:{kind:'durable',control_seq:control,fact_seq:5}};
   },snapshot:workbenchHistory({}).snapshot,async capture(id,meta){
-    if(captures)assert.equal(meta,undefined,'a changed indexed revision must open a fresh full snapshot');
+    assert.equal(meta.through,5,'the projector receives the captured Fact cut');
+    assert.equal(meta.selection_cursor.control_seq,control,'control-only refresh uses its captured cut');
+    assert.equal(meta.model_baseline.model.model,'baseline');
     captures++;const frozen=[...events];
     return {id:'one',header,seq:frozen.length,inheritedEventCount:1,encodedBytes:256,
       requestHeader:()=>undefined,snapshotEvents:(start=0,end)=>frozen.slice(start,end),eventAt:seq=>frozen[seq],lastEvent:type=>frozen.findLast(e=>e.type===type)};
   }},errors);
   const [first,second]=await scope.run('opening',()=>Promise.all([service.open('one','read'),service.open('one','read')]));
   assert.equal(captures,1);assert.equal(first.inheritedEventCount,1);
-  assert.deepEqual(metadataOnlyReads,[false,true],'an unchanged durable view avoids rebuilding model projections');
+  assert.deepEqual(metadataOnlyReads,[true,true],'cold and unchanged durable views avoid live projections');
   const initial=await scope.run('other',()=>first.read());
   assert.equal(initial.eventState,'shared-frozen');assert.ok(Object.isFrozen(initial.events[1].data));
   initial.events.length=0;assert.equal((await first.read()).events.length,2);
@@ -84,4 +88,35 @@ test('draft mirrors stay available to the request while persistence refuses to i
   assert.equal((await service.capture('draft')).seq,0);assert.equal(await service.stat('draft'),undefined);
   await assert.rejects(service.open('draft','read'),errors.SessionPersistenceNotFoundError);
   await assert.rejects(service.open('draft','write'),errors.SessionReadOnlyError);
+});
+
+test('cold persistence reconstructs native controls while live projection reads are unavailable',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const baseline={model:{deployment:'native',model:'configured'},reasoning_effort:'high'};
+  const controls=[{kind:'model',seq:1,after_fact_seq:0,time:1,selection:{...baseline,reasoning_effort:'low'}}];
+  let opens=0;
+  const history=workbenchHistory({ctx,api,llm:await load('dsh-llm'),async read(id,op){
+    if(op.type==='open'){
+      if(!op.metadata_only)throw Error('Live projection unavailable');
+      opens++;
+      return {id,created_at:1,inherited:false,through:0,model_baseline:baseline,
+        selection_cursor:{kind:'durable',fact_seq:0,control_seq:controls.length}};
+    }
+    assert.equal(op.type,'controls');
+    return {through:op.through_seq,events:controls.slice(op.after_seq,op.through_seq)};
+  }});
+  t.after(()=>history.close());
+  const persistence=workbenchPersistence(history,await load('dsh-session-persistence'));
+  const handle=await persistence.open('stored','read');t.after(()=>handle.close());
+  assert.equal(opens,1);
+  const initial=(await handle.read()).events;
+  assert.equal(initial.length,1);assert.equal(initial[0].data.reasoningEffort,'low');
+  controls.push({kind:'model',seq:2,after_fact_seq:0,time:2,selection:baseline});
+  const before=opens,updated=(await handle.read()).events;
+  assert.equal(opens,before+1,'a changed cut requires no second opening request');
+  assert.equal(updated.length,2);assert.equal(updated[1].data.reasoningEffort,'high');
+  assert.equal(updated[0],initial[0],'the shared frozen prefix is reused');
 });
