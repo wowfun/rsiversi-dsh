@@ -16,6 +16,13 @@ and empty-message rules applied. `deriveEventMessage(event)` uses the same
 surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot
 until the log advances. Previously returned arrays retain their original cut.
 
+`session.observeEvent` registers a passive listener before returning `ready`.
+It can subscribe before a Session exists. It reads no baseline and starts no
+Agent or native history wait. Events from the registered Session's Cordis
+scope retain their original sequence. On creation, the listener includes
+events appended after that Session's `firstLiveSeq`, excluding restored
+history. Cancellation or owner disposal removes the listener.
+
 DSH hook handlers append their log-only `hook/invoked` and `hook/result`
 records to the same Session. Their turn, point and handler ID survive cold
 replay. Neither record changes the model-visible conversation.

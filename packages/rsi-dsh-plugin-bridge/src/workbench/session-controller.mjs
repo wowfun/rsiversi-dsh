@@ -1,4 +1,5 @@
 import {updateQueue} from './queue.mjs';
+import {observeSessionEvents} from './event-stream.mjs';
 
 /** Use the release's generated session codec and dispatch machinery. */
 export function sessionSummary(ctx,{id,cwd,updatedAt,blank,running,parent,projections}) {
@@ -8,7 +9,7 @@ export function sessionSummary(ctx,{id,cwd,updatedAt,blank,running,parent,projec
     ...(parent?{parentSessionId:parent,origin:'subagent'}:{})};
 }
 
-export function sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError},scope,history,interactions,activate) {
+export function sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},scope,history,interactions,activate) {
   return class extends TypertRemoteService {
     static inject=['typert'];
     constructor(ctx) {super(ctx,'sessionController',{namespace:'session'});}
@@ -109,6 +110,9 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
     }
     events(request,signal) {return history.page(request,signal);}
     page(request,signal) {return this.events(request,signal);}
+    observeEvent({address},signal) {
+      return observeSessionEvents(this.ctx,address.kind==='subagent'?address.childSessionId:address.sessionId,signal,{RemoteError,Deque});
+    }
     projections(request,signal) {return history.projections(request,signal);}
     observeProjections(request,signal) {return history.observeProjections(request,signal);}
     control(signal) {return history.control(signal);}

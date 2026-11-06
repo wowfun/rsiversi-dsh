@@ -92,7 +92,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     ctx.effect(()=>()=>history.close(),'flush application Session journals');
     persistence=workbenchPersistence(history,await load('@deepseek-ai/dsh-session-persistence'),sessionScope.storedPages);
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
-    hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError},sessionScope,history,interactions,
+    const {Deque}=await load('@deepseek-ai/dsh-deque');
+    hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
       (id,signal)=>agents.ensure(id,signal)));
     hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,sessionScope,RemoteError));
     const jobName='@deepseek-ai/dsh-api-job-controller';

@@ -108,6 +108,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
   }
   function mirror(record) {
     const session={id:record.id,
+      firstLiveSeq:record.view.session.seq,
       get header(){return record.view.session.header;},get seq(){return record.view.session.seq;},
       get inheritedEventCount(){return record.view.session.inheritedEventCount;},
       get surface(){return record.view.session.surface;},

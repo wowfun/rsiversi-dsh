@@ -73,6 +73,7 @@ export class SessionFacade {
     this.inheritedEventCount = inheritedEventCount;
     this.#ctx = ctx; this.#api = api; this.#surface = new api.SurfaceManager(this.#events);
     for (const event of events) this.#admit(event, false);
+    this.firstLiveSeq = this.seq;
     if (announce) this.attach();
   }
   attach() { if (!this.#announced && !this.#retired) { this.#announced = true; this.#ctx.emit('session/created', this); } }
