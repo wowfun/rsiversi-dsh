@@ -10,7 +10,8 @@ const [bin,home,document]=process.argv.slice(2).map(path=>resolve(path));
 await mkdir(home,{recursive:false});
 const source=join(home,'source');await mkdir(source);
 const files=[];
-for(const [path,located] of [['entry.mjs','./small-process.mjs'],['transport.mjs','../../packages/rsi-dsh-cordis/src/runtime/transport.mjs']]) {
+for(const [path,located] of [['entry.mjs','./small-process.mjs'],
+  ...['transport','frames'].map(name=>[name+'.mjs','../../packages/rsi-dsh-cordis/src/runtime/'+name+'.mjs'])]) {
   const file=fileURLToPath(new URL(located,import.meta.url));files.push({path,source:file,bytes:(await stat(file)).size});
 }
 const tree=await writePayloadFiles(files,join(source,'runtime.rsi'));
