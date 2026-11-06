@@ -14,7 +14,7 @@ import {workbenchProfile} from '../../src/workbench/profile.mjs';
 import {shellPreset} from '../../../../fixtures/market/shell-preset.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
-test('the market profile runs the release shell service and platform model tools', {skip:!root},async t=>{
+test('the market profile runs the release shell service and platform model tools', {skip:!root,timeout:120000},async t=>{
   // bwrap gives the child a private /tmp. Keep the fixture on the host filesystem.
   const profile=await mkdtemp(join(homedir(),'.rsi-dsh-shell-'));
   const workspace=join(profile,'session');
@@ -85,16 +85,19 @@ test('the market profile runs the release shell service and platform model tools
   await writeFile(join(workspace,'proof.txt'),token);
   const select=agent=>post('capture',{header:agent.session.header,view:randomUUID(),reserved:[],
     modelSelection:{provider:'test',model:'test'}});
-  async function invoke(agent,selection,name,args){
+  function invocation(agent,selection,name,args){
     const effect=randomUUID();
-    const input={session:agent.id,view:selection.view,effect,name,args,
+    return {session:agent.id,view:selection.view,effect,name,args,
       registration:selection.tools.find(tool=>tool.definition.name===name).registration,
       identity:{owner_id:'shell-test',invocation_id:effect,call_id:randomUUID(),request_sha256:'a'.repeat(64)}};
+  }
+  async function invoke(agent,selection,name,args){
+    const input=invocation(agent,selection,name,args);
     const {result}=await post('start',input);
     assert.deepEqual((await post('outcome',input)).result,result);
     return result;
   }
-  for(const preset of ['standard','minimal'])await t.test(preset+' executes the original platform model tool',async()=>{
+  for(const preset of ['standard','minimal'])await t.test(preset+' executes the original platform model tool',async test=>{
     await app.reconcile([{insert:[...services,...await shellPreset(root,preset)]}]);
     const selection=await select(agent);
     try {
@@ -160,6 +163,34 @@ test('the market profile runs the release shell service and platform model tools
         }finally{await post('release',{view:next.view});}
       }
     }
+    await test.test('cancels an executing command and can execute again',{timeout:30000},async()=>{
+      const selected=await select(agent),ready=preset+'-cancel-ready.txt';
+      const command=name==='pwsh'?
+        `$global:RsiCancelled = 'pending'; Set-Content -NoNewline -LiteralPath ${ready} -Value ready; Start-Sleep -Seconds 60`:
+        `export RSI_CANCELLED=pending; printf ready > ${ready}; sleep 60`;
+      const input=invocation(agent,selected,name,{command,...preset==='standard'?{description:'Cancel the running shell'}:{}});
+      const pending=post('start',input);
+      try {
+        // The child, rather than a timer, proves that cancellation reaches an
+        // executing native command after shell initialization has completed.
+        await t.waitFor(async()=>assert.equal(await readFile(join(workspace,ready),'utf8'),'ready'),{timeout:15000});
+        assert.deepEqual(await post('cancel',input),{accepted:true});
+        const outcome=await pending;
+        assert.equal(outcome.state,'settled',JSON.stringify(outcome));
+        assert.equal(outcome.result.is_error,true,JSON.stringify(outcome));
+        assert.equal(outcome.result.metadata.dsh.error.code,'ABORTED');
+        assert.deepEqual(await post('outcome',input),outcome);
+        const command=name==='pwsh'?"if ($global:RsiCancelled) { $global:RsiCancelled } else { 'fresh' }":
+          'echo "${RSI_CANCELLED:-fresh}"';
+        const reply=await invoke(agent,selected,name,{command,...preset==='standard'?{description:'Use shell after cancellation'}:{}});
+        assert.equal(reply.is_error,false,JSON.stringify(reply));
+        assert.equal((preset==='standard'?reply.value.stdout.text:reply.value).split(/\r?\n/)[0],'fresh');
+      } finally {
+        await post('cancel',input);
+        await pending;
+        await post('release',{view:selected.view});
+      }
+    });
   });
 
   await t.test('Claude Code Mods can gate the standard shell on the calling Session history',async()=>{

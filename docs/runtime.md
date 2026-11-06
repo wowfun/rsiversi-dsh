@@ -164,8 +164,11 @@ with Linux Node and a Linux-native release installation. The standard tool runs
 under the release's `workspace-write` policy. The test checks that a relative
 `workdir` can write inside the Session workspace, that a sibling write is
 denied, and that the next command starts in the Session cwd. It also checks
-foreground exit status 7, background output and cancellation. A fixture
-Mod runs in the release Claude Code Mods engine and reads the calling
+foreground exit status 7, background output and cancellation. Cancellation of
+an executing foreground or persistent command must settle through the same
+application receipt. A subsequent command remains usable; the release's
+persistent tool resets its terminal on cancellation, discarding shell variables.
+A fixture Mod runs in the release Claude Code Mods engine and reads the calling
 Agent's restored messages before deciding whether to run the standard shell.
 The test checks the application tool receipt and the contents of the shared
 workspace for both decisions. Two Agents sharing a working directory keep
