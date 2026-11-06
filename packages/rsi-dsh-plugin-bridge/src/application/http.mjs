@@ -99,7 +99,8 @@ export async function provideHttp(ctx,load,key,sessionScope) {
       }});
     }
   }
-  await (await ctx.plugin(PrivateServer,{host:'127.0.0.1',port:0})).await();
+  await (await ctx.plugin(PrivateServer,{host:'127.0.0.1',port:0,
+    compression:'gzip',compressionLevel:1,compressionThresholdBytes:1024})).await();
   class Connection extends HostConnectionService {
     isTrusted(request) {return authenticated(request);}
   }
