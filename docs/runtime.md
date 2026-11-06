@@ -153,9 +153,12 @@ with Linux Node and a Linux-native release installation. The standard tool runs
 under the release's `workspace-write` policy. The test checks that a relative
 `workdir` can write inside the Session workspace, that a sibling write is
 denied, and that the next command starts in the Session cwd. It also checks
-foreground exit status 7, background output and cancellation. Two Agents
-sharing a working directory keep separate
-persistent shell environments. A new tool selection for the same Agent sees
+foreground exit status 7, background output and cancellation. A fixture
+Mod runs in the release Claude Code Mods engine and reads the calling
+Agent's restored messages before deciding whether to run the standard shell.
+The test checks the application tool receipt and the contents of the shared
+workspace for both decisions. Two Agents sharing a working directory keep
+separate persistent shell environments. A new tool selection for the same Agent sees
 its existing environment. The standard Bash and PowerShell tools attach
 the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave

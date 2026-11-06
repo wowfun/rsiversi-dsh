@@ -9,6 +9,7 @@ import {pathToFileURL} from 'node:url';
 import {createApplication} from '../../src/application/application.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {applicationTools} from '../../src/tools/application-tools.mjs';
+import {SessionFacade} from '../../src/session/session.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
 import {shellPreset} from '../../../../fixtures/market/shell-preset.mjs';
 
@@ -61,9 +62,9 @@ test('the market profile runs the release shell service and platform model tools
   const {Session}=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-session')));
   const load=name=>import(pathToFileURL(modules.entry('@deepseek-ai/'+name)));
   const {createScope}=await load('dsh-scope');
-  function enterAgent(id){
+  function enterAgent(id,createSession=header=>Session.create(header.id,[],header)){
     const header={version:4,id,createdAt:0,cwd:workspace,isSeeded:false};
-    const agent={id,session:Session.create(id,[],header),inbox:{nextStep:[]}};
+    const agent={id,session:createSession(header),inbox:{nextStep:[]}};
     const world=createScope(app.ctx,agent);
     agent.ctx=world.ctx;
     agents.push({world,detach:app.ctx.agents.enter(agent)});
@@ -159,5 +160,45 @@ test('the market profile runs the release shell service and platform model tools
         }finally{await post('release',{view:next.view});}
       }
     }
+  });
+
+  await t.test('Claude Code Mods can gate the standard shell on the calling Session history',async()=>{
+    const mods=await load('dsh-experimental-claude-code-mods');
+    const sessionApi={...await load('dsh-session'),...await load('dsh-session/surface'),...await load('dsh-util-values')};
+    const {createUserMessage}=await load('dsh-llm');
+    const modTool=name==='bash'?'Bash':'pwsh';
+    const observations=[];
+    await app.reconcile([{insert:[...services,...await shellPreset(root,'standard'),
+      {id:'mods',name:'@deepseek-ai/dsh-experimental-claude-code-mods'}]}]);
+    const mod=await app.ctx.plugin(mods.defineMod({name:'shell-history',register(on){
+      on('tool.call',{tool:modTool},async(api,event,next)=>{
+        const messages=await api.session.messages();
+        const allowed=messages.some(message=>message.role==='user'&&message.text==='allow writing');
+        observations.push({id:await api.session.id(),tool:event.tool,allowed});
+        return allowed?next(event):{deny:'Session declined writing'};
+      });
+    }}));
+    await mod.await();
+    const output=join(workspace,'gated.txt');
+    const command=name==='pwsh'?"[IO.File]::AppendAllText((Join-Path (Get-Location) 'gated.txt'), 'x')":
+      "printf x >> gated.txt";
+    for(const allowed of [false,true]){
+      const message=createUserMessage({source:{kind:'user'},content:[{type:'text',text:allowed?'allow writing':'deny writing'}]});
+      const agent=enterAgent('gate-'+allowed,header=>new SessionFacade(app.ctx,sessionApi,{header,
+        events:[{seq:0,time:1,type:'user/message',data:message,surfaceOp:'append'}]},false));
+      const selected=await select(agent);
+      try{
+        const result=await invoke(agent,selected,name,{command,description:'Append once to gated.txt'});
+        assert.equal(result.is_error,!allowed,JSON.stringify(result));
+        if(allowed){
+          assert.equal(result.value.exitCode,0);
+          assert.equal(await readFile(output,'utf8'),'x');
+        }else{
+          assert.equal(result.metadata.dsh.error.code,'MOD_DENIED');
+          await assert.rejects(stat(output),{code:'ENOENT'});
+        }
+      }finally{await post('release',{view:selected.view});}
+    }
+    assert.deepEqual(observations,[false,true].map(allowed=>({id:'gate-'+allowed,tool:modTool,allowed})));
   });
 });
