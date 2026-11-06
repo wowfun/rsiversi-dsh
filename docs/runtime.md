@@ -680,6 +680,8 @@ The application's PluginPackages service uses DSH's metadata reader for
 localized titles, descriptions and icons. When the caller's ESM resolution
 selects a leased package's own exported root manifest, readers can share its
 successful, read-only metadata for the lifetime of that package binding.
+After that first resolved read, an exact root request with the same active
+binding uses the cached metadata without resolving its resource again.
 A bare resource lookup from the application profile follows the nearest
 installed package link to its current leased directory. Manifest and version
 lookups use the same binding as module resolution, including for packages
