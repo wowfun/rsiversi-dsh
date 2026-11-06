@@ -10,12 +10,13 @@ export function workbenchPersistence(history,errors,storedPages) {
   function capture(id,signal){
     const next=(loading.get(id)??Promise.resolve()).then(async()=>{
       signal?.throwIfAborted();
-      const meta=await history.metadata(id,signal);
+      const metadataOnly=cache.get(id)?.durable===true;
+      const meta=await history.metadata(id,signal,metadataOnly);
       if(!meta)throw new errors.SessionPersistenceNotFoundError(id);
       const currentRevision=()=>revision(meta)+':'+(history.revision?.(id)??0),key=currentRevision();
       let row=cache.get(id);
       if(row?.revision===key){cache.delete(id);cache.set(id,row);return row;}
-      const session=await history.capture(id,meta,signal);
+      const session=await history.capture(id,metadataOnly?undefined:meta,signal);
       const through=session.seq,header=session.requestHeader();
       const snapshotEvents=(start=0,end=through)=>{
         if(!integer(start)||!integer(end)||end>through||start>end)throw RangeError('Invalid captured Session interval');

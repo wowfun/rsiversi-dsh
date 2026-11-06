@@ -44,7 +44,7 @@ export async function readHistory(request, identity, after, horizon, consume, si
     if (!Array.isArray(facts) || facts.length > 512 || facts.some((fact, i) => !integer(fact.seq) || fact.seq <= (i ? facts[i - 1].seq : cursor) || fact.seq > through)) {
       throw new Error('invalid captured Fact page');
     }
-    for (const fact of facts) await consume(fact);
+    for (const fact of facts) await consume(fact, facts);
     cursor = through;
   }
   return cursor;

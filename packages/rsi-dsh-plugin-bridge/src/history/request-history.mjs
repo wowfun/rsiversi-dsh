@@ -26,8 +26,10 @@ export async function observeRequest(session, fact, readFact, mapping) {
   if (mapping) {
     const system = await section(fact, 'system', readFact);
     if (!Array.isArray(system) || system.some(message => !['system', 'developer'].includes(message.role))) throw new Error('invalid system request evidence');
-    const content = system.filter(message => message.role === 'system').flatMap(message => message.content);
-    if (content.some(block => block.type !== 'text')) throw new Error('unsupported system request content');
+    const content = system.filter(message => message.role === 'system').flatMap(message => message.content.map(block => {
+      if (block.type !== 'text' || typeof block.content?.text !== 'string') throw new Error('unsupported system request content');
+      return {type:'text',text:block.content.text};
+    }));
     systemHead(session, mapping, fact.timestamp_ms, content);
   }
   const { snapshot } = fact;

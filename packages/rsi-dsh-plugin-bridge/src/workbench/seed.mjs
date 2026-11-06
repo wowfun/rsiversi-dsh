@@ -5,7 +5,10 @@ import {SessionFacade} from '../session/session.mjs';
 
 export async function projectFacts(session,mapping,fetch,through,signal,llm,observed){
   const identity={session_id:session.id};
+  let page=[];
   const readFact=async seq=>{
+    const retained=page[seq-page[0]?.seq];
+    if(retained?.seq===seq)return retained;
     let fact;
     await readHistory(fetch,identity,seq-1,seq,value=>{fact=value;},signal);
     if(fact?.seq!==seq)throw new Error('Referenced Fact is unavailable');
@@ -13,7 +16,8 @@ export async function projectFacts(session,mapping,fetch,through,signal,llm,obse
   };
   session.begin();
   try{
-    mapping.factCursor=await readHistory(fetch,identity,mapping.factCursor,through,async fact=>{
+    mapping.factCursor=await readHistory(fetch,identity,mapping.factCursor,through,async (fact,facts)=>{
+      page=facts;
       await observeFact(session,mapping,fact,readFact,seq=>readAttempt(fetch,identity,seq,signal),llm);
       observed?.(fact);
     },signal);
@@ -31,7 +35,10 @@ export async function inheritedSession(ctx,api,llm,call,release,header,signal){
       const parent=canonical??{header:{version:4,id:row.parent,createdAt:row.parent_time,isSeeded:false},
         mapping:restoreMapping(null),events:[],inheritedEventCount:0};
       const session=new SessionFacade(ctx,api,parent,false);
-      const fetch=(method,{after_seq,offset})=>call({type:'seed_read',key,interval,after_seq,offset,attempt:method==='agent.history.attempt.read'});
+      const fetch=(method,{after_seq,through_seq,offset})=>{
+        const attempt=method==='agent.history.attempt.read';
+        return call({type:'seed_read',key,interval,after_seq,through_seq:attempt?after_seq+1:through_seq,offset,attempt});
+      };
       await projectFacts(session,parent.mapping,fetch,row.through,signal,llm);
       canonical=forkSnapshot({...parent,events:session.snapshotEvents()},{
         header:row.child===header.id?{...header,parentSession:row.parent}:

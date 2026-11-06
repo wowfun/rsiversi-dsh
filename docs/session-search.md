@@ -1,0 +1,54 @@
+# Session search compatibility acceptance
+
+The optional `@deepseek-ai/dsh-experimental-session-search` bundle is loaded from
+its installed `dsh.bundle.patch`. Its isolated SQLite query service and five
+model tools run in the application's Cordis tree. The bundle has no browser
+entry; the original workbench renders the resulting tool calls and responses.
+Native Session storage remains authoritative through the read-only persistence
+contract in [runtime](runtime.md).
+
+Acceptance covers `session_search`, `session_event_search`, `session_trace`,
+`session_event_trace`, and `session_event_read`, including persisted and live
+history, workspace filtering, exclusion of the caller's performing step,
+incremental updates, cancellation, and reopening an index. Installation must
+use the published bundle patch rather than a hand-maintained list of plugins.
+
+Performance acceptance compares the original DSH tools and JSONL persistence
+with the bridge on the same machine, Node runtime, installed DSH distribution,
+and equivalent Session corpus. Report cold indexing, unchanged repeated search,
+incremental updates, and exact reads separately. Alternate execution order;
+retain individual samples, median, and p95. Each scenario must preserve result
+equivalence and have bridge median and p95 no greater than the original. Report
+sample count and corpus dimensions; a small fixture does not establish behavior
+for a larger corpus. Do not count provider generation, package verification, or
+browser startup as search latency.
+
+A benchmark of an in-memory native transport fixture only measures the adapter.
+It cannot establish native Host or browser performance. Full acceptance also
+requires real native Session storage, the application tool transport, and visual
+verification of the original workbench. Keep these results distinct. Live and
+performance runs are opt-in; default tests use isolated synthetic state without
+provider credentials. Record platform, source/artifact identity, failures, and
+measurement limits with the run evidence.
+
+Resource evidence accompanies native runs: record corpus event count and bytes,
+native database bytes, additional application journals, receipt storage, index
+storage policy, and process memory where measured. Separate canonical data from
+rebuildable projections. An optimization must not hide duplication by adding a
+second durable corpus or an unbounded memory cache. Forked histories should
+retain the native shared prefix instead of materializing another durable log
+merely to make it searchable. Small-device budgets remain workload-specific;
+latency alone does not establish suitability for those devices.
+
+Run the installed-package contract test with `RSI_DSH_MARKET_COHORT` set to a
+directory whose `node_modules` contains the DSH distribution:
+
+```sh
+node --test packages/rsi-dsh-plugin-bridge/test/workbench/workbench-session-search.test.mjs
+node fixtures/session-search/benchmark.mjs .local/session-search-adapter.json
+```
+
+The second command alternates five paired rounds over 128 Sessions and 8,192
+events. It retains samples and exits unsuccessfully if any adapter scenario
+misses the relative median or p95 requirement. Its native callbacks are synthetic;
+it must not be reported as the full Host acceptance.

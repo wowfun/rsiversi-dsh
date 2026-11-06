@@ -38,20 +38,23 @@ test('native read handles refresh control-only history, bind opening authority, 
   const require=createRequire(join(root,'package.json'));
   const errors=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-session-persistence')));
   const scope=new AsyncLocalStorage(),header=Object.freeze({version:4,id:'one',createdAt:1,isSeeded:true,agentPreset:'native',parentSession:'parent'});
-  let control=2,allowed=true,captures=0,reads=0,paused;
+  let control=2,allowed=true,captures=0,reads=0,paused;const metadataOnlyReads=[];
   const events=[Object.freeze({seq:0,type:'session/end-seed',data:Object.freeze({})}),Object.freeze({seq:1,type:'user/message',data:Object.freeze({content:'owned'})})];
-  const service=workbenchPersistence({async metadata(id,signal){
+  const service=workbenchPersistence({async metadata(id,signal,metadataOnly=false){
+    metadataOnlyReads.push(metadataOnly);
     reads++;assert.equal(scope.getStore(),'opening');signal?.throwIfAborted();
     if(paused)await paused.promise;
     if(!allowed)throw Error('Request authority withdrawn');
     return {id,created_at:1,inherited:true,parent:'parent',preset:'native',selection_cursor:{kind:'durable',control_seq:control,fact_seq:5}};
-  },snapshot:workbenchHistory({}).snapshot,async capture(){
+  },snapshot:workbenchHistory({}).snapshot,async capture(id,meta){
+    if(captures)assert.equal(meta,undefined,'a changed indexed revision must open a fresh full snapshot');
     captures++;const frozen=[...events];
     return {id:'one',header,seq:frozen.length,inheritedEventCount:1,encodedBytes:256,
       requestHeader:()=>undefined,snapshotEvents:(start=0,end)=>frozen.slice(start,end),eventAt:seq=>frozen[seq],lastEvent:type=>frozen.findLast(e=>e.type===type)};
   }},errors);
   const [first,second]=await scope.run('opening',()=>Promise.all([service.open('one','read'),service.open('one','read')]));
   assert.equal(captures,1);assert.equal(first.inheritedEventCount,1);
+  assert.deepEqual(metadataOnlyReads,[false,true],'an unchanged durable view avoids rebuilding model projections');
   const initial=await scope.run('other',()=>first.read());
   assert.equal(initial.eventState,'shared-frozen');assert.ok(Object.isFrozen(initial.events[1].data));
   initial.events.length=0;assert.equal((await first.read()).events.length,2);

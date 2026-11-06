@@ -20,7 +20,8 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
         model:original.model.branch(),inbox:original.inbox.branch(),
         spawning:new Set(original.spawning),spawned:new Map(original.spawned),
         settled:new Map(original.settled),origins:new Map()};
-      const fetch=(method,{after_seq,offset})=>call({type:method==='agent.history.read'?'fact':'attempt',after_seq,offset});
+      const fetch=(method,{after_seq,through_seq,offset})=>call(method==='agent.history.read'
+        ?{type:'fact',after_seq,through_seq,offset}:{type:'attempt',after_seq,offset});
       const project=until=>projectFacts(next.session,next.mapping,fetch,until,signal,llm,fact=>{
         if(fact.type==='model_started'&&next.mapping.model?.effectId===fact.effect_id)
           next.mapping.model.startedAfterSeq=next.session.seq-1;

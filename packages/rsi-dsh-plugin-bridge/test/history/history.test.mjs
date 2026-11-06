@@ -6,6 +6,7 @@ import { createBridge } from '../../src/index.mjs';
 import { observeRequest } from '../../src/history/request-history.mjs';
 import { SessionFacade } from '../../src/session/session.mjs';
 import { restoreMapping, observeFact } from '../../src/history/history.mjs';
+import {projectFacts} from '../../src/workbench/seed.mjs';
 
 const cohortRoot = process.env.RSI_DSH_COHORT;
 const integration = (name, run) => test(name, { skip: !cohortRoot }, run);
@@ -18,7 +19,7 @@ const evidence = () => ({ availability: 'available',
   configuration: inline({ prepared: { deployment: 'actual-route', model: 'actual-model', language_settings: {} },
     settings: { stop: [] }, response_format: { type: 'text' }, extensions: [] }),
   tools: inline({ definitions: [{ name: 'todo_write', description: 'Actual schema', input_schema: { type: 'object' } }], hosted: [], choice: { type: 'auto' } }),
-  system: inline([{ role: 'system', content: [{ type: 'text', text: 'Actual instructions' }] }]) });
+  system: inline([{ role: 'system', content: [{ type: 'text', content: {text:'Actual instructions'} }] }]) });
 const events = terminal => [[0, { type: 'content_started', index: 0, content: { type: 'reasoning' } }],
   [7, { type: 'content_delta', index: 0, delta: { type: 'reasoning', value: '想一想' } }],
   [8, { type: 'content_finished', index: 0 }],
@@ -156,6 +157,40 @@ integration('a Plan review parks captured Tool history privately and fences a su
       assert.equal(bridge.canonical('history').mapping.factCursor, 7);
     }
   }
+});
+
+integration('native semantic system evidence round-trips through original JSONL persistence',async t=>{
+  const {mkdtemp,rm}=await import('node:fs/promises'),{tmpdir}=await import('node:os'),{join}=await import('node:path');
+  const root=await mkdtemp(join(tmpdir(),'rsi-system-log-')),cohort=await loadCohort(cohortRoot);
+  const {Context}=await cohort.import('@deepseek-ai/cordis'),api=await cohort.import('@deepseek-ai/dsh-session');
+  const ctx=new Context();
+  t.after(async()=>{await ctx.fiber.dispose();await rm(root,{recursive:true,force:true});});
+  await ctx.plugin(api.default);
+  await ctx.plugin(await cohort.import('@deepseek-ai/dsh-session-persistence-jsonl'),{root,compression:'none'});
+  const session=new SessionFacade(ctx,{...api,...await cohort.subpath('@deepseek-ai/dsh-session','surface'),
+    ...await cohort.import('@deepseek-ai/dsh-util-values')},{header:{version:4,id:'system-log',createdAt:1,isSeeded:false}});
+  const first=evidence(),reference={availability:'available'};
+  for(const key of ['configuration','tools','system'])reference[key]={kind:'reference',seq:4,section:key,
+    sha256:first[key].sha256,bytes:Buffer.byteLength(first[key].text)};
+  const facts=[{type:'turn_accepted',turn_id:'turn',text:'input'},
+    {type:'step_started',turn_id:'turn',step_id:'step'},
+    {type:'step_inputs_prepared',turn_id:'turn',step_id:'step',decision:{kind:'enter',messages:[{kind:'claimed',claim:{fact_seq:1,ordinal:0}}]}},
+    ...[first,reference].map((evidence,index)=>({type:'model_intent',effect_id:'model-'+index,purpose:{kind:'conversation'},snapshot,evidence}))]
+    .map((fact,index)=>({...fact,seq:index+1,timestamp_ms:10+index}));
+  let reads=0;
+  await projectFacts(session,restoreMapping(),async(method,args)=>{
+    reads++;assert.equal(method,'agent.history.read');assert.equal(args.after_seq,0,'references borrow the already decoded page');
+    const json=JSON.stringify(facts),bytes=Buffer.byteLength(json);
+    return {through_seq:5,offset:0,next_offset:bytes,total_bytes:bytes,json};
+  },5,undefined,await cohort.import('@deepseek-ai/dsh-llm'));
+  assert.equal(reads,1);
+  const writer=await ctx.sessionPersistence.create(session.header);
+  try{await writer.append(session.snapshotEvents());}finally{await writer.close();}
+  const reader=await ctx.sessionPersistence.open(session.id,'read');
+  try{
+    const {events}=await reader.read();assert.deepEqual(events,session.snapshotEvents());
+    assert.deepEqual(events.findLast(event=>event.type==='system/message').data.message.content,[{type:'text',text:'Actual instructions'}]);
+  }finally{await reader.close();}
 });
 
 test('disabled tools and unsupported request controls cannot publish misleading headers', async () => {

@@ -31,7 +31,7 @@ test('control-only choices reach host-wide projections and replay at identical e
     {type:'input_message_claimed',turn_id:'one',step_id:'step-one',source:{type:'human',message_id:'key'},content:[{type:'text',text:'before choice'}]},
     {type:'step_inputs_prepared',turn_id:'one',step_id:'step-one',decision:{kind:'enter',messages:[{kind:'claimed',claim:{fact_seq:3,ordinal:0}}]}}]
     .map((fact,i)=>({...fact,seq:i+1,timestamp_ms:1000+i}));
-  let control=1,waiter=Promise.withResolvers();
+  let control=1,waiter=Promise.withResolvers(),factReads=0;
   const events=[{kind:'model',seq:1,after_fact_seq:0,time:999,selection:baseline},
     {kind:'model',seq:2,after_fact_seq:4,time:1,selection:chosen},
     {kind:'model',seq:3,after_fact_seq:4,time:2,selection:baseline}];
@@ -44,12 +44,14 @@ test('control-only choices reach host-wide projections and replay at identical e
       return {through,events:events.filter(event=>event.seq===through)};
     }
     assert.equal(op.type,'fact');
-    const fact=facts[op.after_seq],json=JSON.stringify([fact]),bytes=Buffer.byteLength(json);
-    return {through_seq:fact.seq,offset:0,next_offset:bytes,total_bytes:bytes,json};
+    assert.equal(op.through_seq,4);factReads++;
+    const json=JSON.stringify(facts.slice(op.after_seq,op.through_seq)),bytes=Buffer.byteLength(json);
+    return {through_seq:op.through_seq,offset:0,next_offset:bytes,total_bytes:bytes,json};
   }});
   const life=new AbortController(),request={address:{kind:'session',sessionId:'shared'},maxMessages:50};
   const reads=t.mock.method(ctx.sessionProjections,'snapshot');
   const flow=controller.follow(request,life.signal),snapshot=(await flow.next()).value;
+  assert.equal(factReads,1,'one captured page projects all four native Facts');
   assert.equal(reads.mock.callCount(),1,'one projection read for the first history and control baseline');
   const global=controller.control(life.signal);
   assert.equal((await global.next()).value.value.projections.shared.asOfSeq,snapshot.cursor);

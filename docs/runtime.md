@@ -178,7 +178,7 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 5. The native Host supplies an opaque `owner`
+Application opening uses protocol 6. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -576,7 +576,11 @@ per prepared request, while the RSI acceptance identity remains unchanged.
 Conversation ModelIntents map their actual route, effective reasoning effort,
 sampling controls and complete JSON Tool schemas to DSH request headers. Referenced
 evidence is read from the same captured Fact authority and checked against its
-original inline digest; missing evidence fails the stage. Retries with unchanged
+original inline digest; missing evidence fails the stage. History reads carry their
+captured horizon and consume bounded contiguous Fact pages. Inherited reads use
+the same page contract within their retained native interval. Evidence references
+to a Fact in the current decoded page borrow that Fact instead of issuing another
+read. No extra durable copy or cross-page cache is retained. Retries with unchanged
 headers do not invent a new series. Compaction calls do not update conversation
 mode narration. DSH cannot represent hosted/freeform tools or RSI-only sampling
 controls in an EpochHeader; these fail explicitly instead of publishing a partial
@@ -599,7 +603,11 @@ Entered user and developer inputs preserve their role, canonical source and stab
 message identity. A dormant empty system head precedes the first input; it denotes
 that no request has established instructions yet. Each conversation ModelIntent
 replaces that head with its authenticated system evidence. No placeholder is used
-as model-request evidence. Tool calls retain the model's raw argument text; only
+as model-request evidence. Native semantic text blocks (`type: text`,
+`content.text`) become DSH text blocks (`type: text`, `text`) at this evidence
+boundary. Projected system messages must round-trip through the original DSH
+Session format, including its JSONL persistence codec.
+Tool calls retain the model's raw argument text; only
 model-origin outcomes join the conversation, while Program internals stay in RSI
 Facts. Denials and terminal/superseded calls carry explicit non-execution or unknown
 outcome provenance. Pending call references are bounded and survive restart.
@@ -873,6 +881,9 @@ transport bounds each page independently.
 The original synchronous `sessions.list()` contract enumerates attached Sessions.
 The workbench mounts the distribution's attachments and Session Query services
 with attachments in the application profile and the release's index policy.
+The optional [Session search bundle](session-search.md) has its own isolated
+query service; its compatibility and performance acceptance covers the original
+tool implementations over this persistence boundary.
 The original file-upload service resolves a cold Session through the same
 native-authorized Agent lookup as Typert. Uploaded bytes stream directly into
 its attachment store, outside the extension JSON frame. The receiving Session
@@ -890,6 +901,9 @@ drafts, preserve inherited event counts and return frozen event values in fresh
 outer arrays. Read handles cannot append or flush. Closing is idempotent and
 invalidates later reads. The bounded captured-view cache includes the native
 draft revision or durable Fact/control pair and the application journal revision.
+A retained durable view checks the indexed revision through the metadata-only
+native read. Only a changed or absent view needs the full model-selection opening
+snapshot and history projection. Draft capture still uses its live snapshot.
 A pending capture orders later captures for the same Session. Readers of other
 Sessions proceed independently. Point and last-event lookups stay within the
 captured prefix and allocate no event array.
