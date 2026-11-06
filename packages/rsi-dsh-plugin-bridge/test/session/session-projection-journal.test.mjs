@@ -188,7 +188,7 @@ test('durable journals omit native bodies while preserving local acknowledgement
     {seq:1,time:3,type:'model/selection',data:selection}];
   const correlations=new Map([[1,'choice']]);journal.merge(native,correlations);
   const document=journal.encode(),state=JSON.parse(document);
-  assert.equal(state.version,4);assert.equal(state.eventCount,3);
+  assert.equal(state.version,5);assert.equal(state.eventCount,3);
   assert.deepEqual(state.events.map(event=>event.seq),[0,1]);
   assert.equal(document.includes('canonical-only-'),false);
   assert.ok(Buffer.byteLength(document)<Buffer.byteLength(JSON.stringify(journal.session.snapshotEvents()))/100);

@@ -17,6 +17,13 @@ export function contextIntent(command,expected_revision,id,event) {
   return {kind:'context-input',...invocation,sha256:invocationDigest(contextRequest({id,invocation},event))};
 }
 
+export function nativeMessagePage(message,op) {
+  const bytes=Buffer.from(JSON.stringify(message)),offset=op.offset??0;
+  let end=Math.min(offset+128*1024,bytes.length);
+  while(end<bytes.length&&(bytes[end]&0xc0)===0x80)end--;
+  return {through_seq:op.accepted_control_seq,offset,next_offset:end,total_bytes:bytes.length,json:bytes.subarray(offset,end).toString()};
+}
+
 export const message=(id,text=id)=>({id,role:'user',source:{kind:'plugin:test',tag:{n:1}},content:[{type:'text',text},{type:'text',text:'第二块'}]});
 export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
   const root=process.env.RSI_DSH_MARKET_COHORT,require=createRequire(join(root,'package.json'));
@@ -50,12 +57,7 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
     assert.equal(id,'one');signal?.throwIfAborted();
     if(op.type==='open')return meta();
     if(op.type==='controls')return {through:op.through_seq,events:state.controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)};
-    if(op.type==='message') {
-      const bytes=Buffer.from(JSON.stringify(state.messages.get(op.message_id))),offset=op.offset??0;
-      let end=Math.min(offset+128*1024,bytes.length);
-      while(end<bytes.length&&(bytes[end]&0xc0)===0x80)end--;
-      return {through_seq:op.accepted_control_seq,offset,next_offset:end,total_bytes:bytes.length,json:bytes.subarray(offset,end).toString()};
-    }
+    if(op.type==='message')return nativeMessagePage(state.messages.get(op.message_id),op);
     assert.equal(op.type,'wait');if(op.cursor.control_seq<state.control)return cursor();
     return new Promise((resolve,reject)=>{
       const done=()=>{waiters.delete(done);signal?.removeEventListener('abort',aborted);resolve(cursor());};

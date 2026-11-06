@@ -8,7 +8,7 @@ import {pathToFileURL} from 'node:url';
 import {workbenchHistory} from '../../../src/workbench/history.mjs';
 import {invocationDigest} from '../../../src/session/command-receipts.mjs';
 import {contextRequest} from '../../../src/session/inbox/input-invocation.mjs';
-import {contextIntent} from '../../fixtures/native-inbox-fixture.mjs';
+import {contextIntent,nativeMessagePage} from '../../fixtures/native-inbox-fixture.mjs';
 import {inboxObservationProjection} from '../../../src/session/inbox/inbox-observations.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT,source=process.env.RSI_DSH_INBOX_SOURCE;
@@ -34,8 +34,7 @@ async function fixture(t) {
       assert.equal(id,'inbox');
       if(op.type==='open')return meta();
       if(op.type==='controls')return {through:op.through_seq,events:controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)};
-      assert.equal(op.type,'message');const json=JSON.stringify(messages.get(op.message_id));
-      return {through_seq:op.accepted_control_seq,offset:0,next_offset:Buffer.byteLength(json),total_bytes:Buffer.byteLength(json),json};
+      assert.equal(op.type,'message');return nativeMessagePage(messages.get(op.message_id),op);
     }};
   const history=workbenchHistory(options);t.after(()=>history.close());
   const capture=()=>history.capture('inbox',meta()),session=await capture(),owner=history.owner(session),journal=owner.journal;
@@ -68,8 +67,35 @@ async function fixture(t) {
     assert.deepEqual(result.snapshotEvents(),session.snapshotEvents());
     assert.deepEqual(state(result),state());return result;
   }
-  return {session,owner,journal,capture,state,control,accept,acknowledgement,external,remove,cold,messages,controls};
+  return {session,owner,journal,capture,state,control,accept,acknowledgement,external,remove,cold,messages,controls,documents};
 }
+
+test('correlated input storage preserves local coordinates and rejects missing or changed native ownership',enabled,async t=>{
+  const f=await fixture(t),text='native-owned-'.repeat(25_000),accepted=f.accept('owned',user('owned',text));
+  assert.equal(f.journal.encode().split(text).length-1,1,'unobserved acceptance retains dispatch recovery');
+  f.external('before');f.acknowledgement('owned');await f.capture();
+  const saved=f.documents.get('inbox'),state=JSON.parse(saved);
+  assert.equal(saved.includes(text),false);
+  assert.equal(state.events.find(event=>event.seq===accepted.seq).data.inserted,null);
+  assert.equal(accepted.data.start,0);assert.equal(f.owner.source.current.session.eventAt(1).data.start,1);
+  await f.cold();
+  for(const corrupt of [
+    value=>{delete value.operations[0].source;},
+    value=>{value.operations[0].source=0;},
+    value=>{value.sources[1].hash='b'.repeat(64);},
+  ]) {
+    const value=structuredClone(state);corrupt(value);const document=JSON.stringify(value);
+    f.documents.set('inbox',document);
+    await assert.rejects(f.cold(),/correlated native acceptance|prefix changed/);
+    assert.equal(f.documents.get('inbox'),document,'failed recovery cannot overwrite the durable evidence');
+  }
+  const previous=structuredClone(state);previous.version=4;
+  previous.events=previous.events.map(event=>f.session.eventAt(event.seq));
+  f.documents.set('inbox',JSON.stringify(previous));
+  const restored=await f.cold();
+  assert.deepEqual(restored.eventAt(accepted.seq),accepted);
+  assert.equal(f.documents.get('inbox'),saved,'successful reconciliation removes the previous duplicate body');
+});
 
 test('non-waking submission cannot be acknowledged as idle steering',enabled,async t=>{
   const f=await fixture(t),message=user('held');

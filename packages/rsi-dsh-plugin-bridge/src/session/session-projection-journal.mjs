@@ -20,7 +20,7 @@ export class SessionProjectionJournal {
       seed={header:restore.header,events:restoreJournalEvents(restore,native,transitions),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
       this.#restore(restore.sources,restore.operations);
-      this.#saved=0;this.#rewrite=restore.version<4;
+      this.#saved=0;this.#rewrite=restore.version<5;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
       this.#session=this.#create(seed);
@@ -209,7 +209,14 @@ export class SessionProjectionJournal {
     const appended=this.#session.snapshotEvents(start);this.#publish(appended);return Object.freeze(appended);
   }
   encode() {
-    return encodeJournalDocument(this.#session,this.#owned,this.#sources,this.operations(),this.#inboxSlotFrom);
+    const events=this.#owned.map(event=>{
+      const operation=this.operationAt(event.seq);
+      if(event.type==='agent/inbox/spliced'&&event.data.inserted.length===1&&
+        operation?.source!==undefined&&this.#sources[operation.source].seq===event.seq)
+        return {...event,data:{...event.data,inserted:null}};
+      return event;
+    });
+    return encodeJournalDocument(this.#session,events,this.#sources,this.operations(),this.#inboxSlotFrom);
   }
 
   flush() {

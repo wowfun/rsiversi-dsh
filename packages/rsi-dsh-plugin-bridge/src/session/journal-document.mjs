@@ -11,7 +11,7 @@ export function readJournalDocument(document) {
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
   const state=JSON.parse(document);
   if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','inboxSlotFrom'])
-    ||![1,2,3,4].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
+    ||![1,2,3,4,5].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
   if(state.version===1) {
     if(state.eventCount===undefined)state.eventCount=state.events.length;
@@ -61,8 +61,17 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
   const events=new Array(state.eventCount),owned=new Set();
   const operations=new Map(state.operations.map(row=>[row.id,row])),at=new Map(state.operations.map(row=>[row.seq,row]));
   let previous=-1;
-  for(const event of state.events) {
+  for(let event of state.events) {
     if(!integer(event?.seq)||event.seq>=events.length||event.seq<=previous)throw Error('Invalid local application event position');
+    if(state.version>=5&&event.type==='agent/inbox/spliced'&&event.data?.inserted===null) {
+      const operation=at.get(event.seq),source=state.sources[operation?.source],observed=native[operation?.source];
+      if(!source||source.seq!==event.seq||source.operation!==operation.id||
+        observed?.type!==event.type||observed.data.inserted?.length!==1||
+        !['submission','context-input','observed-input'].includes(operation.invocation?.kind))
+        throw Error('Retained input body has no correlated native acceptance');
+      event={...event,data:{...event.data,inserted:observed.data.inserted}};
+      restoreInputOperation(operation,event,state.version);
+    }
     previous=event.seq;events[event.seq]=event;owned.add(event.seq);
   }
   for(const operation of state.operations)if(!owned.has(operation.seq))throw Error('Application mutation record lost its accepted event');
@@ -88,7 +97,7 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
 export function encodeJournalDocument(session,events,sources,operations,inboxSlotFrom) {
   const event=session.lastEvent('session/title');
   const prefix=JSON.stringify({header:session.header,eventCount:session.seq,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-  const document=JSON.stringify({version:4,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
+  const document=JSON.stringify({version:5,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
   const value=prefix.slice(0,-1)+',\n'+document.slice(1);
   if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
   return value;

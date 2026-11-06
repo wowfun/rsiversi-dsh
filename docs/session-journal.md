@@ -237,13 +237,18 @@ authorized read function and cancellation signal; a retained projector does not
 retain a browser request. Source positions remain separate from application
 positions, including assistant-start and settlement cursors.
 
-Version 4 snapshots contain the Session header, total and inherited event counts,
+Version 5 snapshots contain the Session header, total and inherited event counts,
 local-owned events at their original positions, the native source map and mutation
 records in one JSON document. Native-only event bodies are reconstructed from the
 captured Store history, including translated inbox splices. They are not copied
-into application storage. Locally accepted events retain their original body and
-timestamp even when a native acknowledgement aliases their position. Log-only
-events and fork constructor annotations also remain application-owned.
+into application storage. A correlated input acceptance keeps its original event
+position, timestamp and splice coordinates, with `inserted: null` in storage.
+The existing operation/source correlation identifies the native acceptance that
+owns its messages. Loading restores those messages before input validation and
+inbox projection. JSON field order is not event identity; all event values and
+array order are preserved. Uncorrelated input keeps its full body for dispatch
+recovery. Log-only events, other local mutations and fork constructor annotations
+remain application-owned.
 
 Cold loading validates source hashes and rebuilds the same dense application log
 before exposing it. Missing or changed native history is an error, never a reason
@@ -251,9 +256,9 @@ to substitute a cached body. Restoration uses the same native read batch as the
 first observation. Older documents are validated and normalized once: version 1
 uses its complete log, and version 1/2 input invocations must agree exactly with
 their accepted event before their duplicate body is removed. Successful native
-reconciliation rewrites them as version 4; failed validation cannot replace the
-document. Version 3 input recovery descriptors retain their existing meaning.
-No second durable format or body cache is maintained alongside version 4.
+reconciliation rewrites them as version 5; failed validation cannot replace the
+document. Version 3/4 input recovery descriptors retain their existing meaning.
+No second durable format or body cache is maintained alongside version 5.
 
 The supplied persistence writer
 must atomically replace that document. Flushes serialize snapshots in acceptance
