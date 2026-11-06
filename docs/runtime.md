@@ -67,6 +67,14 @@ hosts belong to the launcher that opens the listener.
 The original Typert Loader belongs to the base workbench, independently of the
 optional registry importer. It registers mounted packages' published `./typert`
 contracts for the Gateway, including the native Session and Workspace adapters.
+Profile context, ConfigEditor, Settings and the published Settings controller
+also belong to the base workbench. Forms edit the running plugin's volatile
+Config through the original profile patch and survive reopening. The optional
+registry importer adds package installation, not configuration ownership.
+The Settings controller keeps DSH's explicit missing-provider error for a
+credential service that the composition has not selected. Local application
+discovery and opening use the original `dsh-host-open-in-app` routes and
+subprocess provider, with the same authenticated browser carrier.
 
 A profile owns one application Cordis root and one loader. A mixed plugin
 registers its routes and tools in that tree, sharing one instance of its

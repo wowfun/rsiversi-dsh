@@ -1,5 +1,5 @@
 import {readFile,stat} from 'node:fs/promises';
-import {dirname,join} from 'node:path';
+import {basename,dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 import {installReleaseResolver} from '../../../rsi-dsh-cordis/src/release/resolver.mjs';
@@ -107,6 +107,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     ctx.provide('subagents',sessionScope.subagents);
     await provideHttp(ctx,load,key,sessionScope);
     await ctx.plugin(leasedPluginPackages(boot,modules));
+    let packageManager;
     if (importer) {
       const state=profileState(profile);
       await moveRegistryCache(profile);
@@ -129,15 +130,16 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       ctx.provide('hmr',market.hmr);
       const command=await packageCommand(profile,market.packageRunner);
       ctx.effect(()=>()=>command.close(),'managed package command');
-      ctx.provide('profileContext',{name:market.desktopProfiles.current.name,dir:profile,
-        patchPath:join(profile,'cordis.patch.yml'),installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),
-        cwd:profile,home:dirname(profile),startedBundles:[],overlays:[],telemetryDisabledEnv:'1',packageManager:command.invocation});
-      for(const [id,name] of [['config-editor','dsh-config-editor'],['settings','dsh-settings'],['plugin-manager','dsh-plugin-manager'],['plugin-market','dsh-plugin-market']]) {
+      packageManager=command.invocation;
+      for(const [id,name] of [['plugin-manager','dsh-plugin-manager'],['plugin-market','dsh-plugin-market']]) {
         const selected={id,name:'@deepseek-ai/'+name};
         const index=base[0].insert.findIndex(row=>row.id===id);
         if(index===-1) base[0].insert.push(selected);else base[0].insert[index]=selected;
       }
     }
+    ctx.provide('profileContext',{name:basename(profile),dir:profile,
+      patchPath:join(profile,'cordis.patch.yml'),installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),
+      cwd:profile,home:dirname(profile),startedBundles:[],overlays:[],telemetryDisabledEnv:'1',packageManager});
     for (const name of ['dsh-session-projection','dsh-system-prompt','dsh-tools']) {
       const module = await load('@deepseek-ai/'+name);
       await ctx.plugin(module.default);
