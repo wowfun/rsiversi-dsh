@@ -223,8 +223,22 @@ authorized read function and cancellation signal; a retained projector does not
 retain a browser request. Source positions remain separate from application
 positions, including assistant-start and settlement cursors.
 
-Snapshots contain the Session header, inherited count, events, source map and
-mutation records in one versioned JSON document. The supplied persistence writer
+Version 2 snapshots contain the Session header, total and inherited event counts,
+local-owned events at their original positions, the native source map and mutation
+records in one JSON document. Native-only event bodies are reconstructed from the
+captured Store history, including translated inbox splices. They are not copied
+into application storage. Locally accepted events retain their original body and
+timestamp even when a native acknowledgement aliases their position. Log-only
+events and fork constructor annotations also remain application-owned.
+
+Cold loading validates source hashes and rebuilds the same dense application log
+before exposing it. Missing or changed native history is an error, never a reason
+to substitute a cached body. Restoration uses the same native read batch as the
+first observation. Version 1 documents are read once through the existing full-log
+validation and rewritten as version 2 after successful native reconciliation;
+there is no second durable format or body cache maintained alongside version 2.
+
+The supplied persistence writer
 must atomically replace that document. Flushes serialize snapshots in acceptance
 order; equal pending flushes join. A failed write leaves accepted memory intact
 and a later flush may retry. Loading validates the complete document through the
@@ -234,12 +248,14 @@ Session event budget applies, and a persisted document is bounded at 128 MiB.
 The application profile stores these snapshots in its private selection state,
 using the original DSH atomic writer. Native-only read mirrors need no durable
 application file; once a local event exists, its source map and later observations
-are flushed as well. The Host retires its application process before starting a
+are flushed as well. Existing files are rewritten even if their only local data
+is creation metadata. The Host retires its application process before starting a
 replacement. A configured application profile owns one writer. Live readers and
 Agents retain their shared owner; inactive owners may be collected and reopened
 from disk. Unchanged native cuts reuse the retained projector. New cuts project
-only their source delta. Whole-document snapshot encoding remains bounded by the
-Session budget; paged history and incremental persistence remain separate work.
+only their source delta. Encoding visits local events and source/operation metadata,
+not native message bodies. The in-memory dense Session remains bounded by the
+Session budget; lazy in-memory history and incremental persistence remain separate work.
 
 ## Queue replacements in saved journals
 

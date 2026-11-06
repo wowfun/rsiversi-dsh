@@ -6,7 +6,7 @@ import {inputIntents} from '../session/inbox/input-intents.mjs';
 import {workbenchSource} from './source.mjs';
 import {workbenchModel} from './model.mjs';
 import {readNativeMessage} from '../history/history.mjs';
-import {journalCatalog} from '../session/session-journal-store.mjs';
+import {readJournalDocument} from '../session/journal-document.mjs';
 
 const cut=meta=>meta.selection_cursor??{kind:'durable',fact_seq:meta.through,control_seq:0};
 function compare(a,b) {
@@ -22,25 +22,30 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
   const rows=new Map(),opening=new Map(),retained=new WeakMap();let closed=false;
   const collected=new FinalizationRegistry(({id,reference})=>{if(rows.get(id)===reference)rows.delete(id);});
   async function create(header,meta,call,release,signal) {
-    const document=await storage?.read(header.id);
-    const creation=document===undefined?await creationMeta?.(header.id,header.createdAt):undefined;
-    const declared=creation?.meta??journalCatalog(document)?.header;
+    let restore=readJournalDocument(await storage?.read(header.id));
+    const persisted=restore!==undefined,initialCut=cut(meta);
+    const creation=persisted?undefined:await creationMeta?.(header.id,header.createdAt);
+    const declared=creation?.meta??restore?.header;
     let annotations=creation?.annotations;
     if(meta.inherited&&declared?.origin==='subagent')
       header={...header,origin:declared.origin,...(declared.delegationDepth===undefined?{}:{delegationDepth:declared.delegationDepth})};
     const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal});
     if(header.origin&&source.current.session.header.parentSession!==declared.parentSession)
       throw Error('Declared fork parent differs from its native seed');
-    const newOrigin=document===undefined&&header.origin!==undefined;
+    const newOrigin=!persisted&&header.origin!==undefined;
+    let initial=restore?await source.stage(call,signal,meta.through,cut(meta).control_seq??0,
+      new Set(restore.operations.map(row=>row.id)),restore.inboxSlotFrom):undefined;
     const listeners=new Set(),waiters=new Set();let version=0,batch,tail=Promise.resolve();
     const report=error=>ctx.logger.warn('Application Session observer failed:',error);
     const changed=()=>{version++;for(const wake of waiters)wake();};
     const publish=event=>{
       changed();for(const listener of listeners)try{listener(event);}catch(error){report(error);}
     };
-    const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{document,
+    const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{restore,
+      native:initial?.value.session.snapshotEvents(),transitions:initial?.value.inbox.transitions,
       save:storage?value=>storage.save(header.id,value):undefined,report,
       notify:(_session,event)=>batch?batch.push(event):publish(event)});
+    restore=undefined;
     const nativeCommand=(operation,signal)=>{
       if(!command)throw Error('Native Session commands unavailable');
       return command(header.id,operation,signal);
@@ -73,11 +78,13 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
           signal?.throwIfAborted();if(closed)throw Error('Application Session owner retired');
           if(row.meta&&compare(cut(meta),cut(row.meta))<=0) {
             await reconcileClears(signal);
-            if(journal.hasLocalEvents)await journal.flush();return;
+            if(journal.hasLocalEvents||persisted)await journal.flush();return;
           }
           const nextCut=cut(meta),through=meta.through,controlThrough=nextCut.control_seq??0;
           const localRequests=new Set(journal.operations().map(row=>row.id));
-          const staged=await source.stage(call,signal,through,controlThrough,localRequests,journal.inboxSlotFrom),native=staged.value;
+          const staged=initial&&compare(nextCut,initialCut)===0?initial:
+            await source.stage(call,signal,through,controlThrough,localRequests,journal.inboxSlotFrom);
+          const native=staged.value;
           if(nextCut.kind==='draft')native.model=workbenchModel(meta.model_selection);
           const saveCreation=!row.merged&&newOrigin;
           const after=row.merged?source.current.session.seq:0,events=native.session.snapshotEvents(after);
@@ -89,15 +96,15 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
           try {
             if(row.merged)journal.advance(after,events,correlations,inbox.projections);
             else journal.merge(events,correlations,native.session.inheritedEventCount,inbox.projections,annotations);
-            staged.commit();row.meta=structuredClone(meta);row.merged=true;annotations=undefined;appended=batch;
+            staged.commit();initial=undefined;row.meta=structuredClone(meta);row.merged=true;annotations=undefined;appended=batch;
           }finally{batch=undefined;}
           changed();for(const event of appended)publish(event);
           await reconcileClears(signal);
-          if(journal.hasLocalEvents||saveCreation)await journal.flush();
+          if(journal.hasLocalEvents||saveCreation||persisted)await journal.flush();
         });
         tail=update;await update;
       },
-      async flush(){await tail.catch(()=>{}); if(journal.hasLocalEvents)await journal.flush();},
+      async flush(){await tail.catch(()=>{}); if(row.merged&&(journal.hasLocalEvents||persisted))await journal.flush();},
       cursor(){return {control_seq:source.current.controlThrough,fact_seq:source.current.mapping.factCursor};},
       applicationSeq(nativeSeq){
         if(nativeSeq===-1)return -1;

@@ -84,10 +84,44 @@ test('a log-only approval with no native mutation receipt persists across owners
   owner.journal.append('approval/asked',{id:'proof',toolName:'bash'});
   owner.journal.append('approval/decided',{id:'proof',outcome:'rejected'});
   await owner.flush();
+  const stored=JSON.parse(await f.options.storage.read('one'));
+  assert.equal(stored.version,2);
+  assert.deepEqual(stored.events.map(row=>row.type),['approval/asked','approval/decided']);
+  const before=f.reads;
   const cold=workbenchHistory(f.options);t.after(()=>cold.close());
   const reopened=await cold.capture('one',await cold.metadata('one'));
+  assert.equal(f.reads-before,1,'cold reconstruction and reconciliation share one native capture');
   assert.deepEqual(reopened.lastEvent('approval/decided')?.data,{id:'proof',outcome:'rejected'});
   assert.deepEqual(cold.owner(reopened).journal.operations(),[]);
+});
+
+test('an existing full journal is rewritten after canonical reconciliation without changing event coordinates', {skip:!root},async t=>{
+  const f=await fixture(t),session=await f.capture();
+  // A native-only existing file also needs rewriting, even without local operations.
+  const state=JSON.parse(f.history.owner(session).journal.encode());
+  state.version=1;state.events=session.snapshotEvents();
+  await f.options.storage.save('one',JSON.stringify(state).replace(',"version"',',\n"version"'));
+  const cold=workbenchHistory(f.options);t.after(()=>cold.close());
+  const before=f.reads,reopened=await cold.capture('one',await cold.metadata('one'));
+  assert.equal(f.reads-before,1);
+  assert.deepEqual(reopened.snapshotEvents(),session.snapshotEvents());
+  const stored=JSON.parse(await f.options.storage.read('one'));
+  assert.equal(stored.version,2);assert.deepEqual(stored.events,[]);assert.equal(stored.eventCount,1);
+  const again=workbenchHistory(f.options);t.after(()=>again.close());
+  assert.deepEqual((await again.capture('one',await again.metadata('one'))).snapshotEvents(),session.snapshotEvents());
+});
+
+test('failed canonical reconciliation cannot rewrite a full journal during owner disposal', {skip:!root},async t=>{
+  const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session);
+  owner.driver.accept({...base,reasoningEffort:'high'});await owner.driver.ready();await f.capture();
+  const state=JSON.parse(owner.journal.encode());state.version=1;state.events=session.snapshotEvents();
+  delete state.operations[0].receipt;
+  state.sources[0].hash='0'.repeat(64);
+  const document=JSON.stringify(state).replace(',"version"',',\n"version"');
+  await f.options.storage.save('one',document);
+  const cold=workbenchHistory(f.options);
+  await assert.rejects(cold.capture('one',await cold.metadata('one')),/prefix changed/);
+  await cold.close();assert.equal(await f.options.storage.read('one'),document);
 });
 
 test('one journal serves follow, Agent capture and cold persistence; local choices wake before native acknowledgement',

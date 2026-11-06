@@ -1,52 +1,26 @@
 import {isDeepStrictEqual} from 'node:util';
 import {SessionFacade,digest,isJournalEvent} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
+import {remap,restoreJournalEvents,encodeJournalDocument} from './journal-document.mjs';
 
-const maximumBytes=128*1024*1024;
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
 const identity=value=>typeof value==='string'&&value.length>0&&value.length<=256;
 const shape=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).every(key=>keys.includes(key));
 const body=({seq,time,...value})=>value;
 
-/** Translate source-log references, never application-local references. */
-function remap(input,seq,sourceAt) {
-  const event={...input,seq};
-  const reference=value=>{
-    if(!integer(value)||value>=input.seq||!sourceAt(value))throw Error('Native event reference is outside its observed prefix');
-    return sourceAt(value).seq;
-  };
-  if(event.surfaceOp&&event.surfaceOp!=='append')event.surfaceOp={
-    ...event.surfaceOp,startSeq:reference(event.surfaceOp.startSeq),endSeq:reference(event.surfaceOp.endSeq),
-  };
-  if(event.sourceEventSeqs)event.sourceEventSeqs=event.sourceEventSeqs.map(reference);
-  if(event.type==='developer/message'&&event.data.headerSeq!==undefined)
-    event.data={...event.data,headerSeq:reference(event.data.headerSeq)};
-  if(event.type==='command/done'&&event.data.sourceEventSeq!==undefined)
-    event.data={...event.data,sourceEventSeq:reference(event.data.sourceEventSeq)};
-  return event;
-}
-
 /** One synchronous application event owner; native commands remain outside this log. */
 export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
-  #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;
-  #save;#notify;#report;#inboxSlotFrom=0;
-  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},document}={}) {
+  #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
+  #save;#notify;#report;#inboxSlotFrom=0;#owned=[];
+  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
-    if(document!==undefined) {
-      if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
-      const state=JSON.parse(document);
-      if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','inboxSlotFrom'])||state.version!==1
-        ||!isDeepStrictEqual(state.header,seed.header)||!Array.isArray(state.sources)||!Array.isArray(state.operations)
-        ||!integer(state.inheritedEventCount)||!Array.isArray(state.events)
-        ||state.eventCount!==undefined&&state.eventCount!==state.events.length
-        ||state.sources.length>state.events.length||state.operations.length>state.events.length)
-        throw Error('Invalid application journal');
-      seed={header:state.header,events:state.events,inheritedEventCount:state.inheritedEventCount};
-      this.#session=this.#create(seed);
-      this.#inboxSlotFrom=Object.hasOwn(state,'inboxSlotFrom')?state.inboxSlotFrom:state.sources.length;
-      if(!integer(this.#inboxSlotFrom)||this.#inboxSlotFrom>state.sources.length)throw Error('Invalid saved inbox source boundary');
-      this.#restore(state.sources,state.operations);this.#saved=0;
+    if(restore!==undefined) {
+      if(!isDeepStrictEqual(restore.header,seed.header))throw Error('Invalid application journal identity');
+      seed={header:restore.header,events:restoreJournalEvents(restore,native,transitions),inheritedEventCount:restore.inheritedEventCount};
+      this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
+      this.#restore(restore.sources,restore.operations);
+      this.#saved=0;this.#rewrite=restore.version===1;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
       this.#session=this.#create(seed);
@@ -59,13 +33,7 @@ export class SessionProjectionJournal {
     return this.#api.deepFreeze(result);
   }
   #restore(sources,operations) {
-    const used=new Set();
-    for(const row of sources) {
-      if(!shape(row,['hash','seq','operation'])||!integer(row.seq)||row.seq>=this.seq||used.has(row.seq)
-        ||typeof row.hash!=='string'||!/^[a-f0-9]{64}$/.test(row.hash)
-        ||row.operation!==undefined&&!identity(row.operation))throw Error('Invalid application source map');
-      used.add(row.seq);
-    }
+    const used=new Set(sources.map(row=>row.seq));
     const positions=new Set();
     for(const operation of operations) {
       if(!shape(operation,['id','seq','invocation','receipt','source','failure'])||!identity(operation.id)
@@ -93,6 +61,7 @@ export class SessionProjectionJournal {
     for(let seq=0;seq<this.seq;seq++) {
       if(!used.has(seq)&&!positions.has(seq)&&(seq<cut?seq<annotationStart:!isJournalEvent(this.#session.eventAt(seq).type)))
         throw Error('Application journal contains unowned event positions');
+      if(!used.has(seq)||positions.has(seq))this.#owned.push(this.#session.eventAt(seq));
     }
     this.#sources=[...this.#snapshot(sources)];
   }
@@ -135,7 +104,7 @@ export class SessionProjectionJournal {
       this.#operations.set(id,Object.freeze({id,seq:event.seq,...(invocation===undefined?{}:{invocation})}));
       this.#operationIds[event.seq]=id;
     }
-    this.#revision++;
+    this.#owned.push(event);this.#revision++;
     this.#publish([event]);return event;
   }
   #assign(id,key,value) {
@@ -171,7 +140,10 @@ export class SessionProjectionJournal {
       ||inheritedEventCount>after+input.length)throw Error('Native event prefix moved backwards');
     if(annotations.length&&(this.seq||after||!this.#session.header.isSeeded||!isInheritedMarker(input[inheritedEventCount])))
       throw Error('Fork annotations require a fresh inherited boundary');
-    if(!input.length&&after===this.#sources.length)return Object.freeze([]);
+    if(!input.length&&after===this.#sources.length) {
+      if(this.#rewrite){this.#revision++;this.#rewrite=false;}
+      return Object.freeze([]);
+    }
     const start=this.seq,sourceStart=this.#sources.length;
     const sources=[],operations=new Map(),events=[];
     const sourceAt=seq=>seq<sourceStart?this.#sources[seq]:sources[seq-sourceStart];
@@ -225,21 +197,21 @@ export class SessionProjectionJournal {
       }}finally{candidate.end();}
       this.#session.adoptBranch(candidate);
     }
+    for(let index=0;index<annotations.length;index++) {
+      const seq=inherited-annotations.length+index;
+      this.#owned.push(this.#session.eventAt(seq));
+    }
     this.#annotationCount=count;
     for(const source of sources)this.#sources.push(source);
     for(const [id,operation] of operations)this.#operations.set(id,operation);
-    if(sources.length)this.#revision++;
+    if(sources.length||this.#rewrite)this.#revision++;
+    this.#rewrite=false;
     const appended=this.#session.snapshotEvents(start);this.#publish(appended);return Object.freeze(appended);
   }
   encode() {
-    const event=this.#session.lastEvent('session/title');
-    const prefix=JSON.stringify({header:this.#session.header,eventCount:this.seq,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-    const document=JSON.stringify({version:1,inheritedEventCount:this.#session.inheritedEventCount,inboxSlotFrom:this.#inboxSlotFrom,
-      events:this.#session.snapshotEvents(),sources:this.#sources,operations:this.operations()});
-    const value=prefix.slice(0,-1)+',\n'+document.slice(1);
-    if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
-    return value;
+    return encodeJournalDocument(this.#session,this.#owned,this.#sources,this.operations(),this.#inboxSlotFrom);
   }
+
   flush() {
     if(this.#saved===this.#revision)return Promise.resolve();
     if(this.#queued?.revision===this.#revision)return this.#queued.promise;

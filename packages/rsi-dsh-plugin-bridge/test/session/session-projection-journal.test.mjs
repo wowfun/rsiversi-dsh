@@ -5,6 +5,7 @@ import {pathToFileURL} from 'node:url';
 import {mkdtemp,readFile,readdir,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {test} from 'node:test';
+import {readJournalDocument} from '../../src/session/journal-document.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 
@@ -36,7 +37,7 @@ test('log-only Session events survive cold reload without allocating native muta
   journal.append('job/settled',{...job,finishedAt:2,status:'completed',cause:'producer',producerReported:true});
   assert.throws(()=>journal.append('model/selection',selection),/owning native command/);
   assert.throws(()=>journal.append('approval/decided',{id:'one',outcome:'allowed-once'},{surfaceOp:'append'}),/Log-only/);
-  const restore=document=>new SessionProjectionJournal(ctx,api,{header},{document});
+  const restore=document=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(document)});
   const cold=restore(journal.encode());
   assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
   assert.deepEqual(cold.operations(),[{id:'previous-release',seq:0}]);
@@ -54,7 +55,7 @@ test('log-only hook invocation and result stay in their turn across cold replay'
   journal.append('hook/invoked',invoked);
   journal.append('hook/result',result);
   assert.throws(()=>journal.append('hook/result',result,{surfaceOp:'append'}),/Log-only/);
-  const cold=new SessionProjectionJournal(ctx,api,{header},{document:journal.encode()});
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode()),native:[start]});
   assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
   assert.deepEqual(cold.session.surface.nodes,[]);
 });
@@ -64,7 +65,7 @@ test('constructor annotations keep the original DSH inherited cut through deltas
   const {foldSubagentDescriptor,snapshotSubagentDescriptor}=await load('dsh-subagent');
   const child={...header,isSeeded:true,parentSession:'parent'};
   const descriptor=snapshotSubagentDescriptor({mode:'continuable',provider:'test',label:'Child'});
-  const create=document=>new SessionProjectionJournal(ctx,api,{header:child},{document});
+  const create=(document,native)=>new SessionProjectionJournal(ctx,api,{header:child},{restore:readJournalDocument(document),native});
   for(const prefix of [[],[{type:'session/end-seed',seq:0,time:1,data:{inherited:true}}]]) {
     const cut=prefix.length;
     const annotations=[{type:'working-directory/change',seq:cut,time:4,data:{cwd:process.cwd()},ignorable:true},
@@ -79,7 +80,7 @@ test('constructor annotations keep the original DSH inherited cut through deltas
     const later={type:'plan/mode',seq:cut+1,time:7,data:{active:false}};
     journal.advance(native.length,[later]);
     journal.append('approval/policy',{policy:'ask'});
-    const restored=create(journal.encode());
+    const restored=create(journal.encode(),[...native,later]);
     restored.merge([...native,later],new Map(),cut);
     restored.advance(native.length+1,[{...later,seq:cut+2,time:8}]);
     for(const target of [journal,restored]) {
@@ -92,7 +93,7 @@ test('constructor annotations keep the original DSH inherited cut through deltas
     }
     const corrupt=JSON.parse(journal.encode());
     corrupt.inheritedEventCount--;
-    assert.throws(()=>create(JSON.stringify(corrupt)),/unowned event/);
+    assert.throws(()=>create(JSON.stringify(corrupt),[...native,later]),/unowned event/);
   }
 });
 
@@ -115,7 +116,7 @@ test('accepted event identity survives intervening native input, delayed acknowl
     assert.equal(journal.operationAt(1),undefined,'a native-only position has no local operation');
     journal.complete('choose',{request_id:'choose',outcome:{kind:'committed',control_seq:9}});
     await journal.flush();
-    const cold=new SessionProjectionJournal(ctx,api,{header},{document:persisted});
+    const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(persisted),native});
     assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
     assert.deepEqual(cold.operations(),journal.operations());
     assert.deepEqual(cold.operationAt(accepted.seq),journal.operation('choose'),'position reads include preparation, receipt and native alias after reload');
@@ -129,7 +130,7 @@ test('accepted event identity survives intervening native input, delayed acknowl
 
 test('source, replacement, developer-header and command references retain their meaning after local interleaving',
   {skip:!root},async t=>{
-    const {journal}=await fixture(t);journal.accept('choose','model/selection',selection,{},1);
+    const {ctx,api,journal}=await fixture(t);journal.accept('choose','model/selection',selection,{},1);
     const native=[];
     const add=(type,data,opts={})=>{const seq=native.length;native.push({seq,time:seq+10,type,data,...opts});return seq;};
     const system=add('system/message',{turn:0,step:0,message:message('old','system','old')},{surfaceOp:'append'});
@@ -153,6 +154,10 @@ test('source, replacement, developer-header and command references retain their 
     assert.equal(native.find(event=>event.type==='command/done').data.sourceEventSeq,input);
     assert.deepEqual(native.at(-1).surfaceOp,{op:'replace',startSeq:system,endSeq:system});
     assert.deepEqual(native.at(-1).sourceEventSeqs,[system]);
+    const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode()),native});
+    cold.merge(native);
+    assert.deepEqual(cold.session.snapshotEvents(),events);
+    assert.deepEqual(cold.session.surface.nodes,journal.session.surface.nodes);
   });
 
 test('requestHeader follows the released fold across atomic batches, inherited seeds and cold reads',{skip:!root},async t=>{
@@ -170,9 +175,35 @@ test('requestHeader follows the released fold across atomic batches, inherited s
   assert.equal(journal.session.requestHeader(),previous);
   journal.advance(1,[second]);const current=journal.session.requestHeader();
   assert.deepEqual(current,api.foldRequestHeader([first,second]));
-  const cold=new SessionProjectionJournal(ctx,api,{header},{document:journal.encode()});
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode()),native:[first,second]});
   assert.deepEqual(cold.session.requestHeader(),current);
   journal.accept('plain','plan/mode',{active:false});assert.equal(journal.session.requestHeader(),current);
+});
+
+test('durable journals omit native bodies while preserving local acknowledgements and exact cold events', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t);
+  const accepted=journal.accept('choice','model/selection',selection,{},1);
+  journal.append('approval/policy',{policy:'ask'});
+  const native=[{seq:0,time:2,type:'user/message',data:message('large','user','canonical-only-'.repeat(20_000)),surfaceOp:'append'},
+    {seq:1,time:3,type:'model/selection',data:selection}];
+  const correlations=new Map([[1,'choice']]);journal.merge(native,correlations);
+  const document=journal.encode(),state=JSON.parse(document);
+  assert.equal(state.version,2);assert.equal(state.eventCount,3);
+  assert.deepEqual(state.events.map(event=>event.seq),[0,1]);
+  assert.equal(document.includes('canonical-only-'),false);
+  assert.ok(Buffer.byteLength(document)<Buffer.byteLength(JSON.stringify(journal.session.snapshotEvents()))/100);
+  const restore=(value=state,events=native)=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(value)),native:events});
+  const cold=restore();cold.merge(native,correlations);
+  assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
+  assert.deepEqual(cold.session.eventAt(accepted.seq),accepted);
+  assert.equal(cold.encode(),document);
+  assert.throws(()=>restore(state,native.slice(0,1)),/prefix moved backwards/);
+  const changed=[{...native[0],time:99},native[1]];
+  assert.throws(()=>restore(state,changed).merge(changed,correlations),/prefix changed/);
+  assert.throws(()=>restore({...state,events:[...state.events,journal.session.eventAt(2)]}),/Native-only event body/);
+  assert.throws(()=>restore({...state,events:[state.events[0],state.events[0]]}),/local application event position/);
+  assert.throws(()=>restore({...state,events:[state.events[1]]}),/lost its accepted event/);
+  assert.throws(()=>restore({...state,eventCount:4}),/unowned event positions/);
 });
 
 test('a cold catalog reads the atomic title prefix without parsing history and matches native creation identities',{skip:!root},async t=>{
@@ -196,7 +227,7 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   assert.deepEqual(await cold.decorate([{...row,createdAt:7}]),[{...row,createdAt:7}]);
   await writeFile(file,document);
   assert.equal(JSON.parse(document).events[0].data.title,title);
-  const saved=new SessionProjectionJournal(ctx,api,{header:child},{document});
+  const saved=new SessionProjectionJournal(ctx,api,{header:child},{restore:readJournalDocument(document)});
   assert.deepEqual(saved.session.lastEvent('session/title'),journal.session.lastEvent('session/title'));
   const rename='Side: 换名';journal.accept('again','session/title',{title:rename,source:{kind:'user'},messageSeqs:[]});
   await journal.flush();assert.deepEqual((await storage.decorate([{...row}]))[0].projections,
@@ -211,7 +242,7 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   const legacy=JSON.stringify({version:1,...payload});
   await writeFile(file,legacy);
   assert.deepEqual(await sessionJournalStore(directory,atomic).decorate([{...row}]),[row]);
-  assert.deepEqual(new SessionProjectionJournal(ctx,api,{header:manual},{document:legacy}).session.header,manual);
+  assert.deepEqual(new SessionProjectionJournal(ctx,api,{header:manual},{restore:readJournalDocument(legacy)}).session.header,manual);
 });
 
 test('native acknowledgement deltas retain the Surface and do no full history read',
@@ -259,15 +290,15 @@ test('a failed mixed delta publishes neither source mappings nor earlier acknowl
 test('a cold journal advances its immutable source rows without rewriting earlier identities',
   {skip:!root},async t=>{
     const {ctx,api,journal}=await fixture(t);
-    journal.merge([{seq:0,time:1,type:'model/selection',data:selection}]);
+    const native=[{seq:0,time:1,type:'model/selection',data:selection}];journal.merge(native);
     journal.accept('choice','model/selection',selection,{},2);
-    const cold=new SessionProjectionJournal(ctx,api,{header},{document:journal.encode()});
+    const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode()),native});
     const source=cold.sourceAt(0),accepted=cold.session.eventAt(1);
     assert.ok(Object.isFrozen(source));
     cold.advance(1,[{seq:1,time:3,type:'model/selection',data:selection}],new Map([[1,'choice']]));
     cold.advance(2,[{seq:2,time:4,type:'model/selection',data:{...selection,model:'later'}}]);
     assert.equal(cold.sourceAt(0),source);assert.equal(cold.session.eventAt(1),accepted);
-    const reloaded=new SessionProjectionJournal(ctx,api,{header},{document:cold.encode()});
+    const reloaded=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(cold.encode()),native:[...native,{seq:1,time:3,type:'model/selection',data:selection},{seq:2,time:4,type:'model/selection',data:{...selection,model:'later'}}]});
     assert.equal(reloaded.encode(),cold.encode());assert.equal(reloaded.operation('choice').source,1);
   });
 
@@ -303,7 +334,7 @@ test('flushes serialize immutable snapshots, join equal writes and retry failure
     gate.resolve();await failure;
     fail=false;await journal.flush();
     assert.equal(writes[0].events.length,1);assert.equal(writes[1].events.length,2);
-    const cold=new SessionProjectionJournal(ctx,api,{header},{document:JSON.stringify(writes[1])});
+    const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(writes[1]))});
     assert.deepEqual(cold.operations()[1].invocation,{request_id:'two',revision:3});
     assert.equal(cold.operations()[1].receipt,undefined,'recovery retains prepared uncertainty instead of fabricating completion');
     assert.throws(()=>cold.prepare('two',{request_id:'fresh-id',revision:4}),/immutable/);
@@ -318,16 +349,16 @@ test('invalid native batches and persisted correlations cannot partially publish
     journal.accept('choose','model/selection',selection,{},1);
     const before=journal.encode(),event={seq:0,time:2,type:'model/selection',data:selection};
     const orphan=JSON.parse(before);orphan.operations=[];
-    assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{document:JSON.stringify(orphan)}),/unowned event/);
+    assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(orphan))}),/unowned event/);
     assert.throws(()=>journal.merge([event,{seq:1,time:2,type:'not-an-event',data:{}}]),/event envelope/);
     assert.equal(journal.encode(),before);
     assert.throws(()=>journal.merge([{...event,data:{...selection,model:'wrong'}}],new Map([[0,'choose']])),/disagrees/);
     assert.equal(journal.encode(),before);
     journal.merge([event],new Map([[0,'choose']]));
     const state=JSON.parse(journal.encode());state.operations[0].source=99;
-    assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{document:JSON.stringify(state)}),/mutation record/);
+    assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(state)),native:[event]}),/mutation record/);
     state.operations[0].source=0;state.events[0].data.model='tampered';
-    const corrupted=new SessionProjectionJournal(ctx,api,{header},{document:JSON.stringify(state)});
+    const corrupted=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(state)),native:[event]});
     assert.throws(()=>corrupted.merge([event],new Map([[0,'choose']])),/disagrees/);
   });
 
@@ -364,7 +395,7 @@ test('original atomic persistence restores an exact prepared invocation after an
     journal.prepare('choice',invocation);
     await assert.rejects(journal.flush(),/acknowledgement lost/);
     const document=await readFile(file,'utf8');
-    const reopened=new SessionProjectionJournal(ctx,api,{header},{document});
+    const reopened=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(document)});
     assert.deepEqual(reopened.operations()[0].invocation,invocation);
     assert.equal(reopened.operations()[0].receipt,undefined);
     assert.deepEqual(reopened.session.snapshotEvents(),journal.session.snapshotEvents());
@@ -391,13 +422,13 @@ test('live deltas preserve source cursors and a failed batch or stale branch can
   });
 
 test('saved journals retain the native prefix that used predecessor-based inbox identities', {skip:!root},async t=>{
-  const {ctx,api,journal}=await fixture(t),restore=raw=>new SessionProjectionJournal(ctx,api,{header},{document:JSON.stringify(raw)});
+  const {ctx,api,journal}=await fixture(t),restore=(raw,native)=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(raw)),native});
   const native=[0,1].map(seq=>({type:'model/selection',seq,time:seq,data:selection}));
   journal.merge(native);
-  const saved=JSON.parse(journal.encode());assert.equal(restore(saved).inboxSlotFrom,0);
-  delete saved.inboxSlotFrom;
-  const cold=restore(saved);assert.equal(cold.inboxSlotFrom,2);
+  const saved=JSON.parse(journal.encode());assert.equal(restore(saved,native).inboxSlotFrom,0);
+  saved.version=1;saved.events=journal.session.snapshotEvents();delete saved.inboxSlotFrom;
+  const cold=restore(saved,native);assert.equal(cold.inboxSlotFrom,2);
   cold.merge([...native,{...native[1],seq:2}]);
-  assert.equal(restore(JSON.parse(cold.encode())).inboxSlotFrom,2);
-  assert.throws(()=>restore({...saved,inboxSlotFrom:3}),/source boundary/);
+  assert.equal(restore(JSON.parse(cold.encode()),[...native,{...native[1],seq:2}]).inboxSlotFrom,2);
+  assert.throws(()=>restore({...saved,inboxSlotFrom:3},native),/source boundary/);
 });
