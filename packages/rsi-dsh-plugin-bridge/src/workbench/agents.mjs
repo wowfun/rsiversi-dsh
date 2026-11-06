@@ -111,6 +111,8 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       get header(){return record.view.session.header;},get seq(){return record.view.session.seq;},
       get inheritedEventCount(){return record.view.session.inheritedEventCount;},
       get surface(){return record.view.session.surface;},
+      deriveMessages:()=>record.view.session.deriveMessages(),
+      deriveEventMessage:event=>record.view.session.deriveEventMessage(event),
       requestHeader:()=>record.view.session.requestHeader(),
       snapshotEvents:(...args)=>record.view.session.snapshotEvents(...args),
       ownEvents:()=>record.view.session.snapshotEvents(record.view.session.inheritedEventCount),

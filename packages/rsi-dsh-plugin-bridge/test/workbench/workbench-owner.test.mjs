@@ -147,6 +147,8 @@ test('original attached Agent returns its synchronous event and publishes depend
     const agent=await scope.runOwned(()=>agents.ensure('one')),notices=[];
     assert.ok(agent.model instanceof (await f.load('dsh-agent')).AgentModel);
     assert.deepEqual(agent.model.current(),base);
+    assert.deepEqual(agent.session.deriveMessages(),[]);
+    assert.equal(agent.session.deriveEventMessage(agent.session.eventAt(0)),null);
     const initialSeq=agent.session.seq;
     agent.model.select(base);
     assert.equal(agent.session.seq,initialSeq);

@@ -66,6 +66,7 @@ export function digest(value) { return createHash('sha256').update(JSON.stringif
 export class SessionFacade {
   #events = []; #ctx; #api; #surface; #active = false; #bytes = 0; #retired = false; #announced = false;
   #branch; #requestHeader; #titleEvent;
+  #eventsSnapshot; #derived;
   constructor(ctx, api, { header, events = [], inheritedEventCount = 0 }, announce = true) {
     this.header = validateHeader(header); this.id = header.id;
     if (!integer(inheritedEventCount) || inheritedEventCount > events.length) throw new Error('invalid inherited prefix');
@@ -78,12 +79,27 @@ export class SessionFacade {
   get seq() { return this.#events.length; }
   get encodedBytes() { return this.#bytes; }
   get surface() { return this.#surface; }
+  deriveEventMessage(event) { return this.#surface.deriveEventMessage(event); }
+  deriveMessages() {
+    const nodes = this.#surface.nodes;
+    const generation = this.#surface.contentGeneration;
+    if (this.#derived?.generation !== generation) {
+      this.#derived = {generation, count: 0, messages: []};
+    }
+    const cached = this.#derived;
+    for (; cached.count < nodes.length; cached.count++) {
+      const message = this.deriveEventMessage(this.#events[nodes[cached.count]]);
+      if (message) cached.messages.push(message);
+    }
+    return cached.messages.slice();
+  }
   requestHeader() { return this.#requestHeader; }
   eventAt(seq) { if (!integer(seq) || seq >= this.seq) throw new RangeError('Session sequence'); return this.#events[seq]; }
   lastEvent(type) { return type==='session/title'?this.#titleEvent:this.#events.findLast(event => event.type === type); }
   snapshotEvents(start = 0, end = this.seq) {
     if (!integer(start) || !integer(end) || end > this.seq || start > end) throw new RangeError('Session interval');
-    return this.#events.slice(start, end);
+    if (start === 0 && end === this.seq) return this.#eventsSnapshot ??= Object.freeze(this.#events.slice());
+    return Object.freeze(this.#events.slice(start, end));
   }
   /** Stage a batch over already validated immutable events without cloning its prefix. */
   branch() {
@@ -101,6 +117,7 @@ export class SessionFacade {
     if(!(candidate instanceof SessionFacade)||candidate.#branch?.parent!==this||candidate.#branch.seq!==this.seq
       ||this.#active||candidate.#active||this.#retired||candidate.#retired||this.#announced)
       throw new Error('Session batch lost its original prefix');
+    if (candidate.seq !== this.seq) this.#eventsSnapshot = undefined;
     this.#events=candidate.#events;this.#bytes=candidate.#bytes;this.#surface=candidate.#surface;
     this.#requestHeader=candidate.#requestHeader;
     this.#titleEvent=candidate.#titleEvent;
@@ -133,7 +150,7 @@ export class SessionFacade {
     this.#api.deepFreeze(event);
     if(event.type==='request/header')this.#requestHeader=this.#api.deepFreeze(this.#api.canonicalHeader(event.data.header));
     if(event.type==='session/title')this.#titleEvent=event;
-    this.#events.push(event); this.#bytes += bytes;
+    this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;
     if (notify && this.#announced) this.#ctx.emit('session/event', this, event);
     return event;
   }

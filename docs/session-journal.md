@@ -10,6 +10,12 @@ Agents, workbench history and cold persistence. Native Kernel owns execution.
 The attached Agent's model-selection append and the ordinary workbench model
 selector both use this log and its native command driver.
 
+Plugins read the model-visible messages with `session.deriveMessages()`.
+It returns a fresh list in the release surface's order, with its replacements
+and empty-message rules applied. `deriveEventMessage(event)` uses the same
+surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot
+until the log advances. Previously returned arrays retain their original cut.
+
 DSH hook handlers append their log-only `hook/invoked` and `hook/result`
 records to the same Session. Their turn, point and handler ID survive cold
 replay. Neither record changes the model-visible conversation.
