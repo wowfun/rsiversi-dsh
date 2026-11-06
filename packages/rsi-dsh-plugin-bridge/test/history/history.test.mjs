@@ -36,10 +36,10 @@ const events = terminal => [[0, { type: 'content_started', index: 0, content: { 
 integration('canonical timed attempts survive original stream decoding, receipt, restart and exact rejection', async t => {
   const llm = await (await loadCohort(cohortRoot)).import('@deepseek-ai/dsh-llm');
   const facts = [{ seq: 1, timestamp_ms: 10, type: 'step_started', turn_id: 'turn', step_id: 'step' }];
-  const attempts = new Map();
   const request = async (method, args) => {
     const fact = facts.find(fact => fact.seq > args.after_seq);
-    const value = method === 'agent.history.read' ? [fact] : attempts.get(args.after_seq + 1);
+    assert.equal(method, 'agent.history.read');
+    const value = [fact];
     assert.ok(value, method);
     const bytes = Buffer.from(JSON.stringify(value));
     // Deliberately small UTF-8-safe fragments exercise identity/offset handling.
@@ -57,8 +57,8 @@ integration('canonical timed attempts survive original stream decoding, receipt,
     facts.push({ seq: facts.length + 1, timestamp_ms: 20, type: 'model_intent', effect_id: id, purpose: { kind: 'conversation' }, snapshot, evidence: evidence() });
     facts.push({ seq: facts.length + 1, timestamp_ms: 100, type: 'model_started', effect_id: id });
     const seq = facts.length + 1;
-    facts.push({ seq, timestamp_ms: 130, type: 'model_attempt_settled', effect_id: id, purpose: 'conversation' });
-    attempts.set(seq, { seq, retain_context, events: events(terminal) });
+    facts.push({ seq, timestamp_ms: 130, type: 'model_attempt_settled', effect_id: id, purpose: 'conversation',
+      attempt: {retain_context, events: events(terminal)} });
   };
   add('success', { type: 'finished', reason: 'tool_calls', replay: null }, false);
   stage = await prepare('success');
@@ -120,13 +120,14 @@ integration('a Plan review parks captured Tool history privately and fences a su
       { type: 'tool_intent', effect_id: 'native-effect', origin: { kind: 'model', effect_id: 'model' }, identity: { call_id: 'provider-call' }, name: 'exit_plan_mode', arguments: args },
       { type: 'tool_started', effect_id: 'native-effect', identity: { call_id: 'provider-call' } },
     ].map((fact, i) => ({ ...fact, seq: i + 1, timestamp_ms: 10 * (i + 1) }));
-    const attempt = { seq: 5, retain_context: false, events: [
+    facts[4].attempt = { retain_context: false, events: [
       [0, { type: 'content_started', index: 0, content: { type: 'tool_call', id: 'provider-call', name: 'exit_plan_mode', kind: 'function' } }],
       [1, { type: 'content_delta', index: 0, delta: { type: 'tool_arguments', value: JSON.stringify(args) } }],
       [2, { type: 'content_finished', index: 0 }], [3, { type: 'finished', reason: 'tool_calls', replay: null }],
     ] };
     const request = async (method, { after_seq, offset }) => {
-      const fact = facts[after_seq]; const json = JSON.stringify(method === 'agent.history.read' ? [fact] : attempt);
+      assert.equal(method, 'agent.history.read');
+      const fact = facts[after_seq]; const json = JSON.stringify([fact]);
       return { through_seq: fact.seq, offset, next_offset: Buffer.byteLength(json), total_bytes: Buffer.byteLength(json), json };
     };
     const bridge = await createBridge({ cohortRoot, request, ask(question, signal, { operationId, callId }) {
@@ -221,7 +222,7 @@ integration('original surface folds preserve roles, system replacements, raw cal
   let mapping = restoreMapping(); let seq = 0;
   let projected;
   const observe = body => observeFact(session, mapping, { seq: ++seq, timestamp_ms: seq * 100, ...body },
-    () => { throw new Error('unexpected reference'); }, async selected => ({ seq: selected, retain_context: true, events: projected }), llm);
+    () => { throw new Error('unexpected reference'); }, llm);
   await observe({ type: 'turn_accepted', turn_id: 'turn', text: 'Original user text' });
   await observe({ type: 'step_started', turn_id: 'turn', step_id: 'step' });
   await observe({ type: 'input_message_claimed', turn_id: 'turn', step_id: 'step', source: { type: 'plugin_context', contribution_id: 'context' },
@@ -239,7 +240,7 @@ integration('original surface folds preserve roles, system replacements, raw cal
       [index * 4 + 2, { type: 'content_finished', index }],
     ]);
     projected.push([ids.length * 4, { type: 'finished', reason: 'tool_calls', replay: null }]);
-    await observe({ type: 'model_attempt_settled', effect_id, purpose: 'conversation' });
+    await observe({ type: 'model_attempt_settled', effect_id, purpose: 'conversation', attempt: {retain_context:true,events:projected} });
   };
   await model('first-model', ['a', 'b']);
   const intent = (id, model, type = 'tool_intent') => ({ type, effect_id: `effect-${id}`, origin: { kind: 'model', effect_id: model },

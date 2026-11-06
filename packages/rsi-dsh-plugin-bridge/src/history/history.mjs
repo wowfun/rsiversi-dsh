@@ -65,13 +65,6 @@ async function readPage(request, method, identity, after, horizon, signal) {
   } while (offset < total);
   return { through, value: JSON.parse(fragments.join('')) };
 }
-export async function readAttempt(request, identity, seq, signal) {
-  if (!integer(seq) || seq === 0) throw new Error('invalid model attempt sequence');
-  const { through, value } = await readPage(request, 'agent.history.attempt.read', identity, seq - 1, seq, signal);
-  if (through !== seq || value.seq !== seq) throw new Error('model attempt projection identity mismatch');
-  return value;
-}
-
 export async function readNativeMessage(call, messageId, seq, signal) {
   const {through,value}=await readPage((_method,{offset})=>call({type:'message',message_id:messageId,
     accepted_control_seq:seq,offset}), 'message', {}, seq-1, seq, signal);
@@ -85,7 +78,7 @@ function closeStep(session, mapping, time) {
   mapping.stepOpen = false;
 }
 /** Only lifecycle Facts affect these counters; provider attempts do not fabricate acceptance. */
-export async function observeFact(session, mapping, fact, readFact, readAttempt, llm) {
+export async function observeFact(session, mapping, fact, readFact, llm) {
   if (!integer(fact.timestamp_ms) || fact.timestamp_ms === 0) throw new Error('invalid canonical Fact time');
   if (fact.type === 'model_intent') {
     await observeRequest(session, fact, readFact, mapping);
@@ -93,7 +86,7 @@ export async function observeFact(session, mapping, fact, readFact, readAttempt,
   } else if (fact.type === 'model_started' && mapping.model?.effectId === fact.effect_id) {
     mapping.model.startedAt = fact.timestamp_ms;
   } else if (fact.type === 'model_attempt_settled') {
-    if (await observeAttempt(session, mapping, fact, readAttempt, llm)) closeStep(session, mapping, fact.timestamp_ms);
+    if (observeAttempt(session, mapping, fact, llm)) closeStep(session, mapping, fact.timestamp_ms);
   } else if (['turn_accepted', 'message_turn_accepted', 'step_started'].includes(fact.type)) {
     if (mapping.turnId !== fact.turn_id) {
       if (mapping.turnId !== null) throw new Error('new Turn precedes canonical terminal');

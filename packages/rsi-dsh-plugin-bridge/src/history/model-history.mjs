@@ -73,12 +73,12 @@ export function modelProjection(llm,startedAt,onChunk) {
   return {stream,blocks,accept};
 }
 
-export async function observeAttempt(session, mapping, fact, readAttempt, llm) {
+export function observeAttempt(session, mapping, fact, llm) {
   if (fact.purpose !== 'conversation') return;
   const model = mapping.model;
   if (!model || model.effectId !== fact.effect_id || !integer(model.startedAt)) throw new Error('attempt lacks its captured model start');
-  const projected = await readAttempt(fact.seq);
-  if (projected.seq !== fact.seq || typeof projected.retain_context !== 'boolean' || !Array.isArray(projected.events)) throw new Error('invalid normalized model projection');
+  const projected = fact.attempt;
+  if (!projected || typeof projected.retain_context !== 'boolean' || !Array.isArray(projected.events)) throw new Error('invalid normalized model projection');
   const {stream,blocks,accept}=modelProjection(llm,model.startedAt);
   for(const [elapsed,event] of projected.events)accept(elapsed,event);
   const data = { turn: mapping.turn, step: mapping.step, stream: stream.snapshot() };

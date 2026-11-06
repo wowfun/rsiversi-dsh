@@ -8,7 +8,7 @@ import { resultMetadata, toolPipeline } from '../../tools/tool-pipeline.mjs';
 import { toolContextOutput } from '../../history/step-messages.mjs';
 import { prepareRows, runtimeContextProjection } from '../request-input.mjs';
 import { claimedRows } from '../../history/input-history.mjs';
-import { readHistory, readAttempt, observeFact } from '../../history/history.mjs';
+import { readHistory, observeFact } from '../../history/history.mjs';
 
 /** Original Cordis + original Todo/Plan, with RSI-owned receipt and Session seams. */
 export async function createBridge({ cohortRoot, cohortLoader, configuration, request, ask = async () => { throw new Error('question channel unavailable'); }, section = 'Plan the work before making changes.' }) {
@@ -113,8 +113,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
       return original;
     };
     record.mapping.factCursor = await readHistory(request, identity,
-      record.mapping.factCursor, horizon, fact => observeFact(record.session, record.mapping, fact, readFact,
-        seq => readAttempt(request, identity, seq, operation.signal), llm), operation.signal);
+      record.mapping.factCursor, horizon, fact => observeFact(record.session, record.mapping, fact, readFact, llm), operation.signal);
   }
   return Object.freeze({
     ...mirrors.protocol,

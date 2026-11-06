@@ -29,7 +29,7 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
     await build({entryPoints:[join(root,'node_modules/dsh-better-sidebar/src/assistant-live.ts')],
       outfile,bundle:true,format:'esm',platform:'node',logLevel:'silent'});
     const buffer=(await import(pathToFileURL(outfile))).createAssistantLiveBuffer(ctx);t.after(()=>buffer.dispose());
-    const facts=[],attempts=new Map(),readers=new Map(),durableWaiters=new Set(),frames=[],sequence=[];
+    const facts=[],readers=new Map(),durableWaiters=new Set(),frames=[],sequence=[];
     let active='turn',current='effect',agents,releaseCount=0,cancelCount=0;
     const writeErrors=[];let notificationWrites=0;
     let modelEvents=[[0,{type:'content_started',index:0,content:{type:'text'}}],
@@ -57,7 +57,6 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
         model_baseline:selection,model_selection:selection,selection_cursor:{kind:'durable',...cursor()}};
       if(op.type==='controls')return {through:1,events:[]};
       if(op.type==='fact')return fragment([facts[op.after_seq]],op.after_seq+1);
-      if(op.type==='attempt')return fragment(attempts.get(op.after_seq+1),op.after_seq+1);
       if(op.type==='wait') {
         if(op.cursor.fact_seq<facts.length)return cursor();
         return new Promise((resolve,reject)=>{
@@ -111,8 +110,7 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
     assert.equal(releaseCount,1);
     const settled=[...modelEvents,[8,{type:'content_delta',index:0,delta:{type:'text',value:' final'}}],
       [9,{type:'content_finished',index:0}],[10,{type:'finished',reason:'stop'}]];
-    add({type:'model_attempt_settled',effect_id:current,purpose:'conversation'});
-    attempts.set(facts.length,{seq:facts.length,retain_context:true,events:settled});
+    add({type:'model_attempt_settled',effect_id:current,purpose:'conversation',attempt:{retain_context:true,events:settled}});
     add({type:'step_ended',turn_id:active,step_id:'step-'+active});
     add({type:'turn_terminal',turn_id:active,outcome:{status:'completed'}});active=null;wake();
     await until(()=>frames.some(frame=>frame.type==='end'&&frame.outcome.kind==='committed'));

@@ -45,7 +45,7 @@ export function createExtension({cohortRoot, hostModules}) {
       }
       await writeFile(join(output,'package.json'),json({format:2,name,version:'0.1.0',target:'portable',
         dependencies:[cordis,{name:importer.package,digest:importer.digest}],
-        requires:[{name:'rsi.extension.process',version:1},{name:'rsi.extension.agent',version:7}],files,
+        requires:[{name:'rsi.extension.process',version:1},{name:'rsi.extension.agent',version:8}],files,
         exports:{runtime:{kind:'payload_tree',path:'payload.rsi'},process:{kind:'process_extension',path:'process.json'}}}));
       signal.throwIfAborted(); return {format:1,directories:[name]};
     } finally { await rm(work,{recursive:true,force:true}); }

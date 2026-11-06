@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {forkSnapshot} from '../session/fork.mjs';
-import {observeFact,readAttempt,readHistory,restoreMapping} from '../history/history.mjs';
+import {observeFact,readHistory,restoreMapping} from '../history/history.mjs';
 import {SessionFacade} from '../session/session.mjs';
 
 export async function projectFacts(session,mapping,fetch,through,signal,llm,observed){
@@ -18,7 +18,7 @@ export async function projectFacts(session,mapping,fetch,through,signal,llm,obse
   try{
     mapping.factCursor=await readHistory(fetch,identity,mapping.factCursor,through,async (fact,facts)=>{
       page=facts;
-      await observeFact(session,mapping,fact,readFact,seq=>readAttempt(fetch,identity,seq,signal),llm);
+      await observeFact(session,mapping,fact,readFact,llm);
       observed?.(fact);
     },signal);
   }finally{session.end();}
@@ -35,10 +35,8 @@ export async function inheritedSession(ctx,api,llm,call,release,header,signal){
       const parent=canonical??{header:{version:4,id:row.parent,createdAt:row.parent_time,isSeeded:false},
         mapping:restoreMapping(null),events:[],inheritedEventCount:0};
       const session=new SessionFacade(ctx,api,parent,false);
-      const fetch=(method,{after_seq,through_seq,offset})=>{
-        const attempt=method==='agent.history.attempt.read';
-        return call({type:'seed_read',key,interval,after_seq,through_seq:attempt?after_seq+1:through_seq,offset,attempt});
-      };
+      const fetch=(_method,{after_seq,through_seq,offset})=>
+        call({type:'seed_read',key,interval,after_seq,through_seq,offset});
       await projectFacts(session,parent.mapping,fetch,row.through,signal,llm);
       canonical=forkSnapshot({...parent,events:session.snapshotEvents()},{
         header:row.child===header.id?{...header,parentSession:row.parent}:

@@ -178,7 +178,7 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 8. The native Host supplies an opaque `owner`
+Application opening uses protocol 9. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -590,8 +590,10 @@ read. No extra durable copy or cross-page cache is retained. Retries with unchan
 headers do not invent a new series. Compaction calls do not update conversation
 mode narration. DSH cannot represent hosted/freeform tools or RSI-only sampling
 controls in an EpochHeader; these fail explicitly instead of publishing a partial
-header. Normalized model attempts come from RSI's canonical decoder, under the
-same captured authority. Their elapsed offsets remain unchanged and are anchored
+header. Each model-attempt Fact carries `attempt: {retain_context, events}` from
+RSI's canonical decoder in the same captured page. Encoded attempt chunks and a
+second attempt-read callback are absent. Agent extensions require native
+`rsi.extension.agent` version 8 for this history view. Their elapsed offsets remain unchanged and are anchored
 to the canonical ModelStarted timestamp. Original DSH stream accumulation and
 block assembly produce assistant messages and failed-attempt records. RSI's
 inclusive input-token total is converted to DSH's disjoint uncached/cache counters.
