@@ -46,6 +46,8 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
     };begin();
     const cursor=()=>({fact_seq:facts.length,control_seq:1});
     const selection={model:{deployment:'native',model:'configured'}};
+    const metadata=()=>({id:'thread',created_at:1,inherited:false,through:facts.length,
+      model_baseline:selection,model_selection:selection,selection_cursor:{kind:'durable',...cursor()}});
     const fragment=(value,through)=>{const json=JSON.stringify(value),bytes=Buffer.byteLength(json);
       return {json,offset:0,next_offset:bytes,total_bytes:bytes,through_seq:through};};
     const wake=()=>{for(const notify of durableWaiters)notify();};
@@ -53,8 +55,7 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
       assert.equal(args.request,'owner');signal?.throwIfAborted();
       if(method==='application.cancel'){cancelCount++;return {session_id:'thread'};}
       assert.equal(method,'application.history');const op=args.operation;
-      if(op.type==='open')return {id:'thread',created_at:1,inherited:false,through:facts.length,
-        model_baseline:selection,model_selection:selection,selection_cursor:{kind:'durable',...cursor()}};
+      if(op.type==='open')return metadata();
       if(op.type==='controls')return fragment([],1);
       if(op.type==='fact')return fragment([facts[op.after_seq]],op.after_seq+1);
       if(op.type==='wait') {
@@ -82,7 +83,7 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
       return {...fragment(events),revision:reader.offset,complete:true,status:{state:'streaming'}};
     };
     const scope=applicationSessions(call,{owner:'owner',agent:id=>agents?.get(id)});
-    scope.inbox.capture=async()=>({kind:'durable',session_id:'thread',cursor:cursor(),active_turn_id:active,pending:[]});
+    scope.inbox.capture=async()=>({kind:'durable',session_id:'thread',cursor:cursor(),history:metadata(),active_turn_id:active,pending:[]});
     const history=workbenchHistory({ctx,api,llm,read:scope.history,release:scope.releaseHistory,listChildren:async()=>[],authorize:async()=>{}});
     const adapterOwner=ctx.plugin({inject:['agents','sessionProjections'],apply(){}});await adapterOwner;
     agents=await workbenchAgents(adapterOwner.ctx,scope,history,await load('dsh-scope'),await load('dsh-agent'),api.snapshotJsonValue);

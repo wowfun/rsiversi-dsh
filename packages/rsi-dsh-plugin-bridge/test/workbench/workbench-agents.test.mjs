@@ -202,15 +202,35 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
   assert.deepEqual([...draftOwners.keys()],['parent'],'disposal cancels acquisition and releases its accepted native owner');
 });
 
-test('Agent captures retry draft changes and use the inbox cut instead of newer model metadata',async()=>{
-  let calls=0;
+test('Agent capture retries draft publication and then reuses the durable inbox history',async()=>{
+  let calls=0,metadataReads=0;
+  const meta={selection_cursor:{kind:'durable',fact_seq:5,control_seq:7},through:5};
   const scope={inbox:{capture:async()=>++calls===1?{kind:'draft',revision:1,pending:[]}:
-    {kind:'durable',cursor:{fact_seq:5,control_seq:7},pending:[]}}};
-  const history={metadata:async()=>({selection_cursor:{kind:'durable',fact_seq:8,control_seq:9},through:8}),
+    {kind:'durable',cursor:{fact_seq:5,control_seq:7},history:meta,pending:[]}}};
+  const history={metadata:async()=>{assert.equal(++metadataReads,1);return {selection_cursor:{kind:'durable',fact_seq:8,control_seq:9},through:8};},
     captureAgent:async(_id,meta)=>{
       assert.equal(meta.through,5);assert.deepEqual(meta.selection_cursor,{kind:'durable',fact_seq:5,control_seq:7});
       return {session:{id:'same'},options:{provider:'native',model:'at-cut'}};
     }};
   assert.deepEqual((await captureAgentView(scope,history,'same')).options,{provider:'native',model:'at-cut'});
   assert.equal(calls,2);
+  assert.equal(metadataReads,1,'only the draft requires a separate metadata read');
+});
+
+test('durable Agent capture retries when another reader advanced the shared owner',async()=>{
+  let captures=0,projected=0;
+  const scope={inbox:{capture:async()=>{
+    const fact_seq=++captures,control_seq=captures;
+    return {kind:'durable',pending:[],cursor:{fact_seq,control_seq},
+      history:{through:fact_seq,selection_cursor:{kind:'durable',fact_seq,control_seq}}};
+  }}};
+  const history={metadata(){assert.fail('durable capture must not open history again');},
+    captureAgent:async(_id,meta)=>{
+      projected++;
+      return {session:{id:'same'},options:{at:meta.through},
+        sourceCursor:{kind:'durable',fact_seq:2,control_seq:2}};
+    }};
+  const view=await captureAgentView(scope,history,'same');
+  assert.equal(captures,2);assert.equal(projected,2);
+  assert.equal(view.options.at,2);assert.equal(view.inbox.cursor.fact_seq,2);
 });

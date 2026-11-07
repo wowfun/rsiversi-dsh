@@ -193,7 +193,7 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 10. The native Host supplies an opaque `owner`
+Application opening uses protocol 11. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -271,8 +271,12 @@ transcript attaches a live mirror without waking a model. Listing remains cold;
 sidebar reads refresh existing Agents and leave unattached side conversations for
 the caller's resume setup. Owned Agents and their working directories remain
 accessible outside a browser request. Each mirror reads history and
-pending input at one native cut: durable inbox cursors bound replay; draft
-revision changes cause a fresh capture. The registry's caller Cordis context owns
+pending input at one native cut: durable inbox openings include the history
+metadata and model baseline from that same native inspection, with no separate
+history opening. Draft model selection is read from its command baseline through
+a revision-matched history opening; a revision change causes a fresh capture.
+If a concurrent reader advances the shared event owner beyond the captured cut,
+the Agent captures again before publishing its view. The registry's caller Cordis context owns
 setup, publication and disposal. A created side conversation uses an independent
 native manual fork at the supplied history cut, not a Kernel-owned child.
 
@@ -1105,7 +1109,9 @@ The application inbox reader captures the native durable inspection once, then
 reads its exact acceptance records. It preserves native message IDs, routing,
 source classification and queue slots across process restarts. Fragment assembly
 checks byte offsets and UTF-8 boundaries before exposing a complete value.
-Opening supplies complete bounded metadata without nested JSON encoding. An
+Opening supplies complete bounded metadata without nested JSON encoding. Its
+durable `history` contains Header metadata, the model baseline and the exact
+Fact/control cut for replay. It needs no current-projection subscription. An
 empty snapshot needs one call and retains no native resource; other snapshots
 are closed after their message reads.
 The native reader reuses one encoded acceptance across consecutive fragments

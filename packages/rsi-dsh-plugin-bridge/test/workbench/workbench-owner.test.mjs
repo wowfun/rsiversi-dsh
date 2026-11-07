@@ -219,7 +219,7 @@ test('original attached Agent returns its synchronous event and publishes depend
     f.hooks.submit=scope.submit;
     t.after(()=>scope.close());
     scope.inbox.capture=async()=>({kind:'durable',session_id:'one',cursor:{fact_seq:0,control_seq:f.meta().selection_cursor.control_seq},
-      active_turn_id:null,pending:[]});scope.history=f.options.read;
+      history:f.meta(),active_turn_id:null,pending:[]});scope.history=f.options.read;
     const agents=await workbenchAgents(f.ctx,scope,f.history,await f.load('dsh-scope'),await f.load('dsh-agent'),f.options.api.snapshotJsonValue);
     const agent=await scope.runOwned(()=>agents.ensure('one')),notices=[];
     assert.ok(agent.model instanceof (await f.load('dsh-agent')).AgentModel);

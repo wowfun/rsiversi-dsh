@@ -50,7 +50,7 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
     selection_cursor:state.kind==='draft'?{kind:'draft',revision:state.revision}:{kind:'durable',...cursor()}});
   const snapshot=()=>structuredClone({kind:state.kind,session_id:'one',pending:state.pending,active_turn_id:state.activeTurn?'turn':null,
     driver_active:!!(state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.target==='next_turn'))),
-    ...(state.kind==='draft'?{revision:state.revision}:{cursor:cursor()})});
+    ...(state.kind==='draft'?{revision:state.revision}:{cursor:cursor(),history:meta()})});
   const read=async(id,op,signal)=>{
     assert.equal(id,'one');signal?.throwIfAborted();
     if(op.type==='open')return meta();
