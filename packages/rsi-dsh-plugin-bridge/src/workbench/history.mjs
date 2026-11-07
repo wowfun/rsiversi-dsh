@@ -107,7 +107,8 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     revision:owners.revision,
     async snapshot(meta) {
       const journal=owners.journal(meta.id);
-      const saved=journal?.revision?undefined:await storage?.metadata(meta.id);
+      const local=journal?.hasLocalEvents;
+      const saved=local?undefined:await storage?.metadata(meta.id);
       const hint=saved?.header?.id===meta.id&&saved.header.createdAt===meta.created_at?saved:undefined;
       const header={...historyHeader(meta),...(meta.parent?{parentSession:meta.parent}:{})};
       const declared=journal?.session.header??hint?.header;
@@ -115,7 +116,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
         header.origin=declared.origin;
         if(declared.delegationDepth!==undefined)header.delegationDepth=declared.delegationDepth;
       }
-      const count=journal?.revision?journal.seq:hint?.eventCount??0;
+      const count=local?journal.seq:hint?.eventCount??0;
       return {header,formatStatus:'current',revision:JSON.stringify([meta.created_at,
         meta.selection_cursor.fact_seq,meta.selection_cursor.control_seq,count])};
     },

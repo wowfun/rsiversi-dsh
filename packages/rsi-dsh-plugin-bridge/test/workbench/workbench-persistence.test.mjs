@@ -111,10 +111,14 @@ test('cold persistence reconstructs native controls while live projection reads 
   }});
   t.after(()=>history.close());
   const persistence=workbenchPersistence(history,await load('dsh-session-persistence'));
+  const stored=await persistence.stat('stored');
+  opens=0;
   const handle=await persistence.open('stored','read');t.after(()=>handle.close());
   assert.equal(opens,1);
   const initial=(await handle.read()).events;
   assert.equal(initial.length,1);assert.equal(initial[0].data.reasoningEffort,'low');
+  assert.deepEqual(await persistence.stat('stored'),stored,
+    'reconstructing a native-only mirror must not change the persisted revision');
   controls.push({kind:'model',seq:2,after_fact_seq:0,time:2,selection:baseline});
   const before=opens,updated=(await handle.read()).events;
   assert.equal(opens,before+1,'a changed cut requires no second opening request');

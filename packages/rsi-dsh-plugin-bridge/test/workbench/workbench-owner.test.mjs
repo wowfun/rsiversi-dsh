@@ -81,19 +81,45 @@ test('model commands publish passive changes without a transcript or attached Ag
 
 test('a log-only approval with no native mutation receipt persists across owners', {skip:!root},async t=>{
   const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session);
+  const beforeRevision=(await f.persistence.stat('one')).revision;
   assert.equal(await f.options.storage.read('one'),undefined);
   owner.journal.append('approval/asked',{id:'proof',toolName:'bash'});
   owner.journal.append('approval/decided',{id:'proof',outcome:'rejected'});
   await owner.flush();
+  const snapshot=await f.persistence.stat('one');
+  assert.notEqual(snapshot.revision,beforeRevision,'application-owned events invalidate the stored observation');
   const stored=JSON.parse(await f.options.storage.read('one'));
   assert.equal(stored.version,5);
   assert.deepEqual(stored.events.map(row=>row.type),['approval/asked','approval/decided']);
   const before=f.reads;
   const cold=workbenchHistory(f.options);t.after(()=>cold.close());
+  assert.deepEqual(await cold.snapshot(f.meta()),snapshot,'the cold catalog preserves application event revisions');
   const reopened=await cold.capture('one',await cold.metadata('one'));
+  assert.deepEqual(await cold.snapshot(f.meta()),snapshot,'restoring an unchanged journal preserves its revision');
   assert.equal(f.reads-before,1,'cold reconstruction and reconciliation share one native capture');
   assert.deepEqual(reopened.lastEvent('approval/decided')?.data,{id:'proof',outcome:'rejected'});
   assert.deepEqual(cold.owner(reopened).journal.operations(),[]);
+});
+
+test('the original search engine observes a native-only cold Session without a synthetic revision retry', {skip:!root},async t=>{
+  const f=await fixture(t);let lists=0,opens=0;
+  const persistence=workbenchPersistence({...f.history,metadata(...args){opens++;return f.history.metadata(...args);}},
+    await f.load('dsh-session-persistence'),async function*(){lists++;yield [f.meta()];});
+  f.ctx.provide('sessions',{list:()=>[],get:()=>undefined});
+  f.ctx.provide('sessionPersistence',persistence);
+  await f.ctx.plugin((await f.load('dsh-session-query-sqlite')).default,{path:':memory:',openAt:'first-search'});
+  assert.deepEqual(await f.ctx.sessionQuery.searchSessions({query:'absent'}),{items:[]});
+  assert.equal(lists,2,'one before/after catalog pair suffices for the unchanged native cut');
+  assert.equal(opens,2,'one cold open and one fresh read suffice');
+  assert.equal(f.reads,1);
+  lists=0;opens=0;
+  await f.ctx.sessionQuery.searchSessions({query:'absent'});
+  assert.equal(lists,2);assert.equal(opens,0,'an unchanged index does not reopen the Session');
+  f.change({selection:native({...base,reasoningEffort:'high'})});
+  lists=0;
+  await f.ctx.sessionQuery.searchSessions({query:'absent'});
+  assert.equal(lists,2);assert.equal(opens,2,'a native control-only change still rebuilds the index');
+  assert.equal(f.reads,2);
 });
 
 test('an existing full journal is rewritten after canonical reconciliation without changing event coordinates', {skip:!root},async t=>{
