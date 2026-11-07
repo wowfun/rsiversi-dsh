@@ -87,16 +87,13 @@ test('a closing source drains the active result write before handing off its led
   await recovered.close();
 });
 
-test('the live caller gets exactly the serialized outcome when a plugin mutates its value',async t=>{
+test('publication returns the owned materialized result without retaining a decoded copy',async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-ledger-snapshot-'));
   t.after(()=>rm(directory,{recursive:true,force:true}));
-  const value={text:'original'};
-  const ledger=await toolLedger(directory,async(path,data,options)=>{
-    if(JSON.parse(data).state==='settled')value.text='changed during write';
-    await writeFile(path,data,options);
-  });
+  const value=Object.freeze({text:'界'.repeat(500_000)});
+  const ledger=await toolLedger(directory,writeFile);
   const live=await ledger.start(input,()=>value);
-  assert.deepEqual(live,{state:'settled',result:{text:'original'}});
+  assert.equal(live.state,'settled');assert.ok(live.result===value,'reuse the admitted immutable result');
   assert.deepEqual(await ledger.outcome(input),live);
   await ledger.close();
 });

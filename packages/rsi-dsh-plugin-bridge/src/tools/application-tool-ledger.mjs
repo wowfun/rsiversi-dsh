@@ -27,7 +27,9 @@ function sameIdentity(a,b){
 
 /** Native owns durable admission and never repeats start after process loss.
  * The caller admits only a live captured view; replacement processes query outcomes.
- * Pending/unknown bindings stay in bounded memory, settled results are durable. */
+ * Pending/unknown bindings stay in bounded memory, settled results are durable.
+ * run() transfers an owned native envelope with pipeline-materialized payloads;
+ * plugin-owned mutable values must be detached before entering this ledger. */
 export async function toolLedger(directory,writeAtomic){
   await mkdir(directory,{recursive:true});
   const records=new Map(),active=new Map();
@@ -59,7 +61,6 @@ export async function toolLedger(directory,writeAtomic){
     const old=records.get(key)?.size??0;
     const {result,...bound}=value;
     records.delete(key);records.set(key,{size,bound});bytes+=size-old;
-    return data;
   }
   async function read(key){
     const row=records.get(key);
@@ -109,8 +110,8 @@ export async function toolLedger(directory,writeAtomic){
           let outcome;
           try {outcome={...bound,state:'settled',result:await run(abort.signal)};}
           catch {return {state:'unknown'};}
-          const committed=await serialize(()=>save(key,outcome));
-          return outcomeOf(JSON.parse(committed),key);
+          await serialize(()=>save(key,outcome));
+          return outcomeOf(outcome,key);
         }).catch(error=>{
           console.error('Tool outcome write failed:',error.message);
           return {state:'unknown'};

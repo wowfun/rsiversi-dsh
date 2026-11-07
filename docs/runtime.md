@@ -364,9 +364,13 @@ execution source. Public registry lookups made by hooks still see the actual
 registered plugin, including when it has the same name as the native tool.
 A started invocation is bound in memory under its native
 Session and effect before entering the original pipeline. The native Tool intent
-owns durable admission; the application persists only settled results. Protocol 11 keeps
-the initial start request open and returns the committed JSON snapshot after
-the atomic outcome write. A repeated start for the same retained invocation returns its
+owns durable admission; the application persists only settled results. The initial
+start request stays open until the atomic outcome write completes. The original
+DSH pipeline owns detachment and freezing of plugin-authored results. The bridge
+builds a private native envelope from those values and returns that same owned
+outcome after publication, without parsing its own serialized copy. Reads from
+the durable ledger still decode the stored receipt at that boundary. A repeated
+start for the same retained invocation returns its
 recorded state. A read of its outcome never dispatches the tool. An interrupted
 body without a recorded result reports uncertainty. Reads and cancellation bind to the
 original registration and native Tool result identity, including the caller's
