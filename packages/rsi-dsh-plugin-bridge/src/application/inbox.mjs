@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {MAX_FRAME_BYTES} from '../../../rsi-dsh-cordis/src/runtime/frames.mjs';
 
 const integer=value=>Number.isSafeInteger(value)&&value>=0;
 const capacity=64*1024*1024;
@@ -16,7 +17,7 @@ export function applicationInbox(call) {
         const size=typeof page.json==='string'?Buffer.byteLength(page.json):-1;
         if(!integer(page.total_bytes)||page.total_bytes<2||page.total_bytes>36*1024*1024
           ||page.offset!==offset||!integer(page.next_offset)||page.next_offset<=offset
-          ||page.next_offset>page.total_bytes||page.next_offset-offset!==size||size>128*1024
+          ||page.next_offset>page.total_bytes||page.next_offset-offset!==size||size>MAX_FRAME_BYTES
           ||total!==undefined&&total!==page.total_bytes)throw Error('Invalid native inbox fragment');
         bytes+=size;if(bytes>capacity)throw Error('Native inbox exceeds retained response capacity');
         total=page.total_bytes;offset=page.next_offset;parts.push(page.json);

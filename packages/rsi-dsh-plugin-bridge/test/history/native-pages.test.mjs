@@ -7,6 +7,15 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 const one=()=>({through_seq:1,offset:0,next_offset:2,total_bytes:2,json:'[]'});
 const operation={type:'fact',after_seq:0,through_seq:1};
 
+test('a frame-sized native page needs only one read and no close RPC',async()=>{
+  const text='界'.repeat(100_000),json=JSON.stringify([{seq:1,text}]),size=Buffer.byteLength(json);
+  let reads=0;
+  const page=await nativePage(async()=>{
+    reads++;return {through_seq:1,offset:0,next_offset:size,total_bytes:size,json};
+  },async()=>assert.fail('complete page must not need a close RPC'),operation,0,1);
+  assert.deepEqual(page,{through:1,value:[{seq:1,text}]});assert.equal(reads,1);
+});
+
 test('one native reader spans UTF-8 fragments and needs no final close RPC',async()=>{
   const text='界'.repeat(100_000),body=Buffer.from(JSON.stringify([{seq:1,text}]));
   const calls=[],closed=[];

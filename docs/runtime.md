@@ -13,8 +13,11 @@ profile selection journal and live package bindings.
 Control history pages carry the accepted native message with its immutable
 sequence and Fact anchor. The reader assembles the same bounded UTF-8 fragments
 as Fact pages and folds that body directly; it does not fetch each acceptance
-again. Ordinary control pages use a 128-KiB stored-body budget, with one larger
-record read alone. Exact-message reads remain for submission receipt recovery.
+again. Ordinary control pages use half the native process frame's capacity as
+their stored-body budget, with one larger record read alone. Fragments fill the
+existing frame budget after JSON escaping, reserving space for reply metadata;
+the reader checks their byte geometry against that transport bound, without a
+second, smaller fragment cap. Exact-message reads remain for submission receipt recovery.
 This transport shares the canonical acceptance and adds no durable event body.
 
 The market dispatches `agent/turn-stopping` serially on the producing Agent

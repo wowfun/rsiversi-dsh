@@ -22,6 +22,11 @@ equivalence and have bridge median and p95 no greater than the original. Report
 sample count and corpus dimensions; a small fixture does not establish behavior
 for a larger corpus. Do not count provider generation, package verification, or
 browser startup as search latency.
+Both sides start with isolated benchmark state. Native outcome receipts must not
+inherit files from previous runs: the real Kernel retires published outcomes,
+whereas a transport-only probe does not publish Facts. Measure a deliberately
+full receipt ledger separately and label its eviction work; do not mix it into
+an ordinary fresh-run sample without reporting that state.
 
 Native transport measurements use RSI's Rust start/observe client, including
 typed response decoding and validation. Report a Node HTTP controller's timing

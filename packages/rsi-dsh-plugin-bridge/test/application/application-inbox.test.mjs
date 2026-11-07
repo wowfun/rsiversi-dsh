@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {applicationInbox} from '../../src/application/inbox.mjs';
 
-function fixture({failMessage=false,badOffset=false,replacement=false,draft=false,empty=false}={}) {
+function fixture({failMessage=false,badOffset=false,replacement=false,draft=false,empty=false,fragmentBytes=64*1024}={}) {
   const pending=[{message_id:'old',source_kind:'human',queue_slot:{id:'slot'},accepted_control_seq:4,target:'next_turn'}];
   const snapshot={session_id:'session',cursor:{fact_seq:1,control_seq:4},active_turn_id:'turn',pending};
   const message={message_id:'old',source:{type:'human'},content:[{type:'text',text:'排队输入'.repeat(40_000)}]};
@@ -24,12 +24,18 @@ function fixture({failMessage=false,badOffset=false,replacement=false,draft=fals
     if(operation.type==='message'&&failMessage)throw Error('native read retired');
     const encoded=JSON.stringify(replacement?{...message,message_id:'other'}:message);
     const bytes=Buffer.from(encoded),start=operation.offset;
-    let end=Math.min(start+64*1024,bytes.length);
+    let end=Math.min(start+fragmentBytes,bytes.length);
     while(end<bytes.length&&(bytes[end]&0xc0)===0x80)end--;
     return {json:bytes.subarray(start,end).toString(),offset:badOffset?start+1:start,next_offset:end,total_bytes:bytes.length};
   });
   return {inbox,calls,message,snapshot,isOpen:()=>open};
 }
+
+test('inbox accepts a complete large message within one transport frame',async()=>{
+  const f=fixture({fragmentBytes:512*1024}),captured=await f.inbox.capture('session');
+  assert.deepEqual(captured.pending[0].message,f.message);
+  assert.deepEqual(f.calls.map(call=>call.type),['open','message','close']);
+});
 
 for(const draft of [false,true])test(`empty ${draft?'draft':'durable'} inbox completes in one call without a native resource`,async()=>{
   const f=fixture({empty:true,draft});

@@ -1,3 +1,5 @@
+import {MAX_FRAME_BYTES} from '../../../rsi-dsh-cordis/src/runtime/frames.mjs';
+
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 
 /** One captured horizon, one retained page; callers may advance through several anchors. */
@@ -45,7 +47,7 @@ export async function readPage(load, after, horizon, signal) {
         || !integer(page.total_bytes) || page.total_bytes < 2 || page.total_bytes > 36 * 1024 * 1024 + 2
         || page.offset !== offset || !integer(page.next_offset) || page.next_offset <= offset
         || page.next_offset > page.total_bytes || typeof page.json !== 'string'
-        || page.next_offset - offset > 128 * 1024 || Buffer.byteLength(page.json) !== page.next_offset - offset
+        || page.next_offset - offset > MAX_FRAME_BYTES || Buffer.byteLength(page.json) !== page.next_offset - offset
         || through !== undefined && (through !== page.through_seq || total !== page.total_bytes)) throw new Error('invalid history fragment');
     through = page.through_seq; total = page.total_bytes; offset = page.next_offset; fragments.push(page.json);
   } while (offset < total);
