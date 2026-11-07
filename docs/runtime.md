@@ -370,6 +370,10 @@ one native request series. The DSH registry owns registration, activation
 and withdrawal. An admitted native body belongs to that invocation's DSH
 execution source. Public registry lookups made by hooks still see the actual
 registered plugin, including when it has the same name as the native tool.
+After native view and invocation admission, the original pipeline resolves the
+captured registration. Withdrawal before dispatch or across an asynchronous hook
+produces the same structured DSH `UNKNOWN_TOOL` result and final-result notification;
+the bridge does not scan the tool catalog first or substitute its own missing-tool result.
 A started invocation is bound in memory under its native
 Session and effect before entering the original pipeline. The native Tool intent
 owns durable admission; the application persists only settled results. The initial

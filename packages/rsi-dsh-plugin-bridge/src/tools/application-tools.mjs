@@ -10,7 +10,6 @@ const maxBytes=32*1024*1024;
 // Native mailbox prefix (32 MiB), contributions (16 MiB), Tool contexts
 // (16 MiB), preceding preset edits (32 MiB), and 1 MiB of envelopes.
 const maxPreparationBytes=(32+16+16+32+1)*1024*1024;
-const failure=(code,message)=>({value:{code,message},content:[{type:'text',text:message}],is_error:true});
 
 export async function applicationTools(ctx,{load,key,generation,directory,sessions,resolveAgent}){
   const tools=await load('@deepseek-ai/dsh-tools');
@@ -91,9 +90,6 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   }
   async function run(input,signal,view){
     const {name,args,identity}=input;
-    if(view.controller.signal.aborted)
-      return failure('UNKNOWN_TOOL','The captured tool is no longer available');
-    if(!view.selection.view(view.agent).has(name))return failure('UNKNOWN_TOOL','The captured tool registration was withdrawn');
     const result=await sessions.withToolAgent(view.agent,()=>execute({agent:view.agent,callId:identity.call_id,name,
       arguments:args,toolSet:view.selection,signal}));
     const contexts=toolContextOutput(result.additionalContexts??[]);
