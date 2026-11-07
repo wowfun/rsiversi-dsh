@@ -286,8 +286,10 @@ the original scoped `agent/assistant-stream` start/chunk/end contract. An
 attachment or read reconnection inside an attempt replays its retained prefix
 before subsequent chunks. Revisions increase throughout that Agent lifecycle;
 chunk positions are dense within the attempt. Stream frames are transient and
-never appended as synthetic Session events. A committed end follows publication
-of its actual assistant event; read failure or disposal abandons the live
+never appended as synthetic Session events. Initial snapshots and durable event
+notifications refresh the Agent view before stream delivery. Stream markers
+reuse that view without recapturing the native inbox. A committed end follows
+publication of its actual assistant event; read failure or disposal abandons the live
 attempt and clears plugin buffers. The workbench and Agent use the same native
 stream conversion, including the final chunks when durable settlement wins the
 race against an outstanding stream read. Closing an observer releases its read

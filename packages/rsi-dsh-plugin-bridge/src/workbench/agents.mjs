@@ -57,10 +57,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
             signal.throwIfAborted();
             if(entry.type==='snapshot'||entry.type==='event'&&entry.event.seq>=record.notified)
               await refresh(record,signal);
-            if(entry.type==='assistant-stream') {
-              if(entry.frame.type==='start'||entry.frame.type==='end')await refresh(record,signal);
-              emit(entry.frame);
-            }
+            if(entry.type==='assistant-stream')emit(entry.frame);
           }
         }catch(error){
           abandon();

@@ -30,7 +30,8 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
       outfile,bundle:true,format:'esm',platform:'node',logLevel:'silent'});
     const buffer=(await import(pathToFileURL(outfile))).createAssistantLiveBuffer(ctx);t.after(()=>buffer.dispose());
     const facts=[],readers=new Map(),durableWaiters=new Set(),frames=[],sequence=[];
-    let active='turn',current='effect',agents,releaseCount=0,cancelCount=0;
+    let active='turn',current='effect',agents,releaseCount=0,cancelCount=0,captures=0,capturesAtCommit;
+    const frameCaptures=[];
     const writeErrors=[];let notificationWrites=0;
     let modelEvents=[[0,{type:'content_started',index:0,content:{type:'text'}}],
       [5,{type:'content_delta',index:0,delta:{type:'text',value:'prefix'}}]];
@@ -83,31 +84,40 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
       return {...fragment(events),revision:reader.offset,complete:true,status:{state:'streaming'}};
     };
     const scope=applicationSessions(call,{owner:'owner',agent:id=>agents?.get(id)});
-    scope.inbox.capture=async()=>({kind:'durable',session_id:'thread',cursor:cursor(),history:metadata(),active_turn_id:active,pending:[]});
+    scope.inbox.capture=async()=>{
+      captures++;
+      return {kind:'durable',session_id:'thread',cursor:cursor(),history:metadata(),active_turn_id:active,pending:[]};
+    };
     const history=workbenchHistory({ctx,api,llm,read:scope.history,release:scope.releaseHistory,listChildren:async()=>[],authorize:async()=>{}});
     const adapterOwner=ctx.plugin({inject:['agents','sessionProjections'],apply(){}});await adapterOwner;
     agents=await workbenchAgents(adapterOwner.ctx,scope,history,await load('dsh-scope'),await load('dsh-agent'),api.snapshotJsonValue);
     t.after(async()=>{await ctx.fiber.dispose();await scope.close();await history.close();});
-    ctx.on('agent/assistant-stream',({agent,frame})=>{assert.equal(agent.id,'thread');frames.push(frame);sequence.push(frame.type);});
+    ctx.on('agent/assistant-stream',({agent,frame})=>{assert.equal(agent.id,'thread');frames.push(frame);frameCaptures.push(captures);sequence.push(frame.type);});
     ctx.on('agent/assistant-stream',({frame})=>{
       if(frame.type!=='chunk')return;
       try {void scope.publish(async()=>{notificationWrites++;}).catch(error=>writeErrors.push(String(error)));}
       catch(error){writeErrors.push(String(error));}
     });
-    ctx.on('session/event',(_session,event)=>sequence.push(event.type));
+    ctx.on('session/event',(_session,event)=>{
+      sequence.push(event.type);if(event.type==='assistant/message')capturesAtCommit=captures;
+    });
     const agent=await scope.runOwned(()=>agents.ensure('thread'));
     await until(()=>buffer.chunksFor('thread').length===2);
+    assert.equal(captures,2,'attachment and its opening snapshot suffice for retained stream delivery');
+    assert.equal(agent.status,'running');
     assert.equal(buffer.chunksFor('thread')[1].chunk.text,'prefix');
     assert.equal(agent.session.lastEvent('assistant/message'),undefined);
     modelEvents.push([7,{type:'content_delta',index:0,delta:{type:'text',value:' tail'}}]);
     for(let i=0;i<70;i++)modelEvents.push([7,{type:'content_delta',index:0,delta:{type:'text',value:' '+i}}]);
     for(const reader of readers.values())reader.wake?.();
     await until(()=>buffer.chunksFor('thread').length===modelEvents.length);
+    assert.equal(captures,2,'transient chunks do not recapture native state');
     assert.deepEqual(writeErrors,[],'independent notification writes must not consume a lifetime publication budget');
     for(const reader of readers.values())reader.reject?.(Error('injected read disconnect'));
     await until(()=>frames.some(frame=>frame.type==='end'&&frame.outcome.kind==='abandoned'));
     assert.deepEqual(buffer.chunksFor('thread'),[]);
     await until(()=>frames.filter(frame=>frame.type==='start').length===2&&buffer.chunksFor('thread').length===modelEvents.length);
+    assert.equal(captures,3,'reconnection refreshes only its opening snapshot');
     assert.equal(releaseCount,1);
     const settled=[...modelEvents,[8,{type:'content_delta',index:0,delta:{type:'text',value:' final'}}],
       [9,{type:'content_finished',index:0}],[10,{type:'finished',reason:'stop'}]];
@@ -116,6 +126,8 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
     add({type:'turn_terminal',turn_id:active,outcome:{status:'completed'}});active=null;wake();
     await until(()=>frames.some(frame=>frame.type==='end'&&frame.outcome.kind==='committed'));
     const end=frames.at(-1),event=agent.session.eventAt(end.outcome.seq);
+    assert.equal(frameCaptures.at(-1),capturesAtCommit,'committed end reuses the view that published its assistant event');
+    assert.equal(agent.status,'idle');
     assert.equal(event.type,'assistant/message');assert.equal(end.outcome.eventType,event.type);
     assert.ok(sequence.lastIndexOf('assistant/message')<sequence.lastIndexOf('end'));
     const second=frames.slice(frames.findLastIndex(frame=>frame.type==='start')).filter(frame=>frame.type==='chunk');
@@ -124,6 +136,7 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
     assert.deepEqual(buffer.chunksFor('thread'),[]);assert.equal(readers.size,0);
     active='turn-2';current='effect-2';modelEvents=modelEvents.slice(0,2);begin();wake();
     await until(()=>buffer.chunksFor('thread').length===2);
+    assert.equal(agent.status,'running');
     await adapterOwner.dispose();
     assert.equal(frames.at(-1).outcome.kind,'abandoned');assert.deepEqual(buffer.chunksFor('thread'),[]);
     assert.equal(readers.size,0);assert.equal(durableWaiters.size,0);assert.equal(releaseCount,3);
