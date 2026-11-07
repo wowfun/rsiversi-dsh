@@ -378,6 +378,15 @@ matching receipt without that view. Missing receipts in a replacement process re
 unknown. At most eight calls run at once. Pending and unknown live bindings share the
 128-record retention limit with settled files; only settled files count toward the
 64 MiB disk budget. Identity fields follow the native 256-byte identifier bound.
+Once an authorized native history read observes the matching committed
+`ToolResult`, its Session, effect and full result identity retire the redundant
+application receipt. Native Fact publication is the ownership transfer; a DSH
+surface event or a tool-body return is insufficient. The live ledger retains
+only the bounded invocation binding to refuse another execution, and subsequent
+outcome reads report unknown because the canonical result now belongs to Store.
+Cold history can retire leftover receipts after a crash. Unobserved receipts
+retain the existing recovery window and capacity policy. Cleanup failures are
+reported and leave the receipt available; they do not fail history reads.
 When the application retires, a call still awaiting admission cannot
 enter the plugin body. Retirement cancels bodies already running and waits for
 their final receipt writes before releasing the captured tool sets.

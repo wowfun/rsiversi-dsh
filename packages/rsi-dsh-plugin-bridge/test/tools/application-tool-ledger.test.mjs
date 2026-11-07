@@ -119,3 +119,36 @@ test('unknown live outcomes remain bounded and bind their exact call identity',a
   await ledger.start(input,fail);assert.equal(runs,130);
   assert.deepEqual(await readdir(directory),[]);await ledger.close();
 });
+
+test('canonical publication retires only the matching receipt and keeps the live invocation fenced',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-ledger-published-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const ledger=await toolLedger(directory,writeFile);t.after(()=>ledger.close());
+  const settled=await ledger.start(input,()=>({text:'canonical body'}));
+  for(const [session,effect,identity] of [
+    ['other',input.effect,input.identity],
+    [input.session,'other',input.identity],
+    ...Object.keys(input.identity).map(key=>[input.session,input.effect,{...input.identity,[key]:'other'}]),
+  ])await ledger.retire(session,effect,identity);
+  assert.deepEqual(await ledger.outcome(input),settled);
+  assert.equal((await readdir(directory)).length,1);
+  await ledger.retire(input.session,input.effect,input.identity);
+  assert.deepEqual(await readdir(directory),[]);
+  assert.deepEqual(await ledger.outcome(input),{state:'unknown'});
+  assert.deepEqual(await ledger.start(input,()=>assert.fail('published body repeated')),{state:'unknown'});
+  await assert.rejects(ledger.start({...input,args:{changed:true}},()=>assert.fail('rebound body')),/another call/);
+  await ledger.retire(input.session,input.effect,input.identity);
+});
+
+test('cold native observation can retire a settled receipt without retaining its result',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-ledger-cold-published-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const first=await toolLedger(directory,writeFile);
+  const expected=await first.start(input,()=>({text:'recover before publication'}));
+  await first.close();
+  const cold=await toolLedger(directory,writeFile);t.after(()=>cold.close());
+  assert.deepEqual(await cold.outcome(input),expected);
+  await cold.retire(input.session,input.effect,input.identity);
+  assert.deepEqual(await readdir(directory),[]);
+  assert.deepEqual(await cold.start(input,()=>assert.fail('cold published body repeated')),{state:'unknown'});
+});

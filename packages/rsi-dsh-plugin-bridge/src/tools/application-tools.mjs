@@ -155,5 +155,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     closeNative();server.close();server.closeAllConnections();await ledger.close();
     for(const id of views.keys())release(id);
   },'close application tool source');
-  return {protocol:14,generation,port:server.address().port};
+  return {protocol:14,generation,port:server.address().port,
+    retireOutcome:(session,effect,identity)=>ledger.retire(session,effect,identity)
+      ?.catch(error=>ctx.logger.warn('Application tool receipt cleanup failed:',error))};
 }

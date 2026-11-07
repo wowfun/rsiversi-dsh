@@ -18,7 +18,7 @@ function compare(a,b) {
 }
 
 /** One event owner while any Agent, reader or pending write retains its Session. */
-export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,creationMeta}) {
+export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,creationMeta,retireToolOutcome}) {
   const rows=new Map(),opening=new Map(),retained=new WeakMap();let closed=false;
   const collected=new FinalizationRegistry(({id,reference})=>{if(rows.get(id)===reference)rows.delete(id);});
   async function create(header,meta,call,release,signal) {
@@ -29,7 +29,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
     let annotations=creation?.annotations;
     if(meta.inherited&&declared?.origin==='subagent')
       header={...header,origin:declared.origin,...(declared.delegationDepth===undefined?{}:{delegationDepth:declared.delegationDepth})};
-    const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal});
+    const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome});
     if(header.origin&&source.current.session.header.parentSession!==declared.parentSession)
       throw Error('Declared fork parent differs from its native seed');
     const newOrigin=!persisted&&header.origin!==undefined;

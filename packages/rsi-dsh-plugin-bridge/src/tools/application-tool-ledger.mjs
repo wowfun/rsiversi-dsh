@@ -18,8 +18,11 @@ function receiptOf(input){
 }
 function matches(record,receipt){
   return record?.session===receipt.session&&record.effect===receipt.effect&&record.registration===receipt.registration&&
-    record.identity?.invocation_id===receipt.identity.invocation_id&&record.identity.call_id===receipt.identity.call_id&&
-    record.identity.owner_id===receipt.identity.owner_id&&record.identity.request_sha256===receipt.identity.request_sha256;
+    sameIdentity(record.identity,receipt.identity);
+}
+function sameIdentity(a,b){
+  return a&&b&&a.invocation_id===b.invocation_id&&a.call_id===b.call_id&&
+    a.owner_id===b.owner_id&&a.request_sha256===b.request_sha256;
 }
 
 /** Native owns durable admission and never repeats start after process loss.
@@ -54,7 +57,8 @@ export async function toolLedger(directory,writeAtomic){
     await reserve(key,size);
     await writeAtomic(path(key),data,{mode:0o600});
     const old=records.get(key)?.size??0;
-    records.delete(key);records.set(key,{size});bytes+=size-old;
+    const {result,...bound}=value;
+    records.delete(key);records.set(key,{size,bound});bytes+=size-old;
     return data;
   }
   async function read(key){
@@ -66,6 +70,20 @@ export async function toolLedger(directory,writeAtomic){
     return {state:active.has(key)?'pending':'unknown'};
   }
   return {
+    /** Only the owning native history reader supplies committed result identities. */
+    retire(session,effect,identity){
+      const key=keyOf({session,effect});
+      if(records.get(key)?.size===undefined)return;
+      return serialize(async()=>{
+        const row=records.get(key);
+        if(row?.size===undefined)return;
+        const record=row.bound??await read(key);
+        if(record.session!==session||record.effect!==effect||!sameIdentity(record.identity,identity))return;
+        await unlink(path(key));
+        const {result,state,...bound}=record;
+        records.set(key,{bound});bytes-=row.size;
+      });
+    },
     async start(input,run){
       if(retired)throw Error('Application tool source is closed');
       const receipt=receiptOf(input),key=keyOf(receipt),sig=signature(input);

@@ -73,7 +73,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
   // still resolves through the release layout for the browser module graph.
   const hostModules=new Map([['@deepseek-ai/dsh-client-connection',{inject:['connection'],apply(){}}]]);
   const setup=performance.now();
-  let toolListener,sessionScope;
+  let toolListener,retireToolOutcome,sessionScope;
   const candidate = await createApplication({modules:applicationModules,profile,hostModules,clientOnly,baseRows:base[0].insert,provide:async (ctx,load) => {
     const call=(method,args,signal)=>peer.request(method,args,{signal});
     let persistence,agents,history;
@@ -88,7 +88,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     history=workbenchHistory({ctx,api,llm:await load('@deepseek-ai/dsh-llm'),read:sessionScope.history,release:sessionScope.releaseHistory,
       listChildren:sessionScope.subagents.listChildren,authorize:sessionScope.authorize,command:sessionScope.command,
       submit:sessionScope.submit,inbox:sessionScope.inbox,
-      storage,creationMeta:(id,createdAt)=>agents?.creationMeta(id,createdAt)});
+      storage,creationMeta:(id,createdAt)=>agents?.creationMeta(id,createdAt),
+      retireToolOutcome:(...args)=>retireToolOutcome?.(...args)});
     ctx.effect(()=>()=>history.close(),'flush application Session journals');
     persistence=workbenchPersistence(history,await load('@deepseek-ai/dsh-session-persistence'),sessionScope.storedPages);
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
@@ -150,8 +151,9 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     if(tools){
       base[0].insert.push({id:'tool-schedule',name:'@deepseek-ai/dsh-tool-schedule'});
       await (await ctx.plugin((await load('@deepseek-ai/dsh-user-approval')).default,{})).await();
-      toolListener=await applicationTools(ctx,{load,key,generation,directory:tools.outcomeDirectory,sessions:sessionScope,
+      const {retireOutcome,...listener}=await applicationTools(ctx,{load,key,generation,directory:tools.outcomeDirectory,sessions:sessionScope,
         resolveAgent:(id,signal)=>sessionScope.runOwned(()=>agents.ensure(id,signal),signal)});
+      toolListener=listener;retireToolOutcome=retireOutcome;
     }
   }});
   const composed=performance.now();

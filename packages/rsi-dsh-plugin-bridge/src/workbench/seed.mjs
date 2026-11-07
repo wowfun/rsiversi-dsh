@@ -27,7 +27,8 @@ export function factProjector(session,mapping,fetch,horizon,signal,llm,observed)
         page=facts;
         try {
           await observeFact(session,mapping,fact,readFact,llm);
-          observed?.(fact);
+          const completion=observed?.(fact);
+          if(completion)await completion;
         } finally {page=undefined;}
       });
     }finally{session.end();}

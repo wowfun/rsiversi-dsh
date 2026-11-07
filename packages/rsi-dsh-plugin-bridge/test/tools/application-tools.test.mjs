@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomUUID} from 'node:crypto';
-import {mkdir,mkdtemp,rm,readdir} from 'node:fs/promises';
+import {mkdir,mkdtemp,rm,readdir,rename} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
@@ -35,7 +35,8 @@ test('replacement processes only query old effects and cannot restart them throu
         headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input)});
       const value=await response.json();assert.equal(response.status,status,JSON.stringify(value));return value;
     };
-    return {close,post,capture:()=>post('capture',{view:randomUUID(),header:{id:'session',cwd:directory},reserved:[],modelSelection:nativeSelection})};
+    return {close,post,retireOutcome:listener.retireOutcome,
+      capture:()=>post('capture',{view:randomUUID(),header:{id:'session',cwd:directory},reserved:[],modelSelection:nativeSelection})};
   }
   const first=await host(),captured=await first.capture(),effect=randomUUID();
   const input={view:captured.view,session:'session',effect,name:'counter',args:{},registration:captured.tools[0].registration,
@@ -57,6 +58,17 @@ test('replacement processes only query old effects and cannot restart them throu
   assert.deepEqual(await replacement.post('outcome',fresh),settled);await replacement.close();
   const cold=await host();assert.deepEqual(await cold.post('outcome',fresh),settled);
   assert.deepEqual(await cold.post('start',fresh),settled);assert.equal(calls,2);
+  await cold.post('retire',fresh,400);
+  assert.equal((await readdir(directory)).length,1,'retirement is not a public Tool operation');
+  const receiptPath=join(directory,(await readdir(directory))[0]),backup=join(directory,'saved-outcome');
+  await rename(receiptPath,backup);await mkdir(receiptPath);
+  try {await cold.retireOutcome(fresh.session,fresh.effect,fresh.identity);}
+  finally {await rm(receiptPath,{recursive:true});await rename(backup,receiptPath);}
+  assert.deepEqual(await cold.post('outcome',fresh),settled,'cleanup failure preserves recovery and does not reject the observer');
+  await cold.retireOutcome(fresh.session,fresh.effect,fresh.identity);
+  assert.deepEqual(await readdir(directory),[]);
+  assert.deepEqual(await cold.post('outcome',fresh),{state:'unknown'});
+  assert.deepEqual(await cold.post('start',fresh),{state:'unknown'});assert.equal(calls,2);
 });
 
 test('original application policy allows by default, asks once when requested and preserves denial and guards',

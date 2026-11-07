@@ -7,7 +7,7 @@ import {cloneMapping} from '../history/input-history.mjs';
 import {readControls} from '../history/pages.mjs';
 
 /** A retained native projector has no retained request authority or partial published batches. */
-export async function workbenchSource({ctx,api,llm,header,meta,call,release,signal}) {
+export async function workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome}) {
   const seed=meta.inherited?await inheritedSession(ctx,api,llm,call,release,header,signal):{header};
   const session=new SessionFacade(ctx,api,seed,false);
   let current={session,mapping:seed.mapping??restoreMapping(null),controlThrough:0,
@@ -39,6 +39,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
           }
         }
         if(fact.type==='turn_terminal')next.spawning.clear();
+        if(fact.type==='tool_result')return retireToolOutcome?.(header.id,fact.effect_id,fact.identity);
       });
       while(next.controlThrough<controlThrough) {
         const page=await readControls(call,next.controlThrough,controlThrough,signal);
