@@ -38,6 +38,33 @@ before backend sampling; verify the original workbench separately afterwards.
 The native client probe does not by itself measure Kernel admission or later
 Fact publication, which still require live Kernel and recovery acceptance.
 
+The direct `ToolExecutionPipeline` comparator in `runtime.mjs` is a component
+baseline: it has neither the original AgentLoop nor the stock semantic checkpoint
+policy. Its JSONL side does not perform the same persistence work as a complete
+DSH Agent turn. Label that scope in every component result; do not treat its
+relative timing gate as full-client performance acceptance.
+
+`original-agent.mjs` provides the original execution-chain baseline. It mounts the
+installed AgentLoop, Session, JSONL backend, native executor and
+`dsh-session-checkpoint-policy`, then loads the published search bundle patch.
+A scripted model produces a tool call and then a final answer; the real Agent
+owns request logging, tool admission, result publication and the next checkpoint.
+Measure from returning the scripted tool-call response to entry into the next
+model request, before any audit callback. This interval includes the original
+call checkpoint and result checkpoint. It excludes provider generation and
+initial prompt admission. It is a backend execution-chain measurement, not a
+complete GUI/startup measurement or the optional plugins in the full base bundle.
+Native comparisons must cover the corresponding Kernel path and durable result,
+not just the application HTTP call. Keep diagnostic component timings separate.
+
+Before measuring, verify with independent JSONL reads that the call is present
+before the tool body and the result is present before the next model request.
+Also verify a rejected call checkpoint prevents tool dispatch. These untimed
+checks must not add flushes to the path being verified. Use the
+original policy's durability barriers; do not manually append call/result events
+or replace the Agent with a structural stub. Cold resume must preserve results
+without invoking the tool again. These checks use no provider credentials.
+
 A benchmark of an in-memory native transport fixture only measures the adapter.
 It cannot establish native Host or browser performance. Full acceptance also
 requires real native Session storage, the application tool transport, and visual
@@ -60,10 +87,11 @@ directory whose `node_modules` contains the DSH distribution:
 
 ```sh
 node --test packages/rsi-dsh-plugin-bridge/test/workbench/workbench-session-search.test.mjs
+node --test packages/rsi-dsh-plugin-bridge/test/workbench/original-search-agent.test.mjs
 node fixtures/session-search/benchmark.mjs .local/session-search-adapter.json
 ```
 
-The second command alternates five paired rounds over 128 Sessions and 8,192
+The benchmark command alternates five paired rounds over 128 Sessions and 8,192
 events. It retains samples and exits unsuccessfully if any adapter scenario
 misses the relative median or p95 requirement. Its native callbacks are synthetic;
 it must not be reported as the full Host acceptance.

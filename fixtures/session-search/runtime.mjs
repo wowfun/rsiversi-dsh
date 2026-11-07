@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {mkdir,readFile} from 'node:fs/promises';
-import {createRequire} from 'node:module';
-import {dirname,join} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {mkdir} from 'node:fs/promises';
+import {join} from 'node:path';
+import {searchDistribution} from './distribution.mjs';
 import {createApplication} from '../../packages/rsi-dsh-plugin-bridge/src/application/application.mjs';
 import {applicationSessions} from '../../packages/rsi-dsh-plugin-bridge/src/application/sessions.mjs';
 import {applicationTools} from '../../packages/rsi-dsh-plugin-bridge/src/tools/application-tools.mjs';
@@ -16,13 +15,7 @@ export const toolNames=['session_search','session_event_search','session_trace',
  * The original side uses the distribution's JSONL backend. Neither is a Host benchmark. */
 export async function searchRuntime({cohort,profile,corpus,kind,callerLog}) {
   await mkdir(profile,{recursive:true});
-  const require=createRequire(join(cohort,'package.json'));
-  const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
-  const load=name=>import(pathToFileURL(modules.entry(name)));
-  const bundle='@deepseek-ai/dsh-experimental-session-search';
-  const manifest=JSON.parse(await readFile(join(modules.directory(bundle),'package.json'),'utf8'));
-  const boot=await load('@deepseek-ai/dsh-app-boot');
-  const patches=boot.loadOverlayPatches('session-search-acceptance',join(modules.directory(bundle),manifest.dsh.bundle.patch));
+  const {modules,load,patches,version}=await searchDistribution(cohort);
   const api={...await load('@deepseek-ai/dsh-session'),...await load('@deepseek-ai/dsh-session/surface'),...await load('@deepseek-ai/dsh-util-values')};
   const llm=await load('@deepseek-ai/dsh-llm');
   const cold=new Map(),counters={metadata:0,capture:0,pages:0};
@@ -88,7 +81,7 @@ export async function searchRuntime({cohort,profile,corpus,kind,callerLog}) {
       selection=await post('capture',{view:randomUUID(),header:caller.header,reserved:[],modelSelection:{provider:'fixture',model:'fixture'}});
       assert.deepEqual(new Set(selection.tools.map(row=>row.definition.name)),new Set(toolNames));
     }else pipeline=new (await load('@deepseek-ai/dsh-tools/pipeline')).ToolExecutionPipeline(app.ctx);
-    return {version:manifest.version,counters,caller,app,async reopen(){
+    return {version,counters,caller,app,async reopen(){
       if(post)await post('release',{view:selection.view});
       await app.reconcile([]);await app.reconcile(patches);
       if(post)selection=await post('capture',{view:randomUUID(),header:caller.header,reserved:[],modelSelection:{provider:'fixture',model:'fixture'}});

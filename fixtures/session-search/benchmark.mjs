@@ -12,6 +12,7 @@ const output=resolve(process.argv[2]??'.local/session-search-adapter.json');
 const corpus=searchCorpus({sessions:128,events:64});
 const rows=[],directory=await mkdtemp(join(tmpdir(),'rsi-search-bench-'));
 const result={scope:'adapter: synthetic native metadata/history, real application HTTP and receipts; original JSONL and tool pipeline',
+  originalPolicyScope:{checkpointPolicy:false,agentLoop:false},
   platform:process.platform,node:process.version,corpus:{sessions:128,eventsPerSession:64,
     sha256:createHash('sha256').update(JSON.stringify(corpus)).digest('hex')},rows};
 async function measure(pair,scenario,round,iteration,name,args){
