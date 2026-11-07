@@ -37,7 +37,7 @@ const manifest=json({format:2,name:packageName,version:'1',target:'portable',dep
   requires:[{name:'rsi.extension.process',version:1}],files:[
     {path:'runtime.rsi',bytes:tree.bytes,digest:tree.digest,executable:false},
     {path:'process.json',bytes:recipe.length,digest:digest(recipe),executable:false}],
-  exports:{runtime:{kind:'payload_tree',path:'runtime.rsi'},application:{kind:'process_extension',path:'process.json'}}});
+  exports:{runtime:{kind:'payload_tree',path:'runtime.rsi',index_digest:tree.indexDigest},application:{kind:'process_extension',path:'process.json'}}});
 await writeFile(join(source,'package.json'),manifest);
 const config=join(home,'config/rsi'),state=join(home,'state/rsi');
 const options=['--config-home',config,'--state-home',state,'--cache-home',join(home,'cache/rsi')];

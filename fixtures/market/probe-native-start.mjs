@@ -22,7 +22,7 @@ const manifest=json({format:2,name:'sample-application',version:'1',target:'port
   dependencies:[],requires:[{name:'rsi.extension.process',version:1}],files:[
     {path:'runtime.rsi',bytes:tree.bytes,digest:tree.digest,executable:false},
     {path:'process.json',bytes:processDescriptor.length,digest:digest(processDescriptor),executable:false}],
-  exports:{runtime:{kind:'payload_tree',path:'runtime.rsi'},application:{kind:'process_extension',path:'process.json'}}});
+  exports:{runtime:{kind:'payload_tree',path:'runtime.rsi',index_digest:tree.indexDigest},application:{kind:'process_extension',path:'process.json'}}});
 await writeFile(join(source,'package.json'),manifest);
 const config=join(home,'config/rsi');
 function cli(...args) {

@@ -10,6 +10,11 @@ share the same canonical mirror used to accept or undo staged Agent operations.
 The market's desktop pnpm and Plugin Manager invocations operate on the same
 profile selection journal and live package bindings.
 
+Payload producers bind the exact `RSITREE1` prefix and encoded header with the
+export's `index_digest`, in addition to the complete source-container FileRecord.
+Native admission stores this index and one materialized file tree. The source
+container is transport input, not a second installed copy of the bodies.
+
 Control history pages carry the accepted native message with its immutable
 sequence and Fact anchor. The reader assembles the same bounded UTF-8 fragments
 as Fact pages and folds that body directly; it does not fetch each acceptance

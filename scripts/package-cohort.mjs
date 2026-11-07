@@ -8,5 +8,5 @@ const {version} = JSON.parse(await readFile(join(source,'@deepseek-ai/dsh-app-bo
 const result = await writePayload(source, join(destination, 'cohort.rsi'));
 await writeFile(join(destination, 'package.json'), JSON.stringify({ format: 2, name: 'dsh-acceptance-cohort', version, target: 'portable',
   dependencies: [], requires: [], files: [{ path: 'cohort.rsi', bytes: result.bytes, digest: result.digest, executable: false }],
-  exports: { node_modules: { kind: 'payload_tree', path: 'cohort.rsi' } } }, null, 2) + '\n');
+  exports: { node_modules: { kind: 'payload_tree', path: 'cohort.rsi', index_digest: result.indexDigest } } }, null, 2) + '\n');
 console.log(JSON.stringify(result));

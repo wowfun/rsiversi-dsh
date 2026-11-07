@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {access,mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -27,7 +28,11 @@ for(const fails of [false,true])test(`standalone importer drains temporary files
     const published=join(staging,(await result).directories[0]);
     const receipt=JSON.parse(await readFile(join(published,'import.json'),'utf8'));
     assert.deepEqual(receipt,{format:1,runtimeVersion:'0.2.2-rc.1',plugins:['fixture'],npm:'11.17.0',lockSha256:'c'.repeat(64)});
-    assert.ok((await readFile(join(published,'payload.rsi'))).includes(Buffer.from('package-private data')));
+    const payload=await readFile(join(published,'payload.rsi'));
+    assert.ok(payload.includes(Buffer.from('package-private data')));
+    const manifest=JSON.parse(await readFile(join(published,'package.json')));
+    assert.equal(manifest.exports.runtime.index_digest,
+      createHash('sha256').update(payload.subarray(0,12+payload.readUInt32LE(8))).digest('hex'));
   }
   await assert.rejects(access(temporary),{code:'ENOENT'});
 });

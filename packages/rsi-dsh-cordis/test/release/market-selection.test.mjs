@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname,join} from 'node:path';
@@ -30,6 +31,10 @@ test('only the importer leases npm at launch and declares both native interfaces
   const payload=await readFile(join(root,receipt.selection.name,'profile.rsi'));
   assert.equal(payload.subarray(0,8).toString(),'RSITREE1');
   const length=payload.readUInt32LE(8);
+  assert.equal(app.exports.profile.index_digest,createHash('sha256').update(payload.subarray(0,12+length)).digest('hex'));
+  const npmManifest=await read(toolchain.name,'package.json');
+  const npmPayload=await readFile(join(root,toolchain.name,'npm.rsi'));
+  assert.equal(npmManifest.exports.runtime.index_digest,createHash('sha256').update(npmPayload.subarray(0,12+npmPayload.readUInt32LE(8))).digest('hex'));
   const tree=JSON.parse(payload.subarray(12,12+length));
   let offset=12+length;
   const extracted=join(root,'installed');

@@ -17,7 +17,7 @@ for (const name of ['rsi-dsh-cordis', 'rsi-dsh-plugin-bridge']) {
     dependencies: cordis ? [] : [{ name: 'rsi-dsh-cordis', digest: artifacts[0].digest }],
     requires: [{ name: 'rsi.extension.process', version: 1 }, ...(cordis ? [] : [{ name: 'rsi.extension.agent', version: 8 }])],
     files: [{ path: 'payload.rsi', bytes: payload.bytes, digest: payload.digest, executable: false }],
-    exports: { runtime: { kind: 'payload_tree', path: 'payload.rsi' } } };
+    exports: { runtime: { kind: 'payload_tree', path: 'payload.rsi', index_digest: payload.indexDigest } } };
   if (!cordis) {
     const runtime = { package: 'rsi-dsh-cordis', payload: 'runtime', path: '' };
     const descriptor = Buffer.from(JSON.stringify({ format: 1, cwd: runtime, arguments: [

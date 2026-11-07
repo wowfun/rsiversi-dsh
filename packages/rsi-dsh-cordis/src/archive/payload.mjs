@@ -42,5 +42,6 @@ export async function writePayloadFiles(entries, destination, signal) {
     }
     await output.sync();
   } finally { await output.close(); }
-  return { files: files.length, bytes, digest: digest.digest('hex') };
+  return { files: files.length, bytes, digest: digest.digest('hex'),
+    indexDigest: createHash('sha256').update(prefix).update(header).digest('hex') };
 }
