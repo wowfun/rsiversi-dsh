@@ -251,6 +251,15 @@ authorized read function and cancellation signal; a retained projector does not
 retain a browser request. Source positions remain separate from application
 positions, including assistant-start and settlement cursors.
 
+Native workbench history transfers one retained encoded page through its UTF-8
+fragments. Each Fact, control, exact-message or inherited Fact page uses a unique
+reader identity and releases it on its final fragment. Aborted or failed reads
+explicitly close the reader through the uncancelled release path; native request
+retirement is the lifetime backstop. At most two page transfers run concurrently;
+additional readers wait locally before issuing native RPCs. No queued reader
+holds a native request slot. The Host checks the page's request, Session and
+coordinates and bounds its retained storage; no persistent history copy is added.
+
 Version 5 snapshots contain the Session header, total and inherited event counts,
 local-owned events at their original positions, the native source map and mutation
 records in one JSON document. Native-only event bodies are reconstructed from the

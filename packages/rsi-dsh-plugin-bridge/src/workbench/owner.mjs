@@ -5,7 +5,7 @@ import {inboxObservationProjection} from '../session/inbox/inbox-observations.mj
 import {inputIntents} from '../session/inbox/input-intents.mjs';
 import {workbenchSource} from './source.mjs';
 import {workbenchModel} from './model.mjs';
-import {readNativeMessage} from '../history/pages.mjs';
+import {readNativeMessage} from '../history/native-pages.mjs';
 import {readJournalDocument} from '../session/journal-document.mjs';
 
 const cut=meta=>meta.selection_cursor??{kind:'durable',fact_seq:meta.through,control_seq:0};
@@ -18,7 +18,7 @@ function compare(a,b) {
 }
 
 /** One event owner while any Agent, reader or pending write retains its Session. */
-export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,creationMeta,retireToolOutcome}) {
+export function workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome}) {
   const rows=new Map(),opening=new Map(),retained=new WeakMap();let closed=false;
   const collected=new FinalizationRegistry(({id,reference})=>{if(rows.get(id)===reference)rows.delete(id);});
   async function create(header,meta,call,release,signal) {
@@ -33,7 +33,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
     if(header.origin&&source.current.session.header.parentSession!==declared.parentSession)
       throw Error('Declared fork parent differs from its native seed');
     const newOrigin=!persisted&&header.origin!==undefined;
-    let initial=restore?await source.stage(call,signal,meta.through,cut(meta).control_seq??0,
+    let initial=restore?await source.stage(call,release,signal,meta.through,cut(meta).control_seq??0,
       new Set(restore.operations.map(row=>row.id)),restore.inboxSlotFrom):undefined;
     const listeners=new Set(),waiters=new Set();let version=0,batch,tail=Promise.resolve();
     const report=error=>ctx.logger.warn('Application Session observer failed:',error);
@@ -53,7 +53,8 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
     const driver=modelIntents(journal,nativeCommand),input=inputIntents(journal,{command:nativeCommand,
       submit:(value,signal)=>submit(header.id,value,signal),beforeSubmit:signal=>driver.ready(signal),
       messageStatus:(id,signal)=>inbox.messageStatus(header.id,id,signal),
-      readMessage:(id,seq,signal)=>readNativeMessage(operation=>read(header.id,operation,signal),id,seq,signal),
+      readMessage:(id,seq,signal)=>readNativeMessage(operation=>read(header.id,operation,signal),
+        operation=>releaseRead(header.id,operation),id,seq,signal),
       transitions:()=>source.current.inbox.transitions,inbox:{
         capture:signal=>inbox.capture(header.id,signal),
         discardDraft:(ids,signal)=>inbox.discardDraft(header.id,ids,signal),
@@ -73,7 +74,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
           waiters.add(done);signal?.addEventListener('abort',aborted,{once:true});
         });
       },
-      async apply(meta,call,signal) {
+      async apply(meta,call,release,signal) {
         const update=tail.catch(()=>{}).then(async()=>{
           signal?.throwIfAborted();if(closed)throw Error('Application Session owner retired');
           if(row.meta&&compare(cut(meta),cut(row.meta))<=0) {
@@ -83,7 +84,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
           const nextCut=cut(meta),through=meta.through,controlThrough=nextCut.control_seq??0;
           const localRequests=new Set(journal.operations().map(row=>row.id));
           const staged=initial&&compare(nextCut,initialCut)===0?initial:
-            await source.stage(call,signal,through,controlThrough,localRequests,journal.inboxSlotFrom);
+            await source.stage(call,release,signal,through,controlThrough,localRequests,journal.inboxSlotFrom);
           const native=staged.value;
           if(nextCut.kind==='draft')native.model=workbenchModel(meta.model_selection);
           const saveCreation=!row.merged&&newOrigin;
@@ -145,7 +146,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,c
       }
       const {parentSession,origin,delegationDepth,...existing}=row.journal.session.header;
       if(!isDeepStrictEqual(existing,header))throw Error('Application Session identity changed');
-      await row.apply(meta,call,signal);return row;
+      await row.apply(meta,call,release,signal);return row;
     },
     get(session){return retained.get(session);},
     journal(id){return rows.get(id)?.deref()?.journal;},

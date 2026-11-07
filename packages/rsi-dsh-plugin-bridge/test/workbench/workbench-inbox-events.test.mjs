@@ -9,7 +9,7 @@ import {workbenchInbox} from '../../src/workbench/inbox.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {SessionFacade} from '../../src/session/session.mjs';
 import {inputMessage,observeInput} from '../../src/history/conversation-history.mjs';
-import {readControls} from '../../src/history/pages.mjs';
+import {readControls} from '../../src/history/native-pages.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT,source=process.env.RSI_DSH_INBOX_SOURCE;
 async function fixture(t) {
@@ -70,7 +70,7 @@ for(const sourceType of ['command','human'])test(`${sourceType} inbox transition
       {kind:'claimed',message_id:'b2',turn_id:'turn'},
     ].map((control,index)=>({time:300,...control,seq:index+1,
       ...(control.kind==='accepted'?{message:messages.get(control.message_id)}:{})}));
-    const page=await readControls(async op=>{reads.push(op);return fragment(controls,controls.length,op.offset);},0,controls.length);
+    const page=await readControls(async op=>{reads.push(op);return fragment(controls,controls.length,op.offset);},async()=>{},0,controls.length);
     for(const [index,control] of page.events.entries()) {
       session.begin();try{inbox.observe(control,session,1);}finally{session.end();}
       inbox=inbox.branch();

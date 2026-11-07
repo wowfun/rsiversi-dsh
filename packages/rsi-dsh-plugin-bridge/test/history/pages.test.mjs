@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {historyReader,readHistory,readControls} from '../../src/history/pages.mjs';
+import {historyReader,readHistory} from '../../src/history/pages.mjs';
+import {readControls} from '../../src/history/native-pages.mjs';
 
 const reply=(through,facts)=>{
   const json=JSON.stringify(facts),bytes=Buffer.byteLength(json);
@@ -8,15 +9,16 @@ const reply=(through,facts)=>{
 };
 
 test('control pages advance over hidden records and reject entries outside their captured cut',async()=>{
-  assert.deepEqual(await readControls(async()=>reply(4,[]),0,5),{through:4,events:[]});
+  assert.deepEqual(await readControls(async()=>reply(4,[]),async()=>{},0,5),{through:4,events:[]});
   const events=[{seq:2,kind:'model'},{seq:4,kind:'discarded'}];
   assert.deepEqual(await readControls(async op=>{
-    assert.deepEqual(op,{type:'controls',after_seq:1,through_seq:5,offset:0});
+    const {reader,...query}=op;assert.equal(typeof reader,'string');
+    assert.deepEqual(query,{type:'controls',after_seq:1,through_seq:5,offset:0});
     return reply(4,events);
-  },1,5),{through:4,events});
+  },async()=>{},1,5),{through:4,events});
   for(const bad of [reply(4,{}),reply(4,[{seq:1}]),reply(4,[{seq:3},{seq:2}]),reply(4,[{seq:5}]),
     reply(100,Array.from({length:65},(_,i)=>({seq:i+2})))])
-    await assert.rejects(readControls(async()=>bad,1,100),/control page/);
+    await assert.rejects(readControls(async()=>bad,async()=>{},1,100),/control page/);
 });
 
 test('one captured page crosses control anchors without observing later Facts or fetching it twice',async()=>{

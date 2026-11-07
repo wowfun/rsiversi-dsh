@@ -179,10 +179,9 @@ integration('native semantic system evidence round-trips through original JSONL 
     ...[first,reference].map((evidence,index)=>({type:'model_intent',effect_id:'model-'+index,purpose:{kind:'conversation'},snapshot,evidence}))]
     .map((fact,index)=>({...fact,seq:index+1,timestamp_ms:10+index}));
   let reads=0;
-  await projectFacts(session,restoreMapping(),async(method,args)=>{
-    reads++;assert.equal(method,'agent.history.read');assert.equal(args.after_seq,0,'references borrow the already decoded page');
-    const json=JSON.stringify(facts),bytes=Buffer.byteLength(json);
-    return {through_seq:5,offset:0,next_offset:bytes,total_bytes:bytes,json};
+  await projectFacts(session,restoreMapping(),async after=>{
+    reads++;assert.equal(after,0,'references borrow the already decoded page');
+    return {through:5,value:facts};
   },5,undefined,await cohort.import('@deepseek-ai/dsh-llm'));
   assert.equal(reads,1);
   const writer=await ctx.sessionPersistence.create(session.header);

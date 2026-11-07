@@ -4,7 +4,7 @@ import {inheritedSession,factProjector} from './seed.mjs';
 import {workbenchModel} from './model.mjs';
 import {workbenchInbox} from './inbox.mjs';
 import {cloneMapping} from '../history/input-history.mjs';
-import {readControls} from '../history/pages.mjs';
+import {readControls,nativeFactPages} from '../history/native-pages.mjs';
 
 /** A retained native projector has no retained request authority or partial published batches. */
 export async function workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome}) {
@@ -15,13 +15,13 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
     inbox:workbenchInbox(),spawning:new Set(),spawned:new Map(),settled:new Map(),origins:new Map()};
   return {
     get current(){return current;},
-    async stage(call,signal,through,controlThrough,localRequests=new Set(),inboxSlotFrom=0) {
+    async stage(call,release,signal,through,controlThrough,localRequests=new Set(),inboxSlotFrom=0) {
       const original=current;
       const next={...original,session:session.branch(),mapping:cloneMapping(original.mapping),
         model:original.model.branch(),inbox:original.inbox.branch(),
         spawning:new Set(original.spawning),spawned:new Map(original.spawned),
         settled:new Map(original.settled),origins:new Map()};
-      const fetch=(_method,{after_seq,through_seq,offset})=>call({type:'fact',after_seq,through_seq,offset});
+      const fetch=nativeFactPages(call,release,signal);
       const project=factProjector(next.session,next.mapping,fetch,through,signal,llm,fact=>{
         if(fact.type==='model_started'&&next.mapping.model?.effectId===fact.effect_id)
           next.mapping.model.startedAfterSeq=next.session.seq-1;
@@ -42,7 +42,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
         if(fact.type==='tool_result')return retireToolOutcome?.(header.id,fact.effect_id,fact.identity);
       });
       while(next.controlThrough<controlThrough) {
-        const page=await readControls(call,next.controlThrough,controlThrough,signal);
+        const page=await readControls(call,release,next.controlThrough,controlThrough,signal);
         for(const event of page.events) {
           if(event.after_fact_seq<next.mapping.factCursor||event.after_fact_seq>through)
             throw Error('Control history changed its Fact anchor');

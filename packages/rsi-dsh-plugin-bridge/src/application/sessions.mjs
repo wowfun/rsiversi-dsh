@@ -140,7 +140,7 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     return call('application.history',{request,session_id,operation,...(parent_session_id?{parent_session_id}:{})},signal);
   }
   function releaseHistory(session_id,operation,_signal,parent_session_id) {
-    if(!['model_close','seed_close'].includes(operation.type))throw Error('Only history resource release can outlive read cancellation');
+    if(!['model_close','seed_close','page_close'].includes(operation.type))throw Error('Only history resource release can outlive read cancellation');
     const request=activeRequest();
     return send('application.history',{request,session_id,operation,...(parent_session_id?{parent_session_id}:{})});
   }

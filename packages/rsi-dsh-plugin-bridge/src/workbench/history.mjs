@@ -35,7 +35,7 @@ function pageOf(session,api,end,{max,window}) {
 }
 
 export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta,retireToolOutcome}) {
-  const owners=workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,creationMeta,retireToolOutcome});
+  const owners=workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome});
   const live=workbenchControl(authorize);
   async function open(request,signal,captured) {
     const {address}=request;
@@ -85,7 +85,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       get mapping(){return owner.mapping();},
       releaseModel:key=>release({type:'model_close',key}),
       async advance(through,observedEffect,controlThrough) {
-        await owner.apply({...owner.meta,through,selection_cursor:{kind:'durable',fact_seq:through,control_seq:controlThrough}},call,signal);
+        await owner.apply({...owner.meta,through,selection_cursor:{kind:'durable',fact_seq:through,control_seq:controlThrough}},call,release,signal);
         if(view.publish)view.publish(await projections(),intermediate);
         return owner.settled(observedEffect);
       },
