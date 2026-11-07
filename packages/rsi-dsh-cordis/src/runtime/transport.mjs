@@ -1,4 +1,4 @@
-import {WireFrames} from './frames.mjs';
+import {MessageFrames,WireFrames} from './frames.mjs';
 
 export {MAX_FRAME_BYTES} from './frames.mjs';
 export const MAX_PENDING = 64;
@@ -6,13 +6,14 @@ export const MAX_PENDING = 64;
 export class RemoteRequestError extends Error {}
 /** Independent input/output pumps; no request holds either pump while awaiting a callback. */
 export class Peer {
-  #input; #output; #frames; #handler;
+  #input; #output; #frames; #handler; #port;
   #pending = new Map(); #incoming = new Map(); #next = 0; #lastIncoming = 0;
   #failure; #queue = []; #writing = false;
   #onData; #onEnd; #onError; #onClose;
-  constructor({ input, output, generation, handler, onClose = () => {} }) {
-    this.#frames = new WireFrames(generation);
-    this.#input = input; this.#output = output;
+  constructor({ input, output, port, generation, handler, onClose = () => {} }) {
+    this.#frames = port ? new MessageFrames(generation) : new WireFrames(generation);
+    this.#port = port;
+    this.#input = port ?? input; this.#output = port ?? output;
     this.#handler = handler; this.#onClose = onClose;
     this.#onData = chunk => {
       try {
@@ -24,12 +25,17 @@ export class Peer {
     };
     this.#onEnd = () => this.close(new Error('unexpected extension EOF'));
     this.#onError = error => this.close(error);
-    input.on('data', this.#onData); input.on('end', this.#onEnd); input.on('error', this.#onError);
-    output.on('error', this.#onError);
+    if (port) {
+      port.on('message', this.#onData); port.on('close', this.#onEnd); port.on('messageerror', this.#onError);
+    } else {
+      input.on('data', this.#onData); input.on('end', this.#onEnd); input.on('error', this.#onError);
+      output.on('error', this.#onError);
+    }
   }
   get closed() { return this.#failure !== undefined; }
   #send(message) {
     if (this.#failure) throw this.#failure;
+    if (this.#port) { this.#port.postMessage(this.#frames.encode(message)); return; }
     if (this.#queue.length >= MAX_PENDING * 2) throw new Error('output capacity');
     this.#queue.push(this.#frames.encode(message));
     this.#pump();
@@ -100,7 +106,12 @@ export class Peer {
   close(error = new Error('extension closed')) {
     if (this.closed) return;
     this.#failure = error;
-    this.#input.off('data', this.#onData); this.#input.off('end', this.#onEnd); this.#input.off('error', this.#onError);
+    if (this.#port) {
+      this.#port.off('message', this.#onData); this.#port.off('close', this.#onEnd); this.#port.off('messageerror', this.#onError);
+      this.#port.close();
+    } else {
+      this.#input.off('data', this.#onData); this.#input.off('end', this.#onEnd); this.#input.off('error', this.#onError);
+    }
     // Keep the output error listener while an already accepted write drains.
     for (const p of this.#pending.values()) { p.dispose(); p.reject(error); }
     this.#pending.clear();

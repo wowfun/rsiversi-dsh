@@ -22,16 +22,27 @@ function validate(frame, generation) {
   return m;
 }
 
-export class WireFrames {
+export class MessageFrames {
   #generation;
-  #decoder = new TextDecoder('utf-8', {fatal: true});
-  #partial;
-  #used = 0;
 
   constructor(generation) {
     if (typeof generation !== 'string' || !identifier.test(generation)) throw new Error('invalid generation');
     this.#generation = generation;
   }
+
+  *read(frame) { yield validate(frame, this.#generation); }
+
+  encode(message) {
+    const frame = {generation: this.#generation, message};
+    validate(frame, this.#generation);
+    return frame;
+  }
+}
+
+export class WireFrames extends MessageFrames {
+  #decoder = new TextDecoder('utf-8', {fatal: true});
+  #partial;
+  #used = 0;
 
   *read(input) {
     const chunk = Buffer.isBuffer(input) ? input : Buffer.from(input);
@@ -59,15 +70,13 @@ export class WireFrames {
         this.#partial = undefined;
         this.#used = 0;
       }
-      yield validate(JSON.parse(this.#decoder.decode(frame)), this.#generation);
+      yield* super.read(JSON.parse(this.#decoder.decode(frame)));
       start = newline + 1;
     }
   }
 
   encode(message) {
-    const frame = {generation: this.#generation, message};
-    validate(frame, this.#generation);
-    const bytes = Buffer.from(JSON.stringify(frame) + '\n');
+    const bytes = Buffer.from(JSON.stringify(super.encode(message)) + '\n');
     if (bytes.length - 1 > MAX_FRAME_BYTES) throw new Error('output capacity');
     return bytes;
   }

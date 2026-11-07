@@ -1079,6 +1079,12 @@ The release application runs the original Cordis workbench and its module
 resolver in one Node Worker. The process owns the bounded extension carrier
 and its heartbeat while the Worker reads and evaluates plugins. Close waits
 for the Cordis scope to retire; losing either side terminates the carrier.
+The native process boundary owns JSON framing and its byte limit. The carrier
+and Worker exchange cloned message envelopes over the Worker's private
+`MessagePort`, with the same generation, request admission and cancellation
+semantics. They do not encode another JSON byte stream inside the process.
+Worker stdout and stderr are diagnostics routed to the process's stderr, never
+protocol frames. Only the carrier handles process hello and heartbeat requests.
 The generated brand belongs to the writable application profile. Its assets
 can be republished on restart or upgrade even when an older asset inherited
 the Store's read-only permissions.

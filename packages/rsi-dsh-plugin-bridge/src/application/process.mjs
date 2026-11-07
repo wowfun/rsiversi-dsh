@@ -1,6 +1,7 @@
 import {readFile,stat} from 'node:fs/promises';
 import {basename,dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {workerData} from 'node:worker_threads';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 import {installReleaseResolver} from '../../../rsi-dsh-cordis/src/release/resolver.mjs';
 import {createApplication} from './application.mjs';
@@ -180,9 +181,7 @@ function close() {
     }
   })();
 }
-const peer = new Peer({input:process.stdin,output:process.stdout,generation,handler:async (method,args,signal) => {
-  if (method==='extension.hello' && args?.protocol===1) return {protocol:1};
-  if (method==='extension.ping') return null;
+const peer = new Peer({port:workerData,generation,handler:async (method,args,signal) => {
   if (method==='extension.close') {await close();return null;}
   if (method==='package.import' && npmRoot && !opening && !closing) {
     opening=importRelease(layout,npmRoot,args,signal);
@@ -191,4 +190,4 @@ const peer = new Peer({input:process.stdin,output:process.stdout,generation,hand
   if (method!=='application.open' || opening || closing) throw new Error('Application operation unavailable');
   opening = open(args);
   return opening;
-},onClose:async () => {await close();process.stdin.destroy();}});
+},onClose:close});
