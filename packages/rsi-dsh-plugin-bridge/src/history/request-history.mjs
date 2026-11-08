@@ -24,7 +24,7 @@ async function section(fact, name, readFact, decoded) {
     decoded.set(inline, entry);
   }
   if (part.kind === 'reference' && entry.bytes !== part.bytes) throw new Error('missing original inline request evidence');
-  return entry.value;
+  return entry;
 }
 
 /** One projection owns decoded evidence; weak keys do not keep old native pages alive. */
@@ -36,10 +36,11 @@ export function requestObserver(readFact) {
 /** Only canonical conversation intents establish what the model has been told. */
 async function observeRequest(session, fact, readFact, mapping, decoded) {
   if (fact.purpose?.kind !== 'conversation') return;
-  const configuration = await section(fact, 'configuration', readFact, decoded);
-  const tools = await section(fact, 'tools', readFact, decoded);
+  const { value: configuration } = await section(fact, 'configuration', readFact, decoded);
+  const toolSection = await section(fact, 'tools', readFact, decoded);
+  const tools = toolSection.value;
   if (mapping) {
-    const system = await section(fact, 'system', readFact, decoded);
+    const { value: system } = await section(fact, 'system', readFact, decoded);
     if (!Array.isArray(system) || system.some(message => !['system', 'developer'].includes(message.role))) throw new Error('invalid system request evidence');
     const content = system.filter(message => message.role === 'system').flatMap(message => message.content.map(block => {
       if (block.type !== 'text' || typeof block.content?.text !== 'string') throw new Error('unsupported system request content');
@@ -65,7 +66,9 @@ async function observeRequest(session, fact, readFact, mapping, decoded) {
   const header = { config };
   if (effort != null && settings.reasoning_effort == null) header.adapterDefaults = { reasoningEffort: true };
   const choice = typeof tools.choice === 'string' ? tools.choice : tools.choice.type;
-  if (choice !== 'none' && tools.definitions.length) header.tools = tools.definitions.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.input_schema }));
+  if (choice !== 'none' && tools.definitions.length) {
+    header.tools = toolSection.projectedTools ??= tools.definitions.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.input_schema }));
+  }
   const previous = session.lastEvent('request/header');
   const step = session.lastEvent('step/start');
   const changed = previous && !isDeepStrictEqual(previous.data.header, header);

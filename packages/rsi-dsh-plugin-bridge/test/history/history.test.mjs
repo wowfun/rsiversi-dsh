@@ -51,6 +51,8 @@ integration('request headers compare JSON values and preserve series and ordered
     session.appendObserved('step/start', {turn:1,step:1}, 20);
     await observe(session, intent(reordered));
     assert.equal(session.lastEvent('request/header').data.reason, 'series');
+    assert.equal(JSON.stringify(session.requestHeader().tools[0].parameters), JSON.stringify(reordered[0].input_schema),
+      'a new series preserves this evidence spelling even when the previous header is structurally equal');
     const changed = structuredClone(reordered);
     changed[0].input_schema.properties.choice.enum.reverse();
     for (const fact of [intent(changed),intent([...changed].reverse()),intent([...changed].reverse(),{stop:[],max_output_tokens:2048})]) {
@@ -96,6 +98,7 @@ integration('referenced request schemas share immutable bodies within one projec
     await observeRequest(session, reference);
     const second = session.requestHeader();
     assert.deepEqual(second, first);
+    assert.equal(second.tools, first.tools, 'a referenced section must share its tool array and wrappers across series');
     assert.equal(second.tools[0].parameters, first.tools[0].parameters, 'a reference must not allocate another schema');
     assert.ok(Object.isFrozen(second.tools[0].parameters));
     assert.throws(() => { second.tools[0].parameters.type = 'changed'; }, TypeError);
@@ -115,6 +118,13 @@ integration('referenced request schemas share immutable bodies within one projec
     original.evidence.tools.text += ' ';
     await assert.rejects(observeRequest(session, original), /digest mismatch/);
     assert.equal(session.seq, through, 'memoized evidence cannot hide changed source bytes');
+    const replacement = JSON.parse(original.evidence.tools.text);
+    replacement.definitions[0].description = 'Replacement definition';
+    Object.assign(original.evidence.tools, inline(replacement));
+    await observeRequest(session, original);
+    assert.equal(session.requestHeader().tools[0].description, 'Replacement definition');
+    assert.notEqual(session.requestHeader().tools, first.tools, 'validated changed bytes replace the projected array');
+    assert.equal(first.tools[0].description, 'Actual schema', 'previous series retains its captured definitions');
   } finally { session.end(); }
 });
 

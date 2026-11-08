@@ -116,8 +116,11 @@ The producer does not mutate a transferred graph. External callers of
 `appendObserved` still receive snapshot isolation, and every transferred event
 retains the same schema, surface, coordinate and capacity checks.
 Within one native projection, references to the same decoded inline evidence
-reuse its parsed value. Weak keys follow the lifetime of that page's evidence
-objects, so projection does not retain old pages or build a second transcript.
+reuse its parsed value and its projected tool-definition array. The array and
+its wrapper objects are allocated once per decoded tool section, then frozen
+by event admission and shared across request series. Weak keys follow the
+lifetime of that page's evidence objects, so projection does not retain old
+pages or build a second transcript.
 Each reference still checks its earlier Fact coordinate, section, byte count
 and digest binding. The inline text and digest identify the memoized decode;
 changed input crosses validation again. Shared schema subtrees become immutable
