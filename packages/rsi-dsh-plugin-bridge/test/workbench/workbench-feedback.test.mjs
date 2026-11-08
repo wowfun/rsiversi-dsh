@@ -24,6 +24,7 @@ async function fixture(t,{restore,native,live=false}={}) {
     save:async value=>{if(saveFailure)throw saveFailure;saved=structuredClone(value);}});
   if(!restore)journal.merge(native);
   const history={revision:()=>journal.revision,
+    async stored(id){return {meta:await this.metadata(id)};},
     async metadata(id){if(id===header.id)return {id,created_at:1,selection_cursor:{kind:'durable',fact_seq:1,control_seq:0}};},
     async snapshot(){return {header,revision:String(journal.revision)};},
     async capture(){return journal.session;},owner:()=>({journal})};

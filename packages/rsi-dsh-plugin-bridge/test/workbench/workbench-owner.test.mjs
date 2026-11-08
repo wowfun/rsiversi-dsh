@@ -11,7 +11,7 @@ import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchAgents} from '../../src/workbench/agents.mjs';
-import {historyPage} from '../fixtures/history-page.mjs';
+import {historyPage,historyCapture} from '../fixtures/history-page.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 const base={provider:'native',model:'configured',reasoningEffort:'low'};
@@ -35,6 +35,10 @@ async function fixture(t) {
   const read=async(id,operation,signal)=>{
     assert.equal(id,'one');signal?.throwIfAborted();
     if(operation.type==='open')return meta();
+    if(operation.type==='capture'){
+      if(operation.after.control_seq<cursor().control_seq)reads++;
+      return historyCapture(meta(),operation,[],controls);
+    }
     if(operation.type==='controls'){reads++;return historyPage(
       controls.filter(event=>event.seq>operation.after_seq&&event.seq<=operation.through_seq),operation.through_seq,operation.offset);}
     assert.equal(operation.type,'wait');
@@ -103,7 +107,7 @@ test('a log-only approval with no native mutation receipt persists across owners
 
 test('the original search engine observes a native-only cold Session without a synthetic revision retry', {skip:!root},async t=>{
   const f=await fixture(t);let lists=0,opens=0;
-  const persistence=workbenchPersistence({...f.history,metadata(...args){opens++;return f.history.metadata(...args);}},
+  const persistence=workbenchPersistence({...f.history,stored(...args){opens++;return f.history.stored(...args);}},
     await f.load('dsh-session-persistence'),async function*(){lists++;yield [f.meta()];});
   f.ctx.provide('sessions',{list:()=>[],get:()=>undefined});
   f.ctx.provide('sessionPersistence',persistence);

@@ -21,7 +21,7 @@ function compare(a,b) {
 export function workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome}) {
   const rows=new Map(),opening=new Map(),retained=new WeakMap();let closed=false;
   const collected=new FinalizationRegistry(({id,reference})=>{if(rows.get(id)===reference)rows.delete(id);});
-  async function create(header,meta,call,release,signal) {
+  async function create(header,meta,call,release,signal,first) {
     let restore=readJournalDocument(await storage?.read(header.id));
     const persisted=restore!==undefined,initialCut=cut(meta);
     const creation=persisted?undefined:await creationMeta?.(header.id,header.createdAt);
@@ -34,7 +34,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       throw Error('Declared fork parent differs from its native seed');
     const newOrigin=!persisted&&header.origin!==undefined;
     let initial=restore?await source.stage(call,release,signal,meta.through,cut(meta).control_seq??0,
-      new Set(restore.operations.map(row=>row.id)),restore.inboxSlotFrom):undefined;
+      new Set(restore.operations.map(row=>row.id)),restore.inboxSlotFrom,first):undefined;
     const listeners=new Set(),waiters=new Set();let version=0,batch,tail=Promise.resolve();
     const report=error=>ctx.logger.warn('Application Session observer failed:',error);
     const changed=()=>{version++;for(const wake of waiters)wake();};
@@ -74,7 +74,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           waiters.add(done);signal?.addEventListener('abort',aborted,{once:true});
         });
       },
-      async apply(meta,call,release,signal) {
+      async apply(meta,call,release,signal,first) {
         const update=tail.catch(()=>{}).then(async()=>{
           signal?.throwIfAborted();if(closed)throw Error('Application Session owner retired');
           if(row.meta&&compare(cut(meta),cut(row.meta))<=0) {
@@ -84,7 +84,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           const nextCut=cut(meta),through=meta.through,controlThrough=nextCut.control_seq??0;
           const localRequests=new Set(journal.operations().map(row=>row.id));
           const staged=initial&&compare(nextCut,initialCut)===0?initial:
-            await source.stage(call,release,signal,through,controlThrough,localRequests,journal.inboxSlotFrom);
+            await source.stage(call,release,signal,through,controlThrough,localRequests,journal.inboxSlotFrom,first);
           const native=staged.value;
           if(nextCut.kind==='draft')native.model=workbenchModel(meta.model_selection);
           const saveCreation=!row.merged&&newOrigin;
@@ -129,13 +129,13 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     return row;
   }
   return {
-    async open(header,meta,call,release,signal) {
+    async open(header,meta,call,release,signal,first) {
       if(closed)throw Error('Application Session owner retired');
       let row=rows.get(header.id)?.deref();
       if(!row) {
         let pending=opening.get(header.id);
         if(!pending) {
-          pending=create(header,meta,call,release,signal).then(row=>{
+          pending=create(header,meta,call,release,signal,first).then(row=>{
             const reference=new WeakRef(row);rows.set(header.id,reference);
             collected.register(row,{id:header.id,reference});return row;
           });
@@ -146,10 +146,11 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       }
       const {parentSession,origin,delegationDepth,...existing}=row.journal.session.header;
       if(!isDeepStrictEqual(existing,header))throw Error('Application Session identity changed');
-      await row.apply(meta,call,release,signal);return row;
+      await row.apply(meta,call,release,signal,first);return row;
     },
     get(session){return retained.get(session);},
     journal(id){return rows.get(id)?.deref()?.journal;},
+    cursor(id){return rows.get(id)?.deref()?.cursor();},
     revision(id){return rows.get(id)?.deref()?.journal.revision??0;},
     async close(){closed=true;await Promise.allSettled(opening.values());
       await Promise.all([...rows.values()].flatMap(reference=>{const row=reference.deref();return row?[row.flush()]:[];}));},

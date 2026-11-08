@@ -73,6 +73,30 @@ test('native controls split observation without splitting the captured Fact page
   ]);
   assert.deepEqual(requests,[[0,6]],'all anchors share the same bounded captured page');
   staged.commit();assert.equal(source.current.mapping.factCursor,6);assert.equal(source.current.controlThrough,3);
+  for(const mode of ['complete','partial','advanced'])await t.test(mode+' first capture',async()=>{
+    const calls=[],read=async op=>{
+      calls.push([op.type,op.after_seq,op.through_seq]);
+      return historyPage((op.type==='fact'?facts:controls).slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
+    };
+    const fresh=await workbenchSource({ctx,api,llm:await load('dsh-llm'),header:source.current.session.header,
+      meta:{model_baseline:baseline,selection_cursor:{kind:'durable',fact_seq:6,control_seq:3}},call:read});
+    const first={after:{fact_seq:0,control_seq:0},cut:{fact_seq:6,control_seq:3},
+      facts:{through:mode==='partial'?2:6,value:mode==='partial'?facts.slice(0,2):facts},
+      controls:{through:mode==='partial'?1:3,events:mode==='partial'?controls.slice(0,1):controls}};
+    if(mode==='advanced'){
+      const prefix=await fresh.stage(read,async()=>{},undefined,2,1,new Set(),0,{
+        ...first,cut:{fact_seq:2,control_seq:1},facts:{through:2,value:facts.slice(0,2)},
+        controls:{through:1,events:controls.slice(0,1)},
+      });
+      prefix.commit();assert.equal(calls.length,0);
+    }
+    const result=await fresh.stage(read,async()=>{},undefined,6,3,new Set(),0,first);
+    assert.deepEqual(result.value.session.snapshotEvents(),source.current.session.snapshotEvents());
+    if(mode==='complete')assert.deepEqual(calls,[],'captured bodies need no additional reads');
+    else assert.deepEqual(calls.sort(),[['controls',1,3],['fact',2,6]],
+      'partial or obsolete first pages resume at the current positions');
+    result.commit();assert.equal(fresh.current.mapping.factCursor,6);assert.equal(fresh.current.controlThrough,3);
+  });
 });
 
 test('a failed captured page drains its sibling before rejecting the unpublished stage',{skip:!root},async t=>{

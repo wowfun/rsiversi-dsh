@@ -1,11 +1,31 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {setImmediate} from 'node:timers/promises';
-import {nativePage} from '../../src/history/native-pages.mjs';
+import {nativePage,nativeCapture} from '../../src/history/native-pages.mjs';
+import {historyCapture} from '../fixtures/history-page.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const one=()=>({through_seq:1,offset:0,next_offset:2,total_bytes:2,json:'[]'});
 const operation={type:'fact',after_seq:0,through_seq:1};
+
+test('captures accept control-only and absent cuts and reject slices beyond their summary',async()=>{
+  const after={fact_seq:0,control_seq:0},meta={id:'one',through:0,selection_cursor:{kind:'durable',fact_seq:0,control_seq:1}};
+  const controls=[{seq:1,kind:'model',after_fact_seq:0}],release=async()=>assert.fail('complete capture retains no reader');
+  const result=await nativeCapture(async op=>historyCapture(meta,op,[],controls),release,after);
+  assert.deepEqual(result,{meta,first:{after,cut:meta.selection_cursor,facts:undefined,controls:{through:1,events:controls}}});
+  assert.deepEqual(await nativeCapture(async op=>historyCapture(null,op),release,after),{meta:null});
+  const unchanged=await nativeCapture(async op=>historyCapture(meta,op),release,{fact_seq:0,control_seq:1});
+  assert.equal(unchanged.first.controls,undefined);
+  for(const changed of [
+    {meta:{...meta,through:1},facts:null,controls:null},
+    {meta,facts:{through:1,value:[]},controls:null},
+    {meta,facts:null,controls:{through:2,value:controls}},
+    {meta,facts:null,controls:{through:1,value:[{seq:2}]}},
+  ]) {
+    const json=JSON.stringify(changed);
+    await assert.rejects(nativeCapture(async()=>({through_seq:0,offset:0,next_offset:json.length,total_bytes:json.length,json}),release,after),/captured/);
+  }
+});
 
 test('a frame-sized native page needs only one read and no close RPC',async()=>{
   const text='界'.repeat(100_000),json=JSON.stringify([{seq:1,text}]),size=Buffer.byteLength(json);

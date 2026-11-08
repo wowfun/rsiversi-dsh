@@ -42,6 +42,7 @@ export async function searchRuntime({cohort,profile,corpus,kind,callerLog}) {
         ctx.provide('sessions',scope.sessions);
         persistence=workbenchPersistence({
           async metadata(id,signal){signal?.throwIfAborted();counters.metadata++;return meta(id);},
+          async stored(id,signal){return {meta:await this.metadata(id,signal)};},
           async capture(id){counters.capture++;return cold.get(id);},snapshot,
         },await load('@deepseek-ai/dsh-session-persistence'),scope.storedPages);
         ctx.provide('sessionPersistence',persistence);

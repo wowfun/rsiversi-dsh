@@ -974,10 +974,15 @@ atomically without copying existing event bodies. Flush and write-handle close
 complete the journal's durability barrier. Cold writes do not create an Agent
 or wake a model. The bounded captured-view cache includes the native
 draft revision or durable Fact/control pair and the application journal revision.
-Persisted opens and reads use the metadata-only native read, including a cold
-open. Its immutable model baseline and indexed Fact/control cut are sufficient
-to project history and model changes. A changed revision passes that exact cut
-to the projector without a second opening request or a live model projection.
+Persisted opens and reads use a fresh native history capture, including a cold
+open. It returns the authorized immutable model baseline and Fact/control cut
+with the first missing slices from the retained projector's positions. A changed
+revision passes that cut and those slices to the projector; later pages remain
+demand-driven. The slices share one bounded transfer and do not become another
+cache or durable history. Oversized records keep the ordinary fragmented reader.
+An unchanged cut returns no event bodies. A concurrently advanced projector
+discards slices that no longer start at its positions. Metadata-only stat and
+catalog operations remain body-free. Neither path opens a live model projection.
 Draft capture still uses its live snapshot; persistence never opens a draft.
 A pending capture orders later captures for the same Session. Readers of other
 Sessions proceed independently. Point and last-event lookups stay within the

@@ -4,6 +4,7 @@ import {workbenchControl} from './control.mjs';
 import {inboxReader} from '../session/inbox/inbox-state.mjs';
 import {lastUsedModel} from './model.mjs';
 import {workbenchOwners} from './owner.mjs';
+import {nativeCapture} from '../history/native-pages.mjs';
 
 export function historyHeader(meta) {
   return {version:4,id:meta.id,createdAt:meta.created_at,...(meta.cwd?{cwd:meta.cwd}:{}),
@@ -37,7 +38,7 @@ function pageOf(session,api,end,{max,window}) {
 export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta,retireToolOutcome}) {
   const owners=workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome});
   const live=workbenchControl(authorize);
-  async function open(request,signal,captured) {
+  async function open(request,signal,captured,first) {
     const {address}=request;
     const child=address.kind==='subagent';
     if(address.kind!=='session'&&(!child||!address.parentSessionId||!address.childSessionId||address.mode!=='continuable'))
@@ -47,7 +48,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     const release=operation=>releaseRead(id,operation,undefined,child?address.parentSessionId:undefined);
     const meta=captured??await call({type:'open'});
     if(!meta||meta.id!==id)throw new Error('Session history unavailable for this identity');
-    const owner=await owners.open(historyHeader(meta),meta,call,release,signal);
+    const owner=await owners.open(historyHeader(meta),meta,call,release,signal,first);
     const session=owner.journal.session;
     async function projections(){
       const base=ctx.sessionProjections.snapshot(session),{spawned}=owner.source.current;
@@ -129,6 +130,12 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       finally{observer.close();}
     },
     metadata:(id,signal,metadataOnly=false)=>read(id,{type:'open',...(metadataOnly?{metadata_only:true}:{})},signal),
+    async stored(id,signal) {
+      const captured=await nativeCapture(operation=>read(id,operation,signal),operation=>releaseRead(id,operation),
+        owners.cursor(id)??{fact_seq:0,control_seq:0},signal);
+      if(captured.meta&&captured.meta.id!==id)throw Error('Session history unavailable for this identity');
+      return captured;
+    },
     async queueItem(id,itemId,signal) {
       const meta=await read(id,{type:'open'},signal);
       if(!meta)return;
@@ -149,8 +156,8 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
         return {selected};
       }finally{observer.close();}
     },
-    async capture(id,meta,signal){
-      const view=await open({address:{kind:'session',sessionId:id}},signal,meta);
+    async capture(id,meta,signal,first){
+      const view=await open({address:{kind:'session',sessionId:id}},signal,meta,first);
       return view.session;
     },
     async imageReference(sessionId,id,signal){

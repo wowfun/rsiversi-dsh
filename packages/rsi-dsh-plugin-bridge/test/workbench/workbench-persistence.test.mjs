@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
-import {historyPage} from '../fixtures/history-page.mjs';
+import {historyPage,historyCapture} from '../fixtures/history-page.mjs';
 import {journalCatalog} from '../../src/session/session-journal-store.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -22,8 +22,10 @@ test('stored revisions track owned appends rather than native mirror catch-up',{
     async metadata(id){return journalCatalog(documents.get(id));},
     async save(id,value){documents.set(id,value);},
   },async read(id,op){
-    if(op.type==='open')return {id,created_at:1,inherited:false,through:0,model_baseline:baseline,
+    const meta={id,created_at:1,inherited:false,through:0,model_baseline:baseline,
       selection_cursor:{kind:'durable',fact_seq:0,control_seq:controls.length}};
+    if(op.type==='open')return meta;
+    if(op.type==='capture')return historyCapture(meta,op,[],controls);
     assert.equal(op.type,'controls');
     return historyPage(controls.slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
   }};
@@ -50,6 +52,7 @@ test('a delayed capture does not hold other Sessions; point reads stay at the op
   const events=Array.from({length:4096},(_,seq)=>({type:'retained',seq}));
   let slices=0;
   const history={
+    async stored(id,signal){return {meta:await this.metadata(id,signal)};},
     async metadata(id){
       order.push(id);
       if(id==='slow'){entered.resolve();await gate.promise;}
@@ -77,7 +80,7 @@ test('native read handles refresh control-only history, bind opening authority, 
   const scope=new AsyncLocalStorage(),header=Object.freeze({version:4,id:'one',createdAt:1,isSeeded:true,agentPreset:'native',parentSession:'parent'});
   let control=2,allowed=true,captures=0,reads=0,paused;const metadataOnlyReads=[];
   const events=[Object.freeze({seq:0,type:'session/end-seed',data:Object.freeze({})}),Object.freeze({seq:1,type:'user/message',data:Object.freeze({content:'owned'})})];
-  const service=workbenchPersistence({async metadata(id,signal,metadataOnly=false){
+  const service=workbenchPersistence({async stored(id,signal){return {meta:await this.metadata(id,signal,true)};},async metadata(id,signal,metadataOnly=false){
     assert.equal(metadataOnly,true,'stored reads must work without a live projection, including cold open');
     metadataOnlyReads.push(metadataOnly);
     reads++;assert.equal(scope.getStore(),'opening');signal?.throwIfAborted();
@@ -120,7 +123,7 @@ test('native read handles refresh control-only history, bind opening authority, 
 test('draft mirrors stay available to the request while persistence refuses to invent a durable log',{skip:!root},async()=>{
   const require=createRequire(join(root,'package.json'));
   const errors=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-session-persistence')));
-  const service=workbenchPersistence({async metadata(id){return {id,created_at:1,selection_cursor:{kind:'draft',revision:0}};},
+  const service=workbenchPersistence({async stored(){return {meta:null};},async metadata(id){return {id,created_at:1,selection_cursor:{kind:'draft',revision:0}};},
     async capture(id){return {id,header:{id},seq:0,inheritedEventCount:0,encodedBytes:0,requestHeader:()=>undefined,snapshotEvents:()=>[]};}},errors);
   assert.equal((await service.capture('draft')).seq,0);assert.equal(await service.stat('draft'),undefined);
   await assert.rejects(service.open('draft','read'),errors.SessionPersistenceNotFoundError);
@@ -134,13 +137,15 @@ test('cold persistence reconstructs native controls while live projection reads 
   const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
   const baseline={model:{deployment:'native',model:'configured'},reasoning_effort:'high'};
   const controls=[{kind:'model',seq:1,after_fact_seq:0,time:1,selection:{...baseline,reasoning_effort:'low'}}];
-  let opens=0;
+  let opens=0;const operations=[];
   const history=workbenchHistory({ctx,api,llm:await load('dsh-llm'),async read(id,op){
-    if(op.type==='open'){
-      if(!op.metadata_only)throw Error('Live projection unavailable');
+    operations.push(op.type);
+    if(op.type==='open'||op.type==='capture'){
+      if(op.type==='open'&&!op.metadata_only)throw Error('Live projection unavailable');
       opens++;
-      return {id,created_at:1,inherited:false,through:0,model_baseline:baseline,
+      const meta={id,created_at:1,inherited:false,through:0,model_baseline:baseline,
         selection_cursor:{kind:'durable',fact_seq:0,control_seq:controls.length}};
+      return op.type==='capture'?historyCapture(meta,op,[],controls):meta;
     }
     assert.equal(op.type,'controls');
     return historyPage(controls.slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
@@ -160,4 +165,5 @@ test('cold persistence reconstructs native controls while live projection reads 
   assert.equal(opens,before+1,'a changed cut requires no second opening request');
   assert.equal(updated.length,2);assert.equal(updated[1].data.reasoningEffort,'high');
   assert.equal(updated[0],initial[0],'the shared frozen prefix is reused');
+  assert.equal(operations.filter(type=>type==='controls').length,0,'captured first slices require no second page RPC');
 });

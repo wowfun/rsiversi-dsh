@@ -43,10 +43,29 @@ const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0)
 export async function readControls(call, release, after, horizon, signal) {
   const {through,value}=await nativePage(call,release,{type:'controls',after_seq:after,
     through_seq:horizon},after,horizon,signal);
+  return controlPage({through,value},after);
+}
+
+function controlPage({through,value},after) {
   if(!Array.isArray(value)||value.length>64||value.some((event,i)=>
     !integer(event.seq)||event.seq<=(i?value[i-1].seq:after)||event.seq>through))
     throw Error('Invalid captured control page');
   return {through,events:value};
+}
+
+/** One fresh durable cut, with ordinary first pages under the same native reservation. */
+export async function nativeCapture(call,release,after,signal) {
+  const {through,value}=await nativePage(call,release,{type:'capture',after},undefined,undefined,signal);
+  if(value===null){if(through!==0)throw Error('Invalid absent history capture');return {meta:null};}
+  const {meta,facts,controls}=value,cut=meta?.selection_cursor;
+  if(cut?.kind!=='durable'||!integer(cut.fact_seq)||!integer(cut.control_seq)||meta.through!==through
+    ||cut.fact_seq!==through||cut.fact_seq<after.fact_seq||cut.control_seq<after.control_seq)
+    throw Error('Invalid captured history cut');
+  for(const [page,start,end] of [[facts,after.fact_seq,cut.fact_seq],[controls,after.control_seq,cut.control_seq]]) {
+    if(page!==null&&(!page||!integer(page.through)||page.through<=start||page.through>end))
+      throw Error('Invalid captured history slice');
+  }
+  return {meta,first:{after,cut,facts:facts??undefined,controls:controls===null?undefined:controlPage(controls,after.control_seq)}};
 }
 
 export async function readNativeMessage(call, release, messageId, seq, signal) {

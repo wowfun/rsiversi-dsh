@@ -15,18 +15,19 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
     inbox:workbenchInbox(),spawning:new Set(),spawned:new Map(),settled:new Map(),origins:new Map()};
   return {
     get current(){return current;},
-    async stage(call,release,signal,through,controlThrough,localRequests=new Set(),inboxSlotFrom=0) {
+    async stage(call,release,signal,through,controlThrough,localRequests=new Set(),inboxSlotFrom=0,first) {
       const original=current;
       const next={...original,session:session.branch(),mapping:cloneMapping(original.mapping),
         model:original.model.branch(),inbox:original.inbox.branch(),
         spawning:new Set(original.spawning),spawned:new Map(original.spawned),
         settled:new Map(original.settled),origins:new Map()};
       const loadFacts=nativeFactPages(call,release,signal);
-      let firstControl,firstFact;
+      let firstControl=first?.after.control_seq===next.controlThrough&&first.cut.control_seq===controlThrough?first.controls:undefined;
+      let firstFact=first?.after.fact_seq===next.mapping.factCursor&&first.cut.fact_seq===through?first.facts:undefined;
       if(next.controlThrough<controlThrough&&next.mapping.factCursor<through) {
         const pages=await Promise.allSettled([
-          readControls(call,release,next.controlThrough,controlThrough,signal),
-          loadFacts(next.mapping.factCursor,through),
+          firstControl??readControls(call,release,next.controlThrough,controlThrough,signal),
+          firstFact??loadFacts(next.mapping.factCursor,through),
         ]);
         signal?.throwIfAborted();
         for(const page of pages)if(page.status==='rejected')throw page.reason;

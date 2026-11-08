@@ -43,7 +43,7 @@ export async function readPage(load, after, horizon, signal) {
   do {
     signal?.throwIfAborted();
     const page = await load(offset);
-    if (!integer(page.through_seq) || page.through_seq <= after || page.through_seq > horizon
+    if (!integer(page.through_seq) || after !== undefined && page.through_seq <= after || horizon !== undefined && page.through_seq > horizon
         || !integer(page.total_bytes) || page.total_bytes < 2 || page.total_bytes > 36 * 1024 * 1024 + 2
         || page.offset !== offset || !integer(page.next_offset) || page.next_offset <= offset
         || page.next_offset > page.total_bytes || typeof page.json !== 'string'
