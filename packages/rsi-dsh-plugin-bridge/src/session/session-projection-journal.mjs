@@ -1,7 +1,7 @@
 import {isDeepStrictEqual} from 'node:util';
-import {SessionFacade,digest,isJournalEvent} from './session.mjs';
+import {SessionFacade,digest,isJournalEvent,remap} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
-import {remap,restoreJournalEvents,encodeJournalDocument,createSourceDigest} from './journal-document.mjs';
+import {restoreJournalEvents,encodeJournalDocument,createSourceDigest} from './journal-document.mjs';
 
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
 const identity=value=>typeof value==='string'&&value.length>0&&value.length<=256;

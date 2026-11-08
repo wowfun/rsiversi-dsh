@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
 
-// Only completed admission establishes this evidence; freezing alone does not.
+// Only completed admission sets validate; coordinate remaps can establish size alone.
 const admitted = new WeakMap();
 const journalEvents = new Set(['session/title', 'approval/asked', 'approval/decided', 'approval/policy',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
@@ -64,7 +64,13 @@ export function validateHeader(header) {
   return Object.freeze(structuredClone(header));
 }
 const encodedDigest = encoded => createHash('sha256').update(encoded).digest('hex');
-export function digest(value) { return admitted.get(value)?.hash ?? encodedDigest(JSON.stringify(value)); }
+export function digest(value) {
+  const known=admitted.get(value);
+  if(known?.hash!==undefined)return known.hash;
+  const hash=encodedDigest(JSON.stringify(value));
+  if(known)known.hash=hash;
+  return hash;
+}
 
 /** Internal transfer only: frozen children have already crossed the deep-freeze boundary. */
 function freezeTransferred(value) {
@@ -75,6 +81,48 @@ function freezeTransferred(value) {
     Object.freeze(node);
     for(const key of Object.keys(node))pending.push(node[key]);
   }
+}
+
+/** Remap only local coordinates; admitted immutable bodies keep their exact size evidence. */
+export function remap(input,seq,sourceAt) {
+  let event=input,bytes=admitted.get(input)?.bytes;
+  const coordinate=(before,after)=>{
+    if(bytes!==undefined)bytes=integer(after)?bytes+String(after).length-String(before).length:undefined;
+    return after;
+  };
+  const set=(key,value)=>{
+    if(value===input[key])return;
+    if(event===input)event={...input};
+    event[key]=value;
+  };
+  set('seq',coordinate(input.seq,seq));
+  const reference=value=>{
+    const target=integer(value)&&value<input.seq?sourceAt(value):undefined;
+    if(!target)throw Error('Native event reference is outside its observed prefix');
+    return coordinate(value,target.seq);
+  };
+  if(input.surfaceOp&&input.surfaceOp!=='append'){
+    const startSeq=reference(input.surfaceOp.startSeq),endSeq=reference(input.surfaceOp.endSeq);
+    if(startSeq!==input.surfaceOp.startSeq||endSeq!==input.surfaceOp.endSeq)
+      set('surfaceOp',{...input.surfaceOp,startSeq,endSeq});
+  }
+  if(input.sourceEventSeqs){
+    const references=input.sourceEventSeqs.map(reference);
+    if(references.some((value,index)=>value!==input.sourceEventSeqs[index]))set('sourceEventSeqs',references);
+  }
+  if(input.type==='developer/message'&&input.data.headerSeq!==undefined){
+    const headerSeq=reference(input.data.headerSeq);
+    if(headerSeq!==input.data.headerSeq)set('data',{...input.data,headerSeq});
+  }
+  if(input.type==='command/done'&&input.data.sourceEventSeq!==undefined){
+    const sourceEventSeq=reference(input.data.sourceEventSeq);
+    if(sourceEventSeq!==input.data.sourceEventSeq)set('data',{...input.data,sourceEventSeq});
+  }
+  if(event!==input&&bytes!==undefined){
+    freezeTransferred(event);
+    admitted.set(event,{bytes});
+  }
+  return event;
 }
 
 /** No upstream constructor: it appends seed/resume markers before attachment. */
@@ -174,7 +222,7 @@ export class SessionFacade {
       if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
     }
     if (!known || known.validate !== this.#api.adoptSessionEvent)
-      admitted.set(event, {bytes,hash:known?.hash??encodedDigest(encoded),validate:this.#api.adoptSessionEvent});
+      admitted.set(event, {bytes,hash:known?known.hash:encodedDigest(encoded),validate:this.#api.adoptSessionEvent});
     if(event.type==='request/header')this.#requestHeader=Object.freeze(this.#api.canonicalHeader(event.data.header));
     if(event.type==='session/title')this.#titleEvent=event;
     this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;

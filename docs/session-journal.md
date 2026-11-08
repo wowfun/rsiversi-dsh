@@ -160,7 +160,13 @@ The rolling hash advances only after a whole observation batch passes validation
 flush copies its state without rescanning history. Cold loading reconstructs the
 transient event digests and verifies the saved prefix before exposing the log.
 Live partial observations retain their per-event checks. These digests are not
-a runtime-version compatibility gate. Surface positions, source
+a runtime-version compatibility gate. Coordinate-only remapping of an admitted
+immutable event shares its body and derives its exact encoded size from the
+changed integer widths. The new envelope and reference containers are frozen;
+size evidence does not establish event or surface validity. Receiving admission
+still checks both. Such remaps compute their own digest only if it is requested;
+they do not retain another serialized body. Unadmitted inputs take ordinary full
+encoding and validation. Surface positions, source
 event references, developer header references and command-result references are
 translated into application coordinates. A native event explicitly correlated
 with a local mutation must describe the same event body. Normally it aliases that
