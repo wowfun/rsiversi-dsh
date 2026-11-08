@@ -1,7 +1,7 @@
 import {isDeepStrictEqual} from 'node:util';
 import {SessionFacade,digest,isJournalEvent} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
-import {remap,restoreJournalEvents,encodeJournalDocument} from './journal-document.mjs';
+import {remap,restoreJournalEvents,encodeJournalDocument,createSourceDigest} from './journal-document.mjs';
 
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
 const identity=value=>typeof value==='string'&&value.length>0&&value.length<=256;
@@ -13,16 +13,25 @@ export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
   #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
+  #sourceDigest=createSourceDigest();
   constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions,nativeEventState}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
     this.#sharedNative=nativeEventState==='shared-frozen';
     if(restore!==undefined) {
       if(!isDeepStrictEqual(restore.header,seed.header))throw Error('Invalid application journal identity');
       restore=this.#snapshot(restore);
+      const sources=restore.version===7?restore.sources.map((source,index)=>{
+        const event=native?.[index];
+        if(event?.seq!==index)throw Error('Native event prefix moved backwards');
+        return Object.freeze({...source,hash:digest(event)});
+      }):restore.sources;
+      for(const source of sources)this.#sourceDigest.update(source.hash);
+      if(restore.version===7&&this.#sourceDigest.copy().digest('hex')!==restore.sourceDigest)
+        throw Error('Native event prefix changed');
       seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native,transitions)),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
-      this.#restore(restore.sources,restore.operations);
-      this.#saved=0;this.#rewrite=restore.version<6;
+      this.#restore(sources,restore.operations);
+      this.#saved=0;this.#rewrite=restore.version<7;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
       this.#session=this.#create(seed);
@@ -221,7 +230,7 @@ export class SessionProjectionJournal {
       this.#owned.push(this.#session.eventAt(seq));
     }
     this.#annotationCount=count;
-    for(const source of sources)this.#sources.push(source);
+    for(const source of sources){this.#sources.push(source);this.#sourceDigest.update(source.hash);}
     for(const [id,operation] of operations)this.#operations.set(id,operation);
     if(sources.length||this.#rewrite)this.#revision++;
     this.#rewrite=false;
@@ -235,7 +244,7 @@ export class SessionProjectionJournal {
         return {...event,data:{...event.data,inserted:null}};
       return event;
     });
-    return encodeJournalDocument(this.#session,events,this.#sources,this.operations(),this.#inboxSlotFrom);
+    return encodeJournalDocument(this.#session,events,this.#sources,this.#sourceDigest.copy().digest('hex'),this.operations(),this.#inboxSlotFrom);
   }
 
   flush() {

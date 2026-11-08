@@ -1,19 +1,25 @@
+import {createHash} from 'node:crypto';
 import {inboxObservationProjection} from './inbox/inbox-observations.mjs';
 import {restoreInputOperation} from './inbox/input-invocation.mjs';
 
 const maximumBytes=128*1024*1024;
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
 const shape=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).every(key=>keys.includes(key));
+const isDigest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+
+export const createSourceDigest=()=>createHash('sha256').update('rsi.dsh.native-source-prefix.v1\0');
 
 /** Parse the durable boundary once, before native history is captured. */
 export function readJournalDocument(document) {
   if(document===undefined)return;
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
   const state=JSON.parse(document);
-  if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom'])
-    ||![1,2,3,4,5,6].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
+  if(!shape(state,['version','header','inheritedEventCount','events','sources','sourceDigest','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom'])
+    ||![1,2,3,4,5,6,7].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
-  const derivesCount=state.version===6;
+  const prefixDigest=state.version===7;
+  if(prefixDigest?!isDigest(state.sourceDigest):Object.hasOwn(state,'sourceDigest'))throw Error('Invalid application source digest');
+  const derivesCount=state.version>=6;
   if(derivesCount){
     if(Object.hasOwn(state,'eventCount')||!integer(state.ownedEventCount)||state.ownedEventCount!==state.events.length)
       throw Error('Invalid application journal event count');
@@ -38,8 +44,8 @@ export function readJournalDocument(document) {
   }
   const used=new Set();
   for(const row of state.sources) {
-    if(!shape(row,['hash','seq','operation'])||!integer(row.seq)||row.seq>=limit||used.has(row.seq)
-      ||typeof row.hash!=='string'||!/^[a-f0-9]{64}$/.test(row.hash)
+    if(!shape(row,prefixDigest?['seq','operation']:['hash','seq','operation'])||!integer(row.seq)||row.seq>=limit||used.has(row.seq)
+      ||!prefixDigest&&!isDigest(row.hash)
       ||row.operation!==undefined&&(typeof row.operation!=='string'||!row.operation||row.operation.length>256))
       throw Error('Invalid application source map');
     used.add(row.seq);
@@ -125,10 +131,11 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
   return events;
 }
 
-export function encodeJournalDocument(session,events,sources,operations,inboxSlotFrom) {
+export function encodeJournalDocument(session,events,sources,sourceDigest,operations,inboxSlotFrom) {
   const event=session.lastEvent('session/title');
   const prefix=JSON.stringify({header:session.header,ownedEventCount:events.length,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-  const document=JSON.stringify({version:6,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
+  const sourceMap=sources.map(({seq,operation})=>({seq,...(operation===undefined?{}:{operation})}));
+  const document=JSON.stringify({version:7,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources:sourceMap,sourceDigest,operations});
   const value=prefix.slice(0,-1)+',\n'+document.slice(1);
   if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
   return value;

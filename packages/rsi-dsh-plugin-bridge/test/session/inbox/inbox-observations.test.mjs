@@ -84,7 +84,7 @@ test('correlated input storage preserves local coordinates and rejects missing o
   for(const corrupt of [
     value=>{delete value.operations[0].source;},
     value=>{value.operations[0].source=0;},
-    value=>{value.sources[1].hash='b'.repeat(64);},
+    value=>{value.sourceDigest='b'.repeat(64);},
   ]) {
     const value=structuredClone(state);corrupt(value);const document=JSON.stringify(value);
     f.documents.set('inbox',document);
@@ -92,6 +92,7 @@ test('correlated input storage preserves local coordinates and rejects missing o
     assert.equal(f.documents.get('inbox'),document,'failed recovery cannot overwrite the durable evidence');
   }
   const previous=structuredClone(state);previous.version=4;
+  delete previous.sourceDigest;previous.sources=previous.sources.map((_,index)=>f.journal.sourceAt(index));
   previous.eventCount=f.session.seq;delete previous.ownedEventCount;
   previous.events=previous.events.map(event=>f.session.eventAt(event.seq));
   f.documents.set('inbox',JSON.stringify(previous));

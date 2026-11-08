@@ -144,12 +144,20 @@ Successful event admission computes its byte count and content digest from the
 same temporary JSON encoding. The private admission record retains the count,
 digest and validator identity, not the encoded string or another event body.
 Journal reconciliation reuses that digest only for the admitted immutable
-object; other values are encoded and hashed independently. A cold journal still
-compares its saved digest against the reconstructed native event.
+object; other values are encoded and hashed independently. Cold recovery verifies
+the reconstructed native prefix against the journal's saved source digest.
 
 Each consumed native event retains its source position, content digest and
-application position. Digests verify that the same source prefix has not changed;
-they are not a runtime-version compatibility gate. Surface positions, source
+application position in memory. Persistence stores only the position/correlation
+map and one ordered source-prefix digest. The digest is SHA-256 over the UTF-8
+domain `rsi.dsh.native-source-prefix.v1` followed by a NUL byte and the fixed-width
+lowercase hexadecimal event digests in source order. It detects the same missing,
+reordered or changed source content without storing one digest per event.
+The rolling hash advances only after a whole observation batch passes validation;
+flush copies its state without rescanning history. Cold loading reconstructs the
+transient event digests and verifies the saved prefix before exposing the log.
+Live partial observations retain their per-event checks. These digests are not
+a runtime-version compatibility gate. Surface positions, source
 event references, developer header references and command-result references are
 translated into application coordinates. A native event explicitly correlated
 with a local mutation must describe the same event body. Normally it aliases that
@@ -328,9 +336,11 @@ additional readers wait locally before issuing native RPCs. No queued reader
 holds a native request slot. The Host checks the page's request, Session and
 coordinates and bounds its retained storage; no persistent history copy is added.
 
-Version 6 snapshots contain the Session header, owned and inherited event counts,
-local-owned events at their original positions, the native source map and mutation
-records in one JSON document. Native-only event bodies are reconstructed from the
+Version 7 snapshots contain the Session header, owned and inherited event counts,
+local-owned events at their original positions, the native source map, its
+`sourceDigest` and mutation records in one JSON document. Source-map entries have
+`seq` and optional `operation`; per-event hashes are not persisted.
+Native-only event bodies are reconstructed from the
 captured Store history, including translated inbox splices. They are not copied
 into application storage. A correlated input acceptance keeps its original event
 position, timestamp and splice coordinates, with `inserted: null` in storage.
@@ -346,17 +356,18 @@ positions and native source map when loading; it is not stored as another count.
 Native projection catch-up cannot change the owned-event count. The decoder
 validates dense ownership and bounded positions before exposing the restored log.
 
-Cold loading validates source hashes and rebuilds the same dense application log
+Cold loading validates source content and rebuilds the same dense application log
 before exposing it. Missing or changed native history is an error, never a reason
 to substitute a cached body. Restoration uses the same native read batch as the
 first observation. Older documents are validated and normalized once: version 1
 uses its complete log, and version 1/2 input invocations must agree exactly with
 their accepted event before their duplicate body is removed. Successful native
-reconciliation rewrites them as version 6; failed validation cannot replace the
+reconciliation rewrites them as version 7; failed validation cannot replace the
 document. Version 3/4 input recovery descriptors and version 5 correlated inputs
-retain their existing meaning. Older catalog hints acquire their owned count
+retain their existing meaning. Versions 1–6 retain their per-event hash checks
+until successful native reconciliation. Older catalog hints acquire their owned count
 when that existing reconciliation rewrites the document.
-No second durable format or body cache is maintained alongside version 6.
+No second durable format or body cache is maintained alongside version 7.
 
 The supplied persistence writer
 must atomically replace that document. Flushes serialize snapshots in acceptance
