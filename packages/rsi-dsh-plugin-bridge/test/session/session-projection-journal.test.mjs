@@ -259,7 +259,9 @@ test('durable journals omit native bodies while preserving local acknowledgement
     {seq:1,time:3,type:'model/selection',data:selection}];
   const correlations=new Map([[1,'choice']]);journal.merge(native,correlations);
   const document=journal.encode(),state=JSON.parse(document);
-  assert.equal(state.version,5);assert.equal(state.eventCount,3);
+  assert.equal(state.version,6);assert.equal(state.ownedEventCount,2);
+  assert.equal(Object.hasOwn(state,'eventCount'),false);
+  assert.equal(readJournalDocument(document).eventCount,3);
   assert.deepEqual(state.events.map(event=>event.seq),[0,1]);
   assert.equal(document.includes('canonical-only-'),false);
   assert.ok(Buffer.byteLength(document)<Buffer.byteLength(JSON.stringify(journal.session.snapshotEvents()))/100);
@@ -271,10 +273,13 @@ test('durable journals omit native bodies while preserving local acknowledgement
   assert.throws(()=>restore(state,native.slice(0,1)),/prefix moved backwards/);
   const changed=[{...native[0],time:99},native[1]];
   assert.throws(()=>restore(state,changed).merge(changed,correlations),/prefix changed/);
-  assert.throws(()=>restore({...state,events:[...state.events,journal.session.eventAt(2)]}),/Native-only event body/);
+  assert.throws(()=>restore({...state,ownedEventCount:3,events:[...state.events,journal.session.eventAt(2)]}),/Native-only event body/);
   assert.throws(()=>restore({...state,events:[state.events[0],state.events[0]]}),/local application event position/);
-  assert.throws(()=>restore({...state,events:[state.events[1]]}),/lost its accepted event/);
-  assert.throws(()=>restore({...state,eventCount:4}),/unowned event positions/);
+  assert.throws(()=>restore({...state,ownedEventCount:1,events:[state.events[1]]}),/lost its accepted event/);
+  assert.throws(()=>restore({...state,eventCount:4}),/event count/);
+  assert.throws(()=>restore({...state,ownedEventCount:3}),/event count/);
+  assert.throws(()=>restore({...state,sources:state.sources.map((row,i)=>i?row:{...row,seq:4})}),/unowned event positions/);
+  assert.throws(()=>restore({...state,sources:state.sources.map((row,i)=>i?row:{...row,seq:100_000})}),/source map/);
 });
 
 test('a cold catalog reads the atomic title prefix without parsing history and matches native creation identities',{skip:!root},async t=>{
@@ -309,7 +314,7 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   unmarked.accept('ordinary-rename','session/title',{title,source:{kind:'user'},messageSeqs:[]});
   await unmarked.flush();
   assert.equal((await storage.decorate([{...row}]))[0].parent,undefined,'a title is not proof of a DSH subagent origin');
-  const {catalogTitle,...payload}=JSON.parse(unmarked.encode());
+  const {catalogTitle,ownedEventCount,version,...payload}=readJournalDocument(unmarked.encode());
   const legacy=JSON.stringify({version:1,...payload});
   await writeFile(file,legacy);
   assert.deepEqual(await sessionJournalStore(directory,atomic).decorate([{...row}]),[row]);
@@ -497,7 +502,7 @@ test('saved journals retain the native prefix that used predecessor-based inbox 
   const native=[0,1].map(seq=>({type:'model/selection',seq,time:seq,data:selection}));
   journal.merge(native);
   const saved=JSON.parse(journal.encode());assert.equal(restore(saved,native).inboxSlotFrom,0);
-  saved.version=1;saved.events=journal.session.snapshotEvents();delete saved.inboxSlotFrom;
+  saved.version=1;saved.events=journal.session.snapshotEvents();delete saved.inboxSlotFrom;delete saved.ownedEventCount;
   const cold=restore(saved,native);assert.equal(cold.inboxSlotFrom,2);
   cold.merge([...native,{...native[1],seq:2}]);
   assert.equal(restore(JSON.parse(cold.encode()),[...native,{...native[1],seq:2}]).inboxSlotFrom,2);

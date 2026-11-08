@@ -22,6 +22,14 @@ equivalence and have bridge median and p95 no greater than the original. Report
 sample count and corpus dimensions; a small fixture does not establish behavior
 for a larger corpus. Do not count provider generation, package verification, or
 browser startup as search latency.
+Distinguish a fresh search index over retained history mirrors from a complete
+cold persistence read. For the latter, prepare/export the equivalent corpus in
+a separate process lifetime, then start fresh native and original application
+processes before the first measured query. Corpus export must not prewarm only
+one side's retained Session views. Record the process identities and verify
+that the native measured lifetime has not read the target history before that
+query. Keep the initial corpus fixed between rounds; report growing-corpus
+measurements separately instead of mixing them into one cold-start percentile.
 Both sides start with isolated benchmark state. Native outcome receipts must not
 inherit files from previous runs: the real Kernel retires published outcomes,
 whereas a transport-only probe does not publish Facts. Measure a deliberately

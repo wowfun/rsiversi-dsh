@@ -116,7 +116,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
         header.origin=declared.origin;
         if(declared.delegationDepth!==undefined)header.delegationDepth=declared.delegationDepth;
       }
-      const count=local?journal.seq:hint?.eventCount??0;
+      const count=local?journal.ownedEventCount:hint?.ownedEventCount??0;
       return {header,formatStatus:'current',revision:JSON.stringify([meta.created_at,
         meta.selection_cursor.fact_seq,meta.selection_cursor.control_seq,count])};
     },

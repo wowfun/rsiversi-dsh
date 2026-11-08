@@ -260,7 +260,7 @@ additional readers wait locally before issuing native RPCs. No queued reader
 holds a native request slot. The Host checks the page's request, Session and
 coordinates and bounds its retained storage; no persistent history copy is added.
 
-Version 5 snapshots contain the Session header, total and inherited event counts,
+Version 6 snapshots contain the Session header, owned and inherited event counts,
 local-owned events at their original positions, the native source map and mutation
 records in one JSON document. Native-only event bodies are reconstructed from the
 captured Store history, including translated inbox splices. They are not copied
@@ -272,6 +272,11 @@ inbox projection. JSON field order is not event identity; all event values and
 array order are preserved. Uncorrelated input keeps its full body for dispatch
 recovery. Log-only events, other local mutations and fork constructor annotations
 remain application-owned.
+The catalog prefix carries the owned-event count for revision checks without
+reading event bodies. The complete log length is derived from the owned-event
+positions and native source map when loading; it is not stored as another count.
+Native projection catch-up cannot change the owned-event count. The decoder
+validates dense ownership and bounded positions before exposing the restored log.
 
 Cold loading validates source hashes and rebuilds the same dense application log
 before exposing it. Missing or changed native history is an error, never a reason
@@ -279,9 +284,11 @@ to substitute a cached body. Restoration uses the same native read batch as the
 first observation. Older documents are validated and normalized once: version 1
 uses its complete log, and version 1/2 input invocations must agree exactly with
 their accepted event before their duplicate body is removed. Successful native
-reconciliation rewrites them as version 5; failed validation cannot replace the
-document. Version 3/4 input recovery descriptors retain their existing meaning.
-No second durable format or body cache is maintained alongside version 5.
+reconciliation rewrites them as version 6; failed validation cannot replace the
+document. Version 3/4 input recovery descriptors and version 5 correlated inputs
+retain their existing meaning. Older catalog hints acquire their owned count
+when that existing reconciliation rewrites the document.
+No second durable format or body cache is maintained alongside version 6.
 
 The supplied persistence writer
 must atomically replace that document. Flushes serialize snapshots in acceptance

@@ -10,28 +10,44 @@ export function readJournalDocument(document) {
   if(document===undefined)return;
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
   const state=JSON.parse(document);
-  if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','inboxSlotFrom'])
-    ||![1,2,3,4,5].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
+  if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom'])
+    ||![1,2,3,4,5,6].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
+  const derivesCount=state.version===6;
+  if(derivesCount){
+    if(Object.hasOwn(state,'eventCount')||!integer(state.ownedEventCount)||state.ownedEventCount!==state.events.length)
+      throw Error('Invalid application journal event count');
+  }else if(Object.hasOwn(state,'ownedEventCount'))throw Error('Invalid legacy application journal');
   if(state.version===1) {
     if(state.eventCount===undefined)state.eventCount=state.events.length;
     if(state.inboxSlotFrom===undefined)state.inboxSlotFrom=state.sources.length;
     if(state.eventCount!==state.events.length)throw Error('Invalid application journal event count');
   }
-  if(!integer(state.eventCount)||state.eventCount>100_000||!integer(state.inheritedEventCount)
-    ||state.inheritedEventCount>state.eventCount||state.events.length>state.eventCount
-    ||state.sources.length>state.eventCount||state.operations.length>state.eventCount)
+  const limit=derivesCount?100_000:state.eventCount;
+  if(!integer(limit)||limit>100_000||state.events.length>limit||state.sources.length>limit||state.operations.length>limit)
     throw Error('Invalid application journal');
   if(!integer(state.inboxSlotFrom)||state.inboxSlotFrom>state.sources.length)throw Error('Invalid saved inbox source boundary');
+  let count=0;
+  const events=new Map();
+  for(const event of state.events){
+    if(derivesCount){
+      if(!integer(event?.seq)||event.seq>=limit)throw Error('Invalid application journal event position');
+      count=Math.max(count,event.seq+1);
+    }
+    events.set(event?.seq,event);
+  }
   const used=new Set();
   for(const row of state.sources) {
-    if(!shape(row,['hash','seq','operation'])||!integer(row.seq)||row.seq>=state.eventCount||used.has(row.seq)
+    if(!shape(row,['hash','seq','operation'])||!integer(row.seq)||row.seq>=limit||used.has(row.seq)
       ||typeof row.hash!=='string'||!/^[a-f0-9]{64}$/.test(row.hash)
       ||row.operation!==undefined&&(typeof row.operation!=='string'||!row.operation||row.operation.length>256))
       throw Error('Invalid application source map');
     used.add(row.seq);
+    if(derivesCount)count=Math.max(count,row.seq+1);
   }
-  const events=new Map(state.events.map(event=>[event?.seq,event]));
+  if(derivesCount)state.eventCount=count;
+  if(!integer(state.inheritedEventCount)||state.inheritedEventCount>state.eventCount||state.events.length>state.eventCount
+    ||state.sources.length>state.eventCount||state.operations.length>state.eventCount)throw Error('Invalid application journal');
   state.operations=state.operations.map(operation=>restoreInputOperation(operation,events.get(operation?.seq),state.version));
   return state;
 }
@@ -96,8 +112,8 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
 
 export function encodeJournalDocument(session,events,sources,operations,inboxSlotFrom) {
   const event=session.lastEvent('session/title');
-  const prefix=JSON.stringify({header:session.header,eventCount:session.seq,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-  const document=JSON.stringify({version:5,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
+  const prefix=JSON.stringify({header:session.header,ownedEventCount:events.length,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
+  const document=JSON.stringify({version:6,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources,operations});
   const value=prefix.slice(0,-1)+',\n'+document.slice(1);
   if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
   return value;

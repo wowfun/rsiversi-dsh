@@ -37,7 +37,7 @@ test('original lineage merges registered Sessions with paged durable metadata wi
     return args.after?{items:[child],next:null}:{items:[parent],next:'page-2'};
   },{attached:()=>[attached],agent:id=>id==='child'?{session:attached}:undefined});
   let count=4;
-  const history=workbenchHistory({storage:{metadata:id=>id==='child'?{header,eventCount:count}:undefined},
+  const history=workbenchHistory({storage:{metadata:id=>id==='child'?{header,ownedEventCount:count}:undefined},
     read:async(id,operation)=>{assert.equal(operation.type,'open');if(id==='missing')return null;
       assert.equal(operation.metadata_only,true);return id==='child'?child:parent;}});
   const persistence=workbenchPersistence(history,await load('dsh-session-persistence'),scope.storedPages);

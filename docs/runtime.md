@@ -931,11 +931,12 @@ native metadata and the application journal. Listing reads authorized durable
 Sessions in pages without opening their event logs. Registered live Sessions
 can be merged with a catalog larger than one browser response. The native
 transport bounds each page independently.
-Reconstructing a native-only mirror does not change its persistence revision:
-the native Fact/control cut already identifies that history. An in-memory
-journal contributes its current event count only when it has application-owned
-events; otherwise the snapshot retains its saved journal metadata. Read-only
-projection cannot invalidate an unchanged stored Session in the query service.
+Reconstructing a mirror does not change its persistence revision: the native
+Fact/control cut already identifies native history. The application contributes
+only its owned-event count, identical in memory and the journal catalog. Derived
+native events do not advance that count, even when local events also exist.
+An application append changes the revision; native catch-up at an already
+identified cut does not invalidate the stored Session in the query service.
 The original synchronous `sessions.list()` contract enumerates attached Sessions.
 The workbench mounts the distribution's attachments and Session Query services
 with attachments in the application profile and the release's index policy.

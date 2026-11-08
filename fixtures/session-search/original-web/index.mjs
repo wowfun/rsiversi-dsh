@@ -46,7 +46,7 @@ export async function originalWebProfile({cohort,profile,corpus=[],sessionId='se
   }
   try{
     const opening=await call('boot',{corpus,sessionId,cwd:cwd??corpus[0]?.header.cwd??profile,resume,verifyDurability});
-    return {opening,provider,
+    return {opening:{...opening,processId:child.pid},provider,
       execute:(name,args)=>provider.execute(name,args,callId=>call('prompt',{callId})),
       snapshot:()=>call('snapshot'),read:()=>call('read'),close,
     };

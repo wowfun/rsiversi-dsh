@@ -36,8 +36,10 @@ test('stock Web profile searches through its real Messages provider and compress
       assert.ok((await readdir(join(profile,'sessions'),{recursive:true})).some(name=>name.endsWith('.jsonl.zstd')),'Default compressed logs must be exercised');
       const results=before.events.filter(row=>row.type==='tool/result');
       assert.equal(results.length,5);
+      const previousProcess=runtime.opening.processId;assert.ok(Number.isSafeInteger(previousProcess)&&previousProcess>0);
       await runtime.close();runtime=undefined;
       runtime=await originalWebProfile({cohort,profile,resume:true,onLog:text=>logs.push(text),onRequest:()=>assert.fail('Cold resume must not dispatch a model')});
+      assert.notEqual(runtime.opening.processId,previousProcess);
       assert.deepEqual((await runtime.snapshot()).events.filter(row=>row.type==='tool/result'),results);
       assert.deepEqual((await runtime.read()).filter(row=>row.type==='tool/result'),results);
     }catch(error){t.diagnostic(logs.join('').slice(-16000));throw error;}

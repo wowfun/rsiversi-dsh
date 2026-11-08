@@ -7,8 +7,44 @@ import {pathToFileURL} from 'node:url';
 import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {historyPage} from '../fixtures/history-page.mjs';
+import {journalCatalog} from '../../src/session/session-journal-store.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('stored revisions track owned appends rather than native mirror catch-up',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const baseline={model:{deployment:'native',model:'configured'},reasoning_effort:'high'};
+  const controls=[],documents=new Map();
+  const options={ctx,api,llm:await load('dsh-llm'),storage:{
+    async read(id){return documents.get(id);},
+    async metadata(id){return journalCatalog(documents.get(id));},
+    async save(id,value){documents.set(id,value);},
+  },async read(id,op){
+    if(op.type==='open')return {id,created_at:1,inherited:false,through:0,model_baseline:baseline,
+      selection_cursor:{kind:'durable',fact_seq:0,control_seq:controls.length}};
+    assert.equal(op.type,'controls');
+    return historyPage(controls.slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
+  }};
+  const history=workbenchHistory(options);t.after(()=>history.close());
+  const persistence=workbenchPersistence(history,await load('dsh-session-persistence'));
+  const session=await history.capture('stored',await history.metadata('stored')),journal=history.owner(session).journal;
+  journal.append('session/title',{title:'Local title',source:{kind:'user'},messageSeqs:[]});await journal.flush();
+  controls.push({kind:'model',seq:1,after_fact_seq:0,time:2,selection:baseline});
+  const before=await persistence.stat('stored');
+  const handle=await persistence.open('stored','read');t.after(()=>handle.close());
+  const events=(await handle.read()).events;assert.equal(events.length,2);
+  assert.deepEqual(await persistence.stat('stored'),before,'catch-up must not invalidate a cut already identified by native metadata');
+  journal.append('session/title',{title:'New local title',source:{kind:'user'},messageSeqs:[]});await journal.flush();
+  const changed=await persistence.stat('stored');assert.notEqual(changed.revision,before.revision);
+  const reopened=workbenchHistory(options);t.after(()=>reopened.close());
+  const cold=workbenchPersistence(reopened,await load('dsh-session-persistence'));
+  assert.deepEqual(await cold.stat('stored'),changed,'the persisted revision survives loss of its live mirror');
+  const restored=await cold.open('stored','read');t.after(()=>restored.close());
+  assert.equal((await restored.read()).events.length,3);
+  assert.deepEqual(await cold.stat('stored'),changed);
+});
 test('a delayed capture does not hold other Sessions; point reads stay at the opening cut without copying the log',async()=>{
   const gate=Promise.withResolvers(),entered=Promise.withResolvers(),order=[];
   const events=Array.from({length:4096},(_,seq)=>({type:'retained',seq}));

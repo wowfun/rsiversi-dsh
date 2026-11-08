@@ -8,7 +8,10 @@ export function journalCatalog(document) {
   if(!document?.startsWith(marker))return;
   const end=document.indexOf(',\n');
   if(end<0)throw Error('Incomplete application journal catalog');
-  return JSON.parse(document.slice(0,end)+'}');
+  const value=JSON.parse(document.slice(0,end)+'}');
+  if(value.ownedEventCount!==undefined&&(!Number.isSafeInteger(value.ownedEventCount)||value.ownedEventCount<0
+    ||Object.is(value.ownedEventCount,-0)||value.ownedEventCount>100_000))throw Error('Invalid application journal catalog count');
+  return value;
 }
 
 /** The application profile owns one writer; atomic replacement gives cold readers a complete log. */

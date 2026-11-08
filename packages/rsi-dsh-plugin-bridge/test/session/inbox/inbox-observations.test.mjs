@@ -92,6 +92,7 @@ test('correlated input storage preserves local coordinates and rejects missing o
     assert.equal(f.documents.get('inbox'),document,'failed recovery cannot overwrite the durable evidence');
   }
   const previous=structuredClone(state);previous.version=4;
+  previous.eventCount=f.session.seq;delete previous.ownedEventCount;
   previous.events=previous.events.map(event=>f.session.eventAt(event.seq));
   f.documents.set('inbox',JSON.stringify(previous));
   const restored=await f.cold();
