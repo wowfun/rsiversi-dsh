@@ -21,6 +21,58 @@ const evidence = () => ({ availability: 'available',
   tools: inline({ definitions: [{ name: 'todo_write', description: 'Actual schema', input_schema: { type: 'object' } }], hosted: [], choice: { type: 'auto' } }),
   system: inline([{ role: 'system', content: [{ type: 'text', content: {text:'Actual instructions'} }] }]) });
 
+integration('request headers compare JSON values and preserve series and ordered changes', async t => {
+  const cohort = await loadCohort(cohortRoot);
+  const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
+  t.after(() => ctx.fiber.dispose());
+  const api = {...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session', 'surface'),
+    ...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const session = new SessionFacade(ctx, api, {header:{version:4,id:'header-equality',createdAt:1,isSeeded:false}}, false);
+  const observe = requestObserver();
+  const definitions = [
+    {name:'first',description:'First',input_schema:{type:'object',properties:{choice:{type:'string',enum:['a','b']}}}},
+    {name:'second',description:'Second',input_schema:{type:'object'}},
+  ];
+  let seq = 0;
+  const intent = (tools = definitions, settings = {stop:[]}) => ({type:'model_intent',seq:++seq,
+    timestamp_ms:10+seq,purpose:{kind:'conversation'},snapshot,evidence:{...evidence(),
+      configuration:inline({prepared:{deployment:snapshot.deployment_id,model:snapshot.model,language_settings:{}},
+        settings,response_format:{type:'text'},extensions:[]}),
+      tools:inline({definitions:tools,hosted:[],choice:'auto'})}});
+  session.begin();
+  try {
+    await observe(session, intent());
+    assert.equal(session.lastEvent('request/header').data.reason, 'initial');
+    const reordered = [{...definitions[0],input_schema:{properties:{choice:{enum:['a','b'],type:'string'}},type:'object'}},definitions[1]];
+    await observe(session, intent(reordered));
+    assert.equal(session.seq, 1, 'object key order must not invent a request-header change');
+    session.appendObserved('step/start', {turn:1,step:1}, 20);
+    await observe(session, intent(reordered));
+    assert.equal(session.lastEvent('request/header').data.reason, 'series');
+    const changed = structuredClone(reordered);
+    changed[0].input_schema.properties.choice.enum.reverse();
+    for (const fact of [intent(changed),intent([...changed].reverse()),intent([...changed].reverse(),{stop:[],max_output_tokens:2048})]) {
+      const before = session.seq;
+      await observe(session, fact);
+      assert.equal(session.seq, before+1);
+      assert.equal(session.lastEvent('request/header').data.reason, 'change');
+    }
+    const route = intent();
+    route.snapshot = {...snapshot,language_settings:{requested_reasoning_effort:'high',effective_reasoning_effort:'high'}};
+    const config = JSON.parse(route.evidence.configuration.text);
+    config.prepared.language_settings = {effective_reasoning_effort:'high',requested_reasoning_effort:'high'};
+    route.evidence.configuration = inline(config);
+    await observe(session, route);
+    assert.equal(session.requestHeader().config.reasoningEffort, 'high');
+    config.prepared.language_settings.effective_reasoning_effort = 'low';
+    route.evidence.configuration = inline(config);
+    const before = session.seq;
+    await assert.rejects(observe(session, route), /route differs/);
+    assert.equal(session.seq, before);
+  } finally { session.end(); }
+});
+
 integration('referenced request schemas share immutable bodies within one projection', async t => {
   const cohort = await loadCohort(cohortRoot);
   const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();

@@ -100,6 +100,11 @@ and digest binding. The inline text and digest identify the memoized decode;
 changed input crosses validation again. Shared schema subtrees become immutable
 at their first event admission. A new projection has a new decoder, with no
 cross-Session or durable evidence cache.
+Request-header changes compare JSON structure, not its serialized spelling:
+object key order is irrelevant, while tool order, array order and values remain
+significant. Comparison can stop at shared immutable schema subtrees. A new
+Step with the same header still records a `series` boundary; a changed header
+records `change`. Prepared route settings use the same structural semantics.
 This transfer retains event, surface and size validation and freezes the whole
 owned graph. Externally supplied mutable inputs still cross the snapshot boundary.
 Restored local records cross

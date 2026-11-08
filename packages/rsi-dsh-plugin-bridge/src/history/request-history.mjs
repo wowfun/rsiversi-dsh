@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { systemHead } from './conversation-history.mjs';
 
 const hash = text => createHash('sha256').update(text).digest('hex');
@@ -49,7 +50,7 @@ async function observeRequest(session, fact, readFact, mapping, decoded) {
   const { snapshot } = fact;
   const settings = configuration.settings;
   if (configuration.prepared.deployment !== snapshot.deployment_id || configuration.prepared.model !== snapshot.model
-      || JSON.stringify(configuration.prepared.language_settings) !== JSON.stringify(snapshot.language_settings)) throw new Error('request route differs from prepared snapshot');
+      || !isDeepStrictEqual(configuration.prepared.language_settings, snapshot.language_settings)) throw new Error('request route differs from prepared snapshot');
   if (settings.top_p != null || settings.seed != null || tools.hosted.length
       || configuration.response_format != null && configuration.response_format.type !== 'text'
       || Object.keys(configuration.extensions ?? {}).length
@@ -67,7 +68,7 @@ async function observeRequest(session, fact, readFact, mapping, decoded) {
   if (choice !== 'none' && tools.definitions.length) header.tools = tools.definitions.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.input_schema }));
   const previous = session.lastEvent('request/header');
   const step = session.lastEvent('step/start');
-  const changed = previous && JSON.stringify(previous.data.header) !== JSON.stringify(header);
+  const changed = previous && !isDeepStrictEqual(previous.data.header, header);
   if (!previous || changed || step && step.seq > previous.seq) {
     // Evidence decoding owns this graph; admission validates and freezes it in place.
     session.adoptObserved({type:'request/header',seq:session.seq,time:fact.timestamp_ms,
