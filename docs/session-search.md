@@ -138,6 +138,13 @@ original Agent or second durable writer is introduced for the source. A later
 append detaches the old read-only view first. Query execution still uses the
 stock original Agent and query engine. Replay and log preparation are outside
 query timing; this fixture does not establish cold-history performance.
+For a forked live source, the independently read log must already contain its
+child-owned inherited marker at the recorded cut. The fixture passes the complete
+log, header and inherited count to the original `Session.create` snapshot API.
+That public constructor preserves an already marked fork without appending a
+resume marker. Require exact header, inherited count and event equality before
+entering the read-only view; do not change the fork boundary or duplicate a native
+durable prefix for this preparation.
 
 Run the installed-package contract test with `RSI_DSH_MARKET_COHORT` set to a
 directory whose `node_modules` contains the DSH distribution:

@@ -17,6 +17,10 @@ test('stock Web profile searches through its real Messages provider and compress
     }});
     try{
       const corpus=searchCorpus({cwd:join(profile,'workspace')});
+      const fork={header:{...corpus[0].header,id:'search-fork',isSeeded:true,parentSession:corpus[0].header.id},
+        inheritedEventCount:corpus[0].events.length,
+        events:[...corpus[0].events,{type:'session/end-seed',seq:24,time:25,data:{inherited:true}}]};
+      corpus.push(fork);
       runtime=await originalWebProfile({cohort,profile,corpus,verifyDurability:true,onLog:text=>logs.push(text)});
       assert.deepEqual(runtime.opening.bundles,['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','@deepseek-ai/dsh-experimental-session-search']);
       const calls=[['session_search',{query:'archive needle'}],['session_event_search',{session_id:'search-0',query:'event3'}],
@@ -44,14 +48,25 @@ test('stock Web profile searches through its real Messages provider and compress
       assert.match(JSON.stringify(live.result.content),/Availability: live, persisted/);
       const third=messageEvent(26,'thirdincrementalmarker');
       assert.deepEqual(await runtime.append('search-0',[third],{live:true}),[...source,second,third]);
+      const forked=messageEvent(25,'forkincrementalmarker');
+      assert.deepEqual(await runtime.append(fork.header.id,[forked],{live:true}),[...fork.events,forked]);
+      const forkResult=await runtime.execute('session_search',{query:'forkincrementalmarker',session_ids:[fork.header.id]});
+      ids.push(forkResult.callId);assert.equal(forkResult.result.isError,false);
+      assert.match(JSON.stringify(forkResult.result.content),/forkincrementalmarker/);
+      assert.match(JSON.stringify(forkResult.result.content),/Availability: live, persisted/);
+      const inherited=await runtime.execute('session_event_read',{session_id:fork.header.id,seq:3});
+      ids.push(inherited.callId);assert.equal(inherited.result.isError,false);
+      assert.match(JSON.stringify(inherited.result.content),/archive needle session0 event3/);
+      const forkedAgain=messageEvent(26,'secondforkincrementalmarker');
+      assert.deepEqual(await runtime.append(fork.header.id,[forkedAgain],{live:true}),[...fork.events,forked,forkedAgain]);
       const before=await runtime.snapshot();assert.deepEqual(before.checks,ids);
       const requests=runtime.provider.requests.filter(row=>!row.auxiliary);
-      assert.equal(requests.length,14);
+      assert.equal(requests.length,18);
       const shell=process.platform==='win32'?'pwsh':'bash';
       assert.ok(requests.every(row=>row.path==='/v1/messages'&&row.tools.includes(shell)&&row.tools.includes('skill')));
       assert.ok((await readdir(join(profile,'sessions'),{recursive:true})).some(name=>name.endsWith('.jsonl.zstd')),'Default compressed logs must be exercised');
       const results=before.events.filter(row=>row.type==='tool/result');
-      assert.equal(results.length,7);
+      assert.equal(results.length,9);
       const previousProcess=runtime.opening.processId;assert.ok(Number.isSafeInteger(previousProcess)&&previousProcess>0);
       await runtime.close();runtime=undefined;
       runtime=await originalWebProfile({cohort,profile,resume:true,onLog:text=>logs.push(text),onRequest:()=>assert.fail('Cold resume must not dispatch a model')});
