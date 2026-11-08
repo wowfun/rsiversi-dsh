@@ -41,6 +41,10 @@ The workbench composes the release's message-feedback Host service with its
 published note-size policy alongside the original rating controls. Ratings use
 the shared application Session journal and the original service's version
 semantics; loading or changing a rating does not require a model request.
+The same original UI opens the Session feedback dialog for bare `/feedback`;
+`/feedback <text>` runs the original command handler. The workbench composes
+their Host service and command together. Their acceptance and persistence
+semantics belong to the [Session journal](session-journal.md).
 
 The optional DSH application shares RSI's React object and workbench. Each
 document has one pinned cohort containing react, react/jsx-runtime, react-dom,

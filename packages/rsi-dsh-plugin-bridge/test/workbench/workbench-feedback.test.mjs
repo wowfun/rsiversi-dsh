@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createRequire} from 'node:module';
-import {join} from 'node:path';
+import {dirname,join} from 'node:path';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
 import {readJournalDocument} from '../../src/session/journal-document.mjs';
@@ -29,10 +31,56 @@ async function fixture(t,{restore,native,live=false}={}) {
   const session={id:header.id,header,snapshotEvents:()=>journal.session.snapshotEvents(),
     append:(...args)=>journal.append(...args)};
   ctx.provide('sessionPersistence',persistence);
-  ctx.provide('sessions',{get:()=>live?session:undefined,async flush(){await journal.flush();return true;}});
+  ctx.provide('sessions',{get:id=>live&&id===header.id?session:undefined,async flush(){await journal.flush();return true;}});
   await (await ctx.plugin((await load('dsh-message-feedback')).default,{maxNoteBytes:8192})).await();
-  return {ctx,journal,persistence,native,errors,saved:()=>saved,failWrites:error=>{saveFailure=error;},messageId:native[0].data.message.id};
+  return {ctx,journal,persistence,native,errors,load,session,saved:()=>saved,failWrites:error=>{saveFailure=error;},messageId:native[0].data.message.id};
 }
+
+test('original Session feedback records one log-only body and follows the Session flush schedule',{skip:!root},async t=>{
+  const f=await fixture(t,{live:true});
+  await (await f.ctx.plugin((await f.load('dsh-commands')).default)).await();
+  await (await f.ctx.plugin(await f.load('dsh-command-feedback'))).await();
+  assert.deepEqual(await f.ctx.sessionFeedback.record({sessionId:'missing',text:'absent'}),
+    {ok:false,error:{code:'session-not-found',sessionId:'missing'}});
+  const messages=f.journal.session.deriveMessages();
+  assert.deepEqual(await f.ctx.sessionFeedback.record({sessionId:header.id,text:'  Smaller memory footprint.  ',category:'resource-cost'}),
+    {ok:true,value:{recorded:true}});
+  assert.deepEqual(await f.ctx.sessionFeedback.record({sessionId:header.id,text:'  '}),{ok:true,value:{recorded:true}});
+  assert.equal(f.saved(),undefined,'acceptance is synchronous; the Remote does not claim a flush');
+  assert.deepEqual(f.journal.session.deriveMessages(),messages);
+  await f.journal.flush();
+  const reopened=await fixture(t,{native:f.native,restore:f.saved()});
+  assert.deepEqual(reopened.journal.session.snapshotEvents().slice(1).map(event=>[event.type,event.data]),
+    [['feedback/record',{text:'Smaller memory footprint.',category:'resource-cost'}],['feedback/record',{}]]);
+  assert.equal(readJournalDocument(f.saved()).events.length,2);
+});
+
+test('original typed feedback command records its remark once without creating model input',{skip:!root},async t=>{
+  const home=await mkdtemp(join(tmpdir(),'rsi-feedback-command-')),previous=process.env.DSH_HOME;
+  process.env.DSH_HOME=home;
+  t.after(async()=>{if(previous===undefined)delete process.env.DSH_HOME;else process.env.DSH_HOME=previous;
+    assert.equal(dirname(home),tmpdir());await rm(home,{recursive:true,force:true});});
+  const f=await fixture(t,{live:true});
+  await (await f.ctx.plugin((await f.load('dsh-commands')).default)).await();
+  await (await f.ctx.plugin(await f.load('dsh-command-feedback'))).await();
+  const agent={id:header.id,ctx:f.ctx,session:f.session};
+  const run=input=>f.ctx.commands.execute(agent,input,[],new AbortController().signal);
+  const empty=await run('/feedback');assert.equal(empty.result.kind,'error');
+  assert.equal(f.journal.session.snapshotEvents().filter(event=>event.type==='feedback/record').length,0);
+  const accepted=await run('/feedback   Please keep the client small.  ');
+  assert.equal(accepted.result.kind,'success');
+  assert.match(accepted.result.text,new RegExp(header.id));
+  const anonymous=(await readFile(join(home,'.anonymous-user-id'),'utf8')).trim();
+  assert.ok(accepted.result.text.includes(anonymous));
+  const events=f.journal.session.snapshotEvents().slice(1);
+  assert.deepEqual(events.map(event=>event.type),['command/run','command/done','command/run','feedback/record','command/done']);
+  assert.deepEqual(events.filter(event=>event.type==='feedback/record').map(event=>event.data),[{text:'Please keep the client small.'}]);
+  assert.ok(events.filter(event=>event.type==='command/run').every(event=>!Object.hasOwn(event.data,'args')));
+  assert.equal(f.journal.session.deriveMessages().length,1);
+  await f.journal.flush();
+  const cold=await fixture(t,{native:f.native,restore:f.saved()});
+  assert.deepEqual(cold.journal.session.snapshotEvents(),f.journal.session.snapshotEvents());
+});
 
 for(const live of [false,true])test(`original feedback service persists ${live?'live':'cold'} ratings in the shared journal`,{skip:!root},async t=>{
   const first=await fixture(t,{live}),request={sessionId:header.id,messageId:first.messageId,rating:'negative',note:'Explain the result.',ifVersion:null};

@@ -20,6 +20,7 @@ test('the selected original Cordis host runner serves the client inventory and i
   const boot=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')));
   const selected=await workbenchProfile(modules,boot,profile),runner=selected.rows.find(row=>row.name==='@deepseek-ai/dsh-cordis-host-runner');
   assert.deepEqual(selected.rows.find(row=>row.name==='@deepseek-ai/dsh-message-feedback')?.config,{maxNoteBytes:8192});
+  assert.ok(selected.rows.some(row=>row.name==='@deepseek-ai/dsh-command-feedback'),'the Session feedback dialog needs its original Host Remote and command');
   assert.ok(runner,'the client face needs its original host service');
   const connection=selected.rows.find(row=>row.name==='@deepseek-ai/dsh-client-connection');
   const hostModules=new Map([[connection.name,{inject:['connection'],apply(){}}]]);

@@ -45,6 +45,14 @@ the attached Session; cold writes use the persistence write handle. Both flush
 before reporting success and survive cold replay without another feedback store
 or a copy of the native transcript.
 
+The original `/feedback <text>` command and `sessionFeedback.record` Remote
+append `feedback/record` to this same journal. The event is log-only and does not
+enter model context or trigger a Turn. The Remote accepts a live Session and
+acknowledges synchronous acceptance; normal Session publication owns the later
+flush. A missing live Session returns the original `session-not-found` result.
+Command bookkeeping follows the release's `recordInput: false` policy, so the
+remark is stored only in its feedback event.
+
 The DSH job registry appends `job/registered` and `job/settled` to the
 owning Agent's Session. These log-only records preserve the original job ID,
 tool-call identity, timing and outcome across cold reads. The live registry
