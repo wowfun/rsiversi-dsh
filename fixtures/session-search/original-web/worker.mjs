@@ -3,17 +3,22 @@ import {createRequire} from 'node:module';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {publishLiveSource} from './live-source.mjs';
 const [cohort]=process.argv.slice(2),require=createRequire(join(cohort,'package.json'));
 const load=name=>import(pathToFileURL(require.resolve(name)));
 let runtime,reader,sessionId;
 const checks=[];
+const sources=new Map();
 
-async function read(id=sessionId){
+async function readCorpus(id){
   const handle=await reader.sessionPersistence.open(id,'read');
-  try{return (await handle.read()).events;}finally{await handle.close();}
+  try{return {header:handle.header,inheritedEventCount:handle.inheritedEventCount,...await handle.read()};}
+  finally{await handle.close();}
 }
+async function read(id=sessionId){return (await readCorpus(id)).events;}
 async function command(method,args){
   if(method==='close'){
+    for(const detach of sources.values())detach();sources.clear();
     await reader?.fiber.dispose();reader=undefined;
     if(runtime)await runtime.shutdown.shutdown(0);
     process.disconnect();
@@ -59,9 +64,12 @@ async function command(method,args){
   const {ctx}=runtime;
   if(method==='append'){
     assert.notEqual(args.sessionId,sessionId,'Corpus writes must not bypass the caller Agent');
+    sources.get(args.sessionId)?.();sources.delete(args.sessionId);
     const writer=await ctx.sessionPersistence.open(args.sessionId,'write');
     try{await writer.append(args.events);await writer.flush();}finally{await writer.close();}
-    return read(args.sessionId);
+    const stored=await readCorpus(args.sessionId);
+    if(args.live)sources.set(args.sessionId,publishLiveSource(ctx,await load('@deepseek-ai/dsh-session'),stored));
+    return stored.events;
   }
   if(method==='prompt'){
     const agent=ctx.agents.get(sessionId),offset=agent.session.seq;

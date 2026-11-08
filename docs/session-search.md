@@ -128,6 +128,17 @@ cache warmup over an unchanged corpus. Record preparation reads and lifecycle
 changes outside timing, preserve the prior prefix and require the new marker to
 be found. Do not edit the native database or fabricate its canonical Facts.
 
+For the unseeded live-source case, `append(..., {live: true})` also publishes a
+read-only actual DSH Session into the original registry. It constructs an empty
+detached Session and replays the independently read JSONL events with the public
+append API. A synchronous fixture clock supplies each recorded event time and
+is restored before any await or publication. Full event equality is required
+before entering the Session; no constructor seed, synthetic resume event,
+original Agent or second durable writer is introduced for the source. A later
+append detaches the old read-only view first. Query execution still uses the
+stock original Agent and query engine. Replay and log preparation are outside
+query timing; this fixture does not establish cold-history performance.
+
 Run the installed-package contract test with `RSI_DSH_MARKET_COHORT` set to a
 directory whose `node_modules` contains the DSH distribution:
 
