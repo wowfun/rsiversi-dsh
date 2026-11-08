@@ -114,6 +114,20 @@ retain the native shared prefix instead of materializing another durable log
 merely to make it searchable. Small-device budgets remain workload-specific;
 latency alone does not establish suitability for those devices.
 
+The original Web fixture's `append` method updates a cold source through the
+installed JSONL writer, flushes it and reads it independently before returning.
+Its test verifies a previously populated index finds a new unique marker and
+that repeated appends preserve the old prefix. This is original-client fixture
+coverage; it does not establish native incremental performance.
+Full native incremental comparisons must also match source availability. A
+native prompt may retain a live Session whereas a JSONL-only append leaves an
+original source cold. Do not erase the returned availability field to make these
+different cases compare equal. Resuming an original Session appends its own seed
+marker, and Agent initialization can append policy events; it is not a pure
+cache warmup over an unchanged corpus. Record preparation reads and lifecycle
+changes outside timing, preserve the prior prefix and require the new marker to
+be found. Do not edit the native database or fabricate its canonical Facts.
+
 Run the installed-package contract test with `RSI_DSH_MARKET_COHORT` set to a
 directory whose `node_modules` contains the DSH distribution:
 

@@ -48,6 +48,7 @@ export async function originalWebProfile({cohort,profile,corpus=[],sessionId='se
     const opening=await call('boot',{corpus,sessionId,cwd:cwd??corpus[0]?.header.cwd??profile,resume,verifyDurability});
     return {opening:{...opening,processId:child.pid},provider,
       execute:(name,args)=>provider.execute(name,args,callId=>call('prompt',{callId})),
+      append:(id,events)=>call('append',{sessionId:id,events}),
       snapshot:()=>call('snapshot'),read:()=>call('read'),close,
     };
   }catch(error){await close();throw error;}

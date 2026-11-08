@@ -8,8 +8,8 @@ const load=name=>import(pathToFileURL(require.resolve(name)));
 let runtime,reader,sessionId;
 const checks=[];
 
-async function read(){
-  const handle=await reader.sessionPersistence.open(sessionId,'read');
+async function read(id=sessionId){
+  const handle=await reader.sessionPersistence.open(id,'read');
   try{return (await handle.read()).events;}finally{await handle.close();}
 }
 async function command(method,args){
@@ -57,6 +57,12 @@ async function command(method,args){
   }
   assert.ok(runtime);
   const {ctx}=runtime;
+  if(method==='append'){
+    assert.notEqual(args.sessionId,sessionId,'Corpus writes must not bypass the caller Agent');
+    const writer=await ctx.sessionPersistence.open(args.sessionId,'write');
+    try{await writer.append(args.events);await writer.flush();}finally{await writer.close();}
+    return read(args.sessionId);
+  }
   if(method==='prompt'){
     const agent=ctx.agents.get(sessionId),offset=agent.session.seq;
     await ctx.sessionController.prompt({sessionId,requestId:args.callId,mode:'queue',content:[{type:'text',text:'Run the selected search tool.'}]},new AbortController().signal);
