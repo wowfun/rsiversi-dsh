@@ -509,6 +509,12 @@ and owns immutable payload leases. Import success is not compatibility evidence.
 The generated market profile and npm child use the selected credential-free
 HTTP(S) proxy and bypass list. With a proxy selected, Node also routes native
 fetch through it, including requests from the original Discover plugin.
+The generated workbench process has a private OS home under the profile's
+Host-owned state, separate from its portable DSH profile. `HOME` and
+`USERPROFILE` point there, so tools that use the OS home for caches or runtime
+downloads do not turn them into exported profile configuration. The explicit
+DSH profile location and the registry importer's staging home retain their
+own contracts.
 
 The bridge's `import` export handles registry specifications, local npm tarballs
 and built package directories through the generic RSI importer. It stages a new

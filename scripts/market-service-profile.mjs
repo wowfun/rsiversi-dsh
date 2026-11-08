@@ -8,9 +8,10 @@ export async function writeMarketServiceProfile({receipt,document,state,profile,
   const {executable}=await discoverNode({executable:process.execPath});
   const {selection:selected,importer:registry}=JSON.parse(await readFile(receipt,'utf8'));
   if(importer&&!registry) throw new Error('The market profile needs a registry importer selection');
-  const privateHome=join(state,'web-applications',profile);
+  const privateProfile=join(state,'web-applications',profile);
+  const privateHome=join(profileState(privateProfile),'home');
   const quote=value=>JSON.stringify(value);
-  const environment={...runtimeEnvironment(),...registryEnvironment(),PATH:process.env.PATH,HOME:privateHome,USERPROFILE:privateHome,DSH_HOME:privateHome};
+  const environment={...runtimeEnvironment(),...registryEnvironment(),PATH:process.env.PATH,HOME:privateHome,USERPROFILE:privateHome,DSH_HOME:privateProfile};
   const fields=Object.entries(environment).filter(([,value])=>value!==undefined)
     .map(([name,value])=>quote(name)+' = '+quote(value));
   await writeFile(output,`format = 1
@@ -18,7 +19,7 @@ export async function writeMarketServiceProfile({receipt,document,state,profile,
 kind = "plugin"
 id = "market-files"
 plugin = "rsi.media.attachments.local"
-config = {root=${quote(join(profileState(privateHome),'attachments','v1'))}}
+config = {root=${quote(join(profileState(privateProfile),'attachments','v1'))}}
 [[steps]]
 kind = "plugin"
 id = "market-application"
