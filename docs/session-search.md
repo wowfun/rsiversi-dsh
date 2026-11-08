@@ -95,6 +95,16 @@ performance runs are opt-in; default tests use isolated synthetic state without
 provider credentials. Record platform, source/artifact identity, failures, and
 measurement limits with the run evidence.
 
+Native fixed-catalog acceptance validates the current instruction/catalog text
+separately from time context. Time inputs may refresh after the configured
+interval or a backward wall-clock movement, as in DSH's time-context contract.
+The native producer compares its sample with the previous entered input's Fact
+timestamp. A refreshed input must appear exactly once in subsequent request
+evidence; requests must retain the earlier model-visible context in order.
+Do not require a whole run's system evidence to remain byte-identical across
+legal time refreshes. The isolated straight-line fixture's
+`native-evidence.mjs` checks these cases without weakening latency thresholds.
+
 Resource evidence accompanies native runs: record corpus event count and bytes,
 native database bytes, additional application journals, receipt storage, index
 storage policy, and process memory where measured. Separate canonical data from
