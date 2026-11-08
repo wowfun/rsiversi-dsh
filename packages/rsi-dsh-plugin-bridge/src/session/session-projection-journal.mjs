@@ -95,6 +95,24 @@ export class SessionProjectionJournal {
     if(!isJournalEvent(type))throw Error('This Session event requires its owning native command');
     return this.#append(type,data,opts,Date.now());
   }
+  /** Persistence callers supply exact coordinates and times, not new commands. */
+  appendStored(input) {
+    this.#entry();
+    const events=this.#snapshot(input);
+    if(!Array.isArray(events))throw TypeError('Expected an event batch');
+    for(const [index,event] of events.entries()) {
+      if(!isJournalEvent(event?.type))throw Error('This Session event requires its owning native command');
+      if(event.seq!==this.seq+index)throw Error('Stored event batch does not continue the Session');
+    }
+    if(!events.length)return;
+    // The common single-event write needs no copy of the retained prefix.
+    const target=events.length===1?this.#session:this.#session.branch();
+    target.begin();
+    try{for(const event of events)target.adoptObserved(event);}finally{target.end();}
+    if(target!==this.#session)this.#session.adoptBranch(target);
+    for(const event of events)this.#owned.push(event);
+    this.#revision++;this.#publish(events);
+  }
   accept(id,type,data,opts={},time=Date.now(),prepared) {
     if(!identity(id)||this.#operations.has(id))throw Error('Application mutation identity is already used or invalid');
     return this.#append(type,data,opts,time,id,prepared);

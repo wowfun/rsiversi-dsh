@@ -37,6 +37,11 @@ Use the plugin's own routes for lazy resources; an install-only action does not
 mount those routes. The fixed-cohort workbench described below is a separate
 Agent reference document for the Todo and Plan integrations.
 
+The workbench composes the release's message-feedback Host service with its
+published note-size policy alongside the original rating controls. Ratings use
+the shared application Session journal and the original service's version
+semantics; loading or changing a rating does not require a model request.
+
 The optional DSH application shares RSI's React object and workbench. Each
 document has one pinned cohort containing react, react/jsx-runtime, react-dom,
 react-dom/client, @deepseek-ai/cordis, zod, @tanstack/react-virtual,

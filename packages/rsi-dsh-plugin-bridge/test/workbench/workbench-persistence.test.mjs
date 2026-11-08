@@ -124,7 +124,7 @@ test('draft mirrors stay available to the request while persistence refuses to i
     async capture(id){return {id,header:{id},seq:0,inheritedEventCount:0,encodedBytes:0,requestHeader:()=>undefined,snapshotEvents:()=>[]};}},errors);
   assert.equal((await service.capture('draft')).seq,0);assert.equal(await service.stat('draft'),undefined);
   await assert.rejects(service.open('draft','read'),errors.SessionPersistenceNotFoundError);
-  await assert.rejects(service.open('draft','write'),errors.SessionReadOnlyError);
+  await assert.rejects(service.open('draft','write'),errors.SessionPersistenceNotFoundError);
 });
 
 test('cold persistence reconstructs native controls while live projection reads are unavailable',{skip:!root},async t=>{

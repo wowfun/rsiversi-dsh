@@ -925,7 +925,7 @@ page before requesting another one; they cannot expose later Facts early. The
 cursor belongs to that update and is discarded after success, cancellation or
 failure. References outside that page still use bounded point reads. There is no
 cross-request page cache or additional durable corpus.
-The application supplies shared Session journals and read-only Session persistence.
+The application supplies shared Session journals and Session persistence.
 `stat` and `list` observe the same immutable headers and opaque revisions from
 native metadata and the application journal. Listing reads authorized durable
 Sessions in pages without opening their event logs. Registered live Sessions
@@ -958,7 +958,13 @@ atomically, and concurrent readers share one source cursor and application log.
 Stored handles exclude unpublished
 drafts, preserve inherited event counts and return frozen event values in fresh
 outer arrays. Read handles cannot append or flush. Closing is idempotent and
-invalidates later reads. The bounded captured-view cache includes the native
+invalidates later operations. One application write handle per Session may append
+contiguous log-only events to the same journal; readers remain available. It
+cannot manufacture native conversation or execution events. Appends preserve
+the supplied event coordinates and timestamps, and publish a validated batch
+atomically without copying existing event bodies. Flush and write-handle close
+complete the journal's durability barrier. Cold writes do not create an Agent
+or wake a model. The bounded captured-view cache includes the native
 draft revision or durable Fact/control pair and the application journal revision.
 Persisted opens and reads use the metadata-only native read, including a cold
 open. Its immutable model baseline and indexed Fact/control cut are sufficient

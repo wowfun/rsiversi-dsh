@@ -38,6 +38,13 @@ DSH hook handlers append their log-only `hook/invoked` and `hook/result`
 records to the same Session. Their turn, point and handler ID survive cold
 replay. Neither record changes the model-visible conversation.
 
+The original message-feedback service owns rating validation, version comparison
+and no-op detection. Its `feedback/message-put` and `feedback/message-delete`
+events are log-only application events in this same journal. Live writes use
+the attached Session; cold writes use the persistence write handle. Both flush
+before reporting success and survive cold replay without another feedback store
+or a copy of the native transcript.
+
 The DSH job registry appends `job/registered` and `job/settled` to the
 owning Agent's Session. These log-only records preserve the original job ID,
 tool-call identity, timing and outcome across cold reads. The live registry
