@@ -90,10 +90,11 @@ export function observeAttempt(session, mapping, fact, llm) {
       content };
     if (blocks.usage) data.usage = blocks.usage;
     if (partial) data.interrupted = true;
-    const event = session.appendObserved('assistant/message', data, fact.timestamp_ms, { surfaceOp: 'append' });
+    // Assembly owns the new containers; stream snapshots and closed blocks are already immutable.
+    const event = session.adoptObserved({type:'assistant/message',seq:session.seq,time:fact.timestamp_ms,data,surfaceOp:'append'});
     // A truncated batch is diagnostic only, including its complete sibling calls.
     if (blocks.finish.kind !== 'max-tokens') retainCalls(mapping, fact, event);
-  } else session.appendObserved('assistant/attempt', data, fact.timestamp_ms);
+  } else session.adoptObserved({type:'assistant/attempt',seq:session.seq,time:fact.timestamp_ms,data});
   mapping.model = null;
   return blocks.finish.kind === 'max-tokens' || !partial && !mapping.calls.length;
 }

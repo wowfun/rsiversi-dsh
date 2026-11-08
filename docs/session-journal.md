@@ -99,6 +99,13 @@ The canonical request header freezes its new outer wrapper while sharing the
 event's immutable configuration and tool schemas. Request-evidence JSON is
 decoded into privately owned values; its newly constructed request-header event
 transfers those values directly into admission without another schema copy.
+Settled native model projections likewise transfer their privately assembled
+event into admission. The original DSH stream accumulator supplies a detached,
+immutable compact stream; its closed blocks and usage can be shared with the
+assembled message. Admission freezes newly owned containers without copying
+that stream again. Native input records remain independently owned. Completed,
+interrupted and diagnostic-only attempts retain the same validation and history
+semantics.
 Within one native projection, references to the same decoded inline evidence
 reuse its parsed value. Weak keys follow the lifetime of that page's evidence
 objects, so projection does not retain old pages or build a second transcript.

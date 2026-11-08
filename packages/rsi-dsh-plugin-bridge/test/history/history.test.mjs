@@ -7,6 +7,7 @@ import { requestObserver } from '../../src/history/request-history.mjs';
 import { SessionFacade } from '../../src/session/session.mjs';
 import { restoreMapping, factObserver } from '../../src/history/history.mjs';
 import {factProjector} from '../../src/workbench/seed.mjs';
+import {observeAttempt} from '../../src/history/model-history.mjs';
 
 const cohortRoot = process.env.RSI_DSH_COHORT;
 const integration = (name, run) => test(name, { skip: !cohortRoot }, run);
@@ -234,6 +235,51 @@ integration('canonical timed attempts survive original stream decoding, receipt,
   stage = await prepare('unsupported'); assert.equal(stage.kind, 'rejected');
   assert.match(stage.diagnostic, /cannot be represented/);
   assert.deepEqual(bridge.canonical('history'), saved);
+});
+
+integration('settled model events adopt immutable streams without retaining mutable native inputs', async t => {
+  const cohort=await loadCohort(cohortRoot),ctx=new (await cohort.import('@deepseek-ai/cordis')).Context();
+  t.after(()=>ctx.fiber.dispose());
+  const api={...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session','surface'),...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const llm=await cohort.import('@deepseek-ai/dsh-llm');
+  let stream;
+  const captured={...llm,AssistantStreamAccumulator:class extends llm.AssistantStreamAccumulator {
+    snapshot(){return stream=super.snapshot();}
+  }};
+  const error={kind:'transport',safe_summary:'Connection ended'};
+  for(const [terminal,retain_context,type] of [
+    [{type:'finished',reason:'tool_calls',replay:null},false,'assistant/message'],
+    [{type:'failed',error,replay:null},false,'assistant/attempt'],
+    [{type:'failed',error,replay:null},true,'assistant/message'],
+    [{type:'finished',reason:'max_tokens',replay:null},true,'assistant/message'],
+  ]) {
+    const session=new SessionFacade(ctx,api,{header:{version:4,id:'owned-attempt',createdAt:1,isSeeded:false}},false);
+    const mapping={turn:1,step:1,calls:[],model:{effectId:'effect',provider:'fixture',model:'test',startedAt:100}};
+    const fact={timestamp_ms:130,effect_id:'effect',purpose:'conversation',
+      attempt:{retain_context,events:structuredClone(events(terminal))}};
+    session.begin();
+    try{observeAttempt(session,mapping,fact,captured);}finally{session.end();}
+    const event=session.eventAt(0),encoded=JSON.stringify(event);
+    assert.equal(event.type,type);
+    assert.equal(event.data.stream,stream,'the already immutable compact stream must remain shared');
+    if(terminal.reason==='tool_calls') {
+      const closed=stream.find(record=>record.chunk?.type==='block-end');
+      assert.equal(event.data.message.content[0],closed.chunk.block,'closed blocks are immutable assembler input');
+      assert.equal(mapping.calls.length,1);
+    }else assert.equal(mapping.calls.length,0);
+    const assertFrozen=value=>{
+      if(value===null||typeof value!=='object')return;
+      assert.ok(Object.isFrozen(value));for(const child of Object.values(value))assertFrozen(child);
+    };
+    assertFrozen(event);
+    assert.equal(Object.isFrozen(fact.attempt.events),false,'transfer must not take ownership of native observations');
+    const delta=fact.attempt.events.find(([,value])=>value.type==='content_delta')[1];
+    delta.delta.value='changed after projection';
+    if(fact.attempt.events.at(-1)[1].error)fact.attempt.events.at(-1)[1].error.safe_summary='changed';
+    assert.equal(JSON.stringify(event),encoded);
+    assert.equal(session.encodedBytes,Buffer.byteLength(encoded));
+  }
 });
 
 integration('a Plan review parks captured Tool history privately and fences a superseded answer', async t => {
