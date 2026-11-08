@@ -3,6 +3,7 @@ import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
+import {setImmediate} from 'node:timers/promises';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {followAssistant} from '../../src/workbench/assistant.mjs';
 import {workbenchSource} from '../../src/workbench/source.mjs';
@@ -49,8 +50,9 @@ test('native controls split observation without splitting the captured Fact page
   ].map((fact,i)=>({...fact,seq:i+1,timestamp_ms:100+i}));
   const controls=[1,3,5].map((after_fact_seq,i)=>({kind:'model',seq:i+1,after_fact_seq,time:i+1,
     selection:{...baseline,reasoning_effort:i===1?'low':'high'}}));
-  const requests=[];
+  const requests=[],entered=new Set(),gate=Promise.withResolvers();
   const call=async op=>{
+    entered.add(op.type);await gate.promise;
     if(op.type==='controls')return historyPage([controls[op.after_seq]],op.after_seq+1,op.offset);
     assert.equal(op.type,'fact');requests.push([op.after_seq,op.through_seq]);
     const json=JSON.stringify(facts.slice(op.after_seq,op.through_seq)),bytes=Buffer.byteLength(json);
@@ -58,13 +60,49 @@ test('native controls split observation without splitting the captured Fact page
   };
   const source=await workbenchSource({ctx,api,llm:await load('dsh-llm'),header:{version:4,id:'one',createdAt:1,isSeeded:false},
     meta:{model_baseline:baseline,selection_cursor:{kind:'durable',fact_seq:6,control_seq:3}},call});
-  const staged=await source.stage(call,async()=>{},undefined,6,3);
+  const staging=source.stage(call,async()=>{},undefined,6,3);
+  try {
+    await setImmediate();
+    assert.deepEqual([...entered].sort(),['controls','fact'],'independent captured pages must start together');
+    assert.equal(source.current.session.seq,0);
+  } finally {gate.resolve();await staging;}
+  const staged=await staging;
   assert.equal(source.current.session.seq,0,'staging must not expose even a fully decoded page');
   assert.deepEqual(staged.value.session.snapshotEvents().map(event=>event.type),[
     'turn/start','model/selection','model/selection','step/start','system/message','user/message','step/end','model/selection','turn/end',
   ]);
   assert.deepEqual(requests,[[0,6]],'all anchors share the same bounded captured page');
   staged.commit();assert.equal(source.current.mapping.factCursor,6);assert.equal(source.current.controlThrough,3);
+});
+
+test('a failed captured page drains its sibling before rejecting the unpublished stage',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  for(const failed of ['controls','fact']) {
+    const pending=Promise.withResolvers(),entered=[],closed=[];
+    const error=Error('failed '+failed);
+    const call=async op=>{
+      entered.push(op.type);
+      if(op.type===failed)throw error;
+      await pending.promise;return historyPage([],1,op.offset);
+    };
+    const source=await workbenchSource({ctx,api,header:{version:4,id:'failed-'+failed,createdAt:1,isSeeded:false},
+      meta:{model_selection:{model:{deployment:'native',model:'configured'}}},call});
+    let settled=false;
+    const staging=source.stage(call,async op=>closed.push(op),undefined,1,1)
+      .finally(()=>{settled=true;});
+    const rejected=assert.rejects(staging,value=>value===error);
+    try {
+      await setImmediate();
+      assert.deepEqual(entered.sort(),['controls','fact']);
+      assert.equal(settled,false,'failure must not leave a sibling read running');
+      assert.equal(source.current.session.seq,0);
+    } finally {pending.resolve();await rejected;}
+    assert.equal(source.current.mapping.factCursor,0);assert.equal(source.current.controlThrough,0);
+    assert.equal(closed.length,1);assert.equal(closed[0].type,'page_close');
+  }
 });
 
 test('passive projection readiness performs no native read even before the Session exists',async()=>{

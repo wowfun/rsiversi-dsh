@@ -21,7 +21,21 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
         model:original.model.branch(),inbox:original.inbox.branch(),
         spawning:new Set(original.spawning),spawned:new Map(original.spawned),
         settled:new Map(original.settled),origins:new Map()};
-      const fetch=nativeFactPages(call,release,signal);
+      const loadFacts=nativeFactPages(call,release,signal);
+      let firstControl,firstFact;
+      if(next.controlThrough<controlThrough&&next.mapping.factCursor<through) {
+        const pages=await Promise.allSettled([
+          readControls(call,release,next.controlThrough,controlThrough,signal),
+          loadFacts(next.mapping.factCursor,through),
+        ]);
+        signal?.throwIfAborted();
+        for(const page of pages)if(page.status==='rejected')throw page.reason;
+        [firstControl,firstFact]=pages.map(page=>page.value);
+      }
+      const fetch=(after,horizon)=>{
+        const page=firstFact;firstFact=undefined;
+        return page??loadFacts(after,horizon);
+      };
       const project=factProjector(next.session,next.mapping,fetch,through,signal,llm,fact=>{
         if(fact.type==='model_started'&&next.mapping.model?.effectId===fact.effect_id)
           next.mapping.model.startedAfterSeq=next.session.seq-1;
@@ -42,7 +56,8 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
         if(fact.type==='tool_result')return retireToolOutcome?.(header.id,fact.effect_id,fact.identity);
       });
       while(next.controlThrough<controlThrough) {
-        const page=await readControls(call,release,next.controlThrough,controlThrough,signal);
+        const page=firstControl??await readControls(call,release,next.controlThrough,controlThrough,signal);
+        firstControl=undefined;
         for(const event of page.events) {
           if(event.after_fact_seq<next.mapping.factCursor||event.after_fact_seq>through)
             throw Error('Control history changed its Fact anchor');

@@ -255,6 +255,11 @@ after the entire batch is projected successfully. Each caller supplies its own
 authorized read function and cancellation signal; a retained projector does not
 retain a browser request. Source positions remain separate from application
 positions, including assistant-start and settlement cursors.
+When both captured streams have unread data, the first Fact and control pages
+load concurrently within the existing two-transfer budget. Projection still
+interleaves controls at their Fact anchors. Both reads settle before the stage
+continues or fails, so a failed stage leaves no unowned page transfer. Each
+decoded page is consumed once; subsequent pages remain demand-driven.
 
 Native workbench history transfers one retained encoded page through its UTF-8
 fragments. Each Fact, control, exact-message or inherited Fact page uses a unique
