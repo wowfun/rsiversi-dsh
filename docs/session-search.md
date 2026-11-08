@@ -57,6 +57,20 @@ complete GUI/startup measurement or the optional plugins in the full base bundle
 Native comparisons must cover the corresponding Kernel path and durable result,
 not just the application HTTP call. Keep diagnostic component timings separate.
 
+The [`original-web`](../fixtures/session-search/original-web/index.mjs) comparator
+boots the installed CLI's shipped Web profile with
+its standard Agent preset and the published search bundle. It preserves default
+JSONL compression, semantic checkpoints, context producers and browser services.
+Only the model endpoint and credential are replaced by a local deterministic
+HTTP server; optional telemetry is disabled for the isolated fixture. Both the
+original and native paths must include their actual provider codec and loopback
+transport. Measure the tool response-to-next-request interval at the local
+server, before inspecting durable evidence. Auxiliary title requests are
+answered and reported separately. Do not call the minimal Agent comparator a
+default-profile result, or replace its retained failing samples with this broader
+comparison. Open the original Web client separately to verify rendered results
+and cold recovery; exclude startup and those inspections from backend timings.
+
 Before measuring, verify with independent JSONL reads that the call is present
 before the tool body and the result is present before the next model request.
 Also verify a rejected call checkpoint prevents tool dispatch. These untimed
@@ -88,6 +102,7 @@ directory whose `node_modules` contains the DSH distribution:
 ```sh
 node --test packages/rsi-dsh-plugin-bridge/test/workbench/workbench-session-search.test.mjs
 node --test packages/rsi-dsh-plugin-bridge/test/workbench/original-search-agent.test.mjs
+node --test packages/rsi-dsh-plugin-bridge/test/workbench/original-web-search.test.mjs
 node fixtures/session-search/benchmark.mjs .local/session-search-adapter.json
 ```
 
