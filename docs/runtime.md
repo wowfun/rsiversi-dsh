@@ -58,6 +58,14 @@ allowlist. Resolve peers strictly using DSH app-boot's prerelease semantics
 for host-provided DSH peers. When npm would exclude such a peer, the plugin
 binds it to the selected host version. The published-release fixture uses the
 same rule and the requested host's declared Cordis dependency range.
+
+Compatibility tests opted into with `RSI_DSH_MARKET_COHORT` resolve the original
+model-aware Tools and Claude Code Mods from that complete installed cohort.
+Missing required packages fail these opted-in tests; separate package-entry or
+alternate-cohort environment variables do not silently exclude their cases.
+Source-comparison tests that compile an upstream source file still require
+their explicit source path.
+
 Share the runtime's physical Cordis, React
 and DSH service identities. Keep the plugin's own dependencies private where
 their ranges or module identities differ. Registry resolution runs with scripts

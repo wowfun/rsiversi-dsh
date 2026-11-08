@@ -130,8 +130,8 @@ test('a post-tool approval stays with its original answerers after the native bo
 });
 
 test('original Claude Code Mods surrounds one native Bash continuation in the captured scope',
-  { skip: !root || !process.env.RSI_DSH_MODS_ENTRY, timeout:15000 }, async t => {
-    const f=await fixture(t),mods=await import(pathToFileURL(process.env.RSI_DSH_MODS_ENTRY));
+  { skip: !root, timeout:15000 }, async t => {
+    const f=await fixture(t),mods=await f.load('dsh-experimental-claude-code-mods');
     f.ctx.provide('workingDirectory',{get:()=>f.directory,ensure:async()=>f.directory});
     await (await f.ctx.plugin(mods.default)).await();
     const seen=[];
@@ -261,8 +261,8 @@ test('the original pre-step hook can reorder and replace file references without
 });
 
 test('original Claude Code Mods rewrites and rejects through the application HTTP preparation endpoint',
-  { skip: !root || !process.env.RSI_DSH_MODS_ENTRY }, async t => {
-    const f = await fixture(t); const mods = await import(pathToFileURL(process.env.RSI_DSH_MODS_ENTRY));
+  { skip: !root }, async t => {
+    const f = await fixture(t); const mods = await f.load('dsh-experimental-claude-code-mods');
     f.ctx.provide('workingDirectory', { get: () => f.directory, ensure: async () => f.directory });
     await (await f.ctx.plugin(mods.default)).await();
     let reject = false, calls = 0;

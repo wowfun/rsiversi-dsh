@@ -3,13 +3,12 @@ import {test} from 'node:test';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {createApplication} from '../../src/application/application.mjs';
 import {createBridge} from '../../src/index.mjs';
 import {loadCohort} from '../../../rsi-dsh-cordis/src/runtime/cohort.mjs';
 
-const root=process.env.RSI_DSH_MARKET_COHORT, entry=process.env.RSI_DSH_MODS_ENTRY;
+const root=process.env.RSI_DSH_MARKET_COHORT;
 const name='@deepseek-ai/dsh-experimental-claude-code-mods';
 async function temporaryApplication(t) {
   const profile=await mkdtemp(join(tmpdir(),'rsi-mods-contract-'));
@@ -20,10 +19,10 @@ async function temporaryApplication(t) {
     finally { await rm(profile,{force:true,recursive:true}); }
   });
   app=await createApplication({profile,provide:async()=>{},
-    modules:{entry:id=>id===name?entry:require.resolve(id)}});
+    modules:{entry:id=>require.resolve(id)}});
   return app;
 }
-test('the published Claude Code Mods reports the missing working-directory service', {skip:!root || !entry},async t=>{
+test('the published Claude Code Mods reports the missing working-directory service', {skip:!root},async t=>{
   const app=await temporaryApplication(t);
   await assert.rejects(app.reconcile([{insert:[{id:'mods',name}]}]),error=>
     error.message.includes(name) && error.message.includes('workingDirectory'));
@@ -31,7 +30,7 @@ test('the published Claude Code Mods reports the missing working-directory servi
   await app.reconcile([]);
 });
 
-test('restoring a pending bundle retains its diagnosis and the healthy fibers', {skip:!root || !entry},async t=>{
+test('restoring a pending bundle retains its diagnosis and the healthy fibers', {skip:!root},async t=>{
   const app=await temporaryApplication(t);
   const rows=[{id:'pending-mods',name},{id:'projection',name:'@deepseek-ai/dsh-session-projection'}];
   const initial=await app.reconcile([{insert:rows}],{restore:true});
@@ -43,8 +42,8 @@ test('restoring a pending bundle retains its diagnosis and the healthy fibers', 
   assert.ok(app.ctx.get('sessionProjections'));
 });
 
-test('a released Claude Code Mod can deny the original DSH Todo before its body', {skip:!root || !entry},async t=>{
-  const original=await loadCohort(root),mods=await import(pathToFileURL(entry)),calls=[];
+test('a released Claude Code Mod can deny the original DSH Todo before its body', {skip:!root},async t=>{
+  const original=await loadCohort(root),mods=await original.import(name),calls=[];
   const guard='@test/mod-guard';
   const definition=mods.defineMod({name:'deny-todo',register(on) {
     on('tool.call',(_api,input)=>{
@@ -65,10 +64,10 @@ test('a released Claude Code Mod can deny the original DSH Todo before its body'
   assert.equal(bridge.project(id).values.todos,null);
 });
 
-test('a published Mods fiber activates in the Agent bridge with the canonical local working directory', {skip:!root || !entry},async t=>{
+test('a published Mods fiber activates in the Agent bridge with the canonical local working directory', {skip:!root},async t=>{
   const original=await loadCohort(root);
   const observed=new Map(),probe='@test/working-directory';
-  const cohort={...original,import:id=>id===name?import(pathToFileURL(entry)):id===probe?{default(ctx) {
+  const cohort={...original,import:id=>id===probe?{default(ctx) {
     ctx.on('tools/execute',async(exec,next)=>{
       try {observed.set(exec.agent.id,await ctx.workingDirectory.ensure(exec.agent,exec.signal));}
       catch(error) {observed.set(exec.agent.id,error.message);}
@@ -96,9 +95,9 @@ test('a published Mods fiber activates in the Agent bridge with the canonical lo
   assert.equal(observed.get('mods-local'),root);
   assert.match(observed.get('mods-remote'),/no available local working directory/);
 });
-test('an original prompt.submit drop stages journal changes and consumes no Step input', {skip:!root || !entry},async t=>{
+test('an original prompt.submit drop stages journal changes and consumes no Step input', {skip:!root},async t=>{
   const original = await loadCohort(root);
-  const mods = await import(pathToFileURL(entry));
+  const mods = await original.import(name);
   const calls = [];
   const mod = mods.defineMod({name:'reject-preset-input', register(on) {
     on('prompt.submit', (_, event) => { calls.push(event.text); return {drop:'refused by test mod'}; });

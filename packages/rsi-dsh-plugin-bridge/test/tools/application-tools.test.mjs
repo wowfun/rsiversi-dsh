@@ -124,9 +124,9 @@ test('original application policy allows by default, asks once when requested an
   });
 
 test('original model-dependent activation uses the native request choice instead of the live Agent choice',
-  {skip:!process.env.RSI_DSH_SOURCE_COHORT},async t=>{
+  {skip:!root},async t=>{
     const directory=await mkdtemp(join(tmpdir(),'rsi-model-tools-'));
-    const require=createRequire(join(process.env.RSI_DSH_SOURCE_COHORT,'package.json'));
+    const require=createRequire(join(root,'package.json'));
     const load=name=>import(pathToFileURL(require.resolve(name)));
     const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
     for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
@@ -322,11 +322,10 @@ test('a captured Cordis registration settles once in its own Session and survive
     const missing=randomUUID();
     assert.equal((await outcome('outcome',{...inputs[0],effect:missing,identity:{...inputs[0].identity,invocation_id:missing}})).state,'unknown');
     assert.equal(calls,2);
-    const modsEntry=process.env.RSI_DSH_MODS_ENTRY;
     await t.test('published Claude Code Mods reads the market Agent cwd and denies a real tool body',
-      {skip:!modsEntry},async()=>{
+      async()=>{
         await (await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry)).await();
-        const mods=await import(pathToFileURL(modsEntry));
+        const mods=await load('@deepseek-ai/dsh-experimental-claude-code-mods');
         await (await ctx.plugin(mods.default)).await();
         let observed,allowedCall,handledCall;
         await (await ctx.plugin(mods.defineMod({name:'market-guard',register(on){
