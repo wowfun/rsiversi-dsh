@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {mkdtemp,readFile,readdir,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,readFile,readdir,rm,stat,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {test} from 'node:test';
 import {readJournalDocument} from '../../src/session/journal-document.mjs';
@@ -283,8 +283,9 @@ test('durable journals omit native bodies while preserving local acknowledgement
 });
 
 test('a cold catalog reads the atomic title prefix without parsing history and matches native creation identities',{skip:!root},async t=>{
-  const {ctx,api,load}=await fixture(t),directory=await mkdtemp(join(tmpdir(),'rsi-title-catalog-'));
-  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const {ctx,api,load}=await fixture(t),temporary=await mkdtemp(join(tmpdir(),'rsi-title-catalog-'));
+  const privateRoot=join(temporary,'private'),directory=join(privateRoot,'sessions');
+  t.after(()=>rm(temporary,{recursive:true,force:true}));
   let changes=0;
   const atomic=await load('dsh-atomic-write'),storage=sessionJournalStore(directory,atomic,()=>changes++);
   const child={...header,origin:'subagent',parentSession:'parent',delegationDepth:1,isSeeded:true};
@@ -294,6 +295,10 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   await journal.flush();
   const expected={...row,parent:'parent',projections:{kind:'cached',asOfSeq:0,values:{title}}};
   const file=join(directory,(await readdir(directory))[0]),document=await readFile(file,'utf8');
+  if(process.platform!=='win32') {
+    for(const path of [privateRoot,directory])assert.equal((await stat(path)).mode&0o777,0o700&~process.umask());
+    assert.equal((await stat(file)).mode&0o777,0o600&~process.umask());
+  }
   assert.equal(changes,1);
   await storage.save(child.id,document);
   assert.equal(changes,1);
@@ -308,6 +313,8 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   const rename='Side: 换名';journal.accept('again','session/title',{title:rename,source:{kind:'user'},messageSeqs:[]});
   await journal.flush();assert.deepEqual((await storage.decorate([{...row}]))[0].projections,
     {kind:'cached',asOfSeq:1,values:{title:rename}});
+  assert.equal((await readdir(directory)).length,1,'replacement leaves only the current journal');
+  if(process.platform!=='win32')assert.equal((await stat(file)).mode&0o777,0o600&~process.umask());
   assert.equal(changes,2);
   const manual={...header,parentSession:'parent',isSeeded:true};
   const unmarked=new SessionProjectionJournal(ctx,api,{header:manual},{save:value=>storage.save(manual.id,value)});

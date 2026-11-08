@@ -308,7 +308,9 @@ selected DSH event codec and reference rules before exposing it. The existing
 Session event budget applies, and a persisted document is bounded at 128 MiB.
 
 The application profile stores these snapshots in its private selection state,
-using the original DSH atomic writer. Native-only read mirrors need no durable
+using the original DSH atomic writer. That writer owns parent creation and
+replacement; newly created directories request mode `0700` and files `0600`
+(subject to the platform and umask). Native-only read mirrors need no durable
 application file; once a local event exists, its source map and later observations
 are flushed as well. Existing files are rewritten even if their only local data
 is creation metadata. The Host retires its application process before starting a

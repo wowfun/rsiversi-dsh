@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {open,mkdir} from 'node:fs/promises';
+import {open} from 'node:fs/promises';
 import {join} from 'node:path';
 
 const marker='{"header":';
@@ -72,8 +72,7 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
       finally{await handle?.close();}
     },
     async save(id,value) {
-      await mkdir(directory,{recursive:true,mode:0o700});
-      await writeFileAtomic(file(id),value,{mode:0o600});
+      await writeFileAtomic(file(id),value,{mode:0o600,dirMode:0o700});
       const before=catalog.get(id),after=journalCatalog(value);
       catalog.set(id,after);
       if(before?.catalogTitle?.seq!==after?.catalogTitle?.seq || before?.header?.origin!==after?.header?.origin)changed?.();
