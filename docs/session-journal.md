@@ -74,7 +74,12 @@ owned mutable inputs once; it does not infer safe ownership from a shallow
 `Object.isFrozen` check. Inside the explicit shared-frozen transfer, the bridge's
 final freeze visits only newly owned containers and stops at frozen subtrees.
 The canonical request header freezes its new outer wrapper while sharing the
-event's immutable configuration and tool schemas. Restored local records cross
+event's immutable configuration and tool schemas. Request-evidence JSON is
+decoded into privately owned values; its newly constructed request-header event
+transfers those values directly into admission without another schema copy.
+This transfer retains event, surface and size validation and freezes the whole
+owned graph. Externally supplied mutable inputs still cross the snapshot boundary.
+Restored local records cross
 the lossless-JSON boundary before being combined with the frozen native prefix.
 Adoption still validates
 event envelopes, surface relations and the retained-history budget before

@@ -20,6 +20,38 @@ const evidence = () => ({ availability: 'available',
     settings: { stop: [] }, response_format: { type: 'text' }, extensions: [] }),
   tools: inline({ definitions: [{ name: 'todo_write', description: 'Actual schema', input_schema: { type: 'object' } }], hosted: [], choice: { type: 'auto' } }),
   system: inline([{ role: 'system', content: [{ type: 'text', content: {text:'Actual instructions'} }] }]) });
+
+integration('privately decoded request schemas transfer once while external inputs remain detached', async t => {
+  const cohort = await loadCohort(cohortRoot);
+  const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
+  t.after(() => ctx.fiber.dispose());
+  const api = {...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session', 'surface'),
+    ...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const snapshots = [], snapshotValue = api.snapshotJsonValue;
+  api.snapshotJsonValue = value => { snapshots.push(value); return snapshotValue(value); };
+  const session = new SessionFacade(ctx, api, {header:{version:4,id:'owned-header',createdAt:1,isSeeded:false}}, false);
+  const fact = {seq:1,timestamp_ms:10,purpose:{kind:'conversation'},snapshot,evidence:evidence()};
+  session.begin();
+  try {
+    await observeRequest(session, fact);
+    const event = session.eventAt(0), tools = event.data.header.tools;
+    assert.equal(snapshots.length, 0, 'private decoded schemas need no detached copy');
+    assert.equal(session.requestHeader().tools, tools);
+    assert.ok(Object.isFrozen(tools[0].parameters));
+    assert.throws(() => { tools[0].parameters.type = 'changed'; }, TypeError);
+    const external = {reason:'series',header:{config:{provider:'actual-route',model:'actual-model'},
+      tools:[{name:'external',description:'External schema',parameters:{type:'object'}}]}};
+    session.appendObserved('request/header', external, 11);
+    external.header.tools[0].parameters.type = 'outside mutation';
+    assert.equal(session.requestHeader().tools[0].parameters.type, 'object');
+    assert.equal(snapshots.length, 1);
+    const invalid = {...fact,evidence:evidence()};
+    invalid.evidence.tools = {...invalid.evidence.tools,sha256:'0'.repeat(64)};
+    await assert.rejects(observeRequest(session, invalid), /digest mismatch/);
+    assert.equal(session.seq, 2);
+  } finally { session.end(); }
+});
 const events = terminal => [[0, { type: 'content_started', index: 0, content: { type: 'reasoning' } }],
   [7, { type: 'content_delta', index: 0, delta: { type: 'reasoning', value: '想一想' } }],
   [8, { type: 'content_finished', index: 0 }],
@@ -195,11 +227,11 @@ integration('native semantic system evidence round-trips through original JSONL 
 
 test('disabled tools and unsupported request controls cannot publish misleading headers', async () => {
   const appended = [];
-  const session = { lastEvent() {}, appendObserved(...args) { appended.push(args); } };
+  const session = { seq:0, lastEvent() {}, adoptObserved(event) { appended.push(event); } };
   const fact = { seq: 1, timestamp_ms: 10, purpose: { kind: 'conversation' }, snapshot, evidence: evidence() };
   const tools = JSON.parse(fact.evidence.tools.text); tools.choice = { type: 'none' }; fact.evidence.tools = inline(tools);
   await observeRequest(session, fact);
-  assert.equal(appended[0][1].header.tools, undefined);
+  assert.equal(appended[0].data.header.tools, undefined);
   const configuration = JSON.parse(fact.evidence.configuration.text);
   configuration.response_format = { type: 'json_object' }; fact.evidence.configuration = inline(configuration);
   await assert.rejects(observeRequest(session, fact), /cannot be represented/);

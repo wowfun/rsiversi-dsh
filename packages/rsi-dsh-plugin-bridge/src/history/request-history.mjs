@@ -55,6 +55,8 @@ export async function observeRequest(session, fact, readFact, mapping) {
   const step = session.lastEvent('step/start');
   const changed = previous && JSON.stringify(previous.data.header) !== JSON.stringify(header);
   if (!previous || changed || step && step.seq > previous.seq) {
-    session.appendObserved('request/header', { header, reason: !previous ? 'initial' : changed ? 'change' : 'series' }, fact.timestamp_ms);
+    // Evidence decoding owns this graph; admission validates and freezes it in place.
+    session.adoptObserved({type:'request/header',seq:session.seq,time:fact.timestamp_ms,
+      data:{header,reason:!previous?'initial':changed?'change':'series'}});
   }
 }
