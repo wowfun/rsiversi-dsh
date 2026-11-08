@@ -124,6 +124,13 @@ accepted mutations in that publication. No native intent is created for the
 rejected call, and it triggers no native refresh; already accepted operations
 still settle normally.
 
+Successful event admission computes its byte count and content digest from the
+same temporary JSON encoding. The private admission record retains the count,
+digest and validator identity, not the encoded string or another event body.
+Journal reconciliation reuses that digest only for the admitted immutable
+object; other values are encoded and hashed independently. A cold journal still
+compares its saved digest against the reconstructed native event.
+
 Each consumed native event retains its source position, content digest and
 application position. Digests verify that the same source prefix has not changed;
 they are not a runtime-version compatibility gate. Surface positions, source

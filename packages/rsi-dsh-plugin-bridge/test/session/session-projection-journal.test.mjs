@@ -22,6 +22,33 @@ async function fixture(t,options={}) {
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
 
+test('native admission shares one encoding with source digests while cold replay still checks them', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t,{nativeEventState:'shared-frozen'});
+  const source=new SessionFacade(ctx,api,{header},false);
+  const stringify=JSON.stringify;let encoded=0;
+  t.mock.method(JSON,'stringify',function(value,...args){
+    if(value?.type==='user/message'&&value.data.id==='single-encoding')encoded++;
+    return stringify(value,...args);
+  });
+  source.begin();
+  const event=source.appendObserved('user/message',message('single-encoding','user','immutable input'),1,{surfaceOp:'append'});
+  source.end();
+  assert.equal(encoded,1,'admission accounts for the encoded byte size');
+  journal.merge(source.snapshotEvents());
+  journal.merge(source.snapshotEvents());
+  assert.equal(encoded,1,'transfer and repeated reconciliation reuse the admitted digest');
+  const document=journal.encode();
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(document),
+    native:source.snapshotEvents(),nativeEventState:'shared-frozen'});
+  cold.merge(source.snapshotEvents());
+  assert.equal(cold.encode(),document);
+  assert.equal(encoded,1,'cold reconciliation reuses the native admission evidence');
+  const changed=api.deepFreeze({...event,time:2});
+  assert.throws(()=>cold.merge([changed]),/prefix changed/);
+  assert.equal(encoded,2,'freezing a different object does not establish admission');
+  assert.equal(cold.encode(),document);
+});
+
 test('request headers freeze once at admission and share immutable schemas across journal transfer', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t,{nativeEventState:'shared-frozen'});
   const freeze=api.deepFreeze,walks=[];
