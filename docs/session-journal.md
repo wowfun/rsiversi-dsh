@@ -81,13 +81,20 @@ a full event snapshot. Existing immutable events are read by position. Validatio
 failure leaves all three logs unchanged. A batch that only acknowledges existing
 local events does not construct a new Session branch or Surface manager.
 The native projector transfers deeply frozen event values under an explicit
-`shared-frozen` ownership contract. Journal envelopes and translated coordinates
-remain independent, while unchanged message bodies retain their native object
-identity through live merge and cold reconstruction. Native inbox transition
+`shared-frozen` ownership contract. An event whose coordinates and references
+remain unchanged retains its native object identity through live merge and cold
+reconstruction. Remapping creates only the changed containers; unchanged message
+bodies remain shared. Native inbox transition
 records refer to that same admitted message. The journal snapshots externally
 owned mutable inputs once; it does not infer safe ownership from a shallow
 `Object.isFrozen` check. Inside the explicit shared-frozen transfer, the bridge's
 final freeze visits only newly owned containers and stops at frozen subtrees.
+Within that transfer, admission can reuse an immutable event's encoded byte
+count and completed event-local validation by the same DSH validator. Weak keys
+follow event lifetime and retain neither encoded JSON nor event bodies. A new
+or remapped event crosses validation again. Every receiving log still checks
+its envelope, contiguous position, surface relations and total size before
+publication. A frozen external object is not evidence of prior admission.
 The canonical request header freezes its new outer wrapper while sharing the
 event's immutable configuration and tool schemas. Request-evidence JSON is
 decoded into privately owned values; its newly constructed request-header event

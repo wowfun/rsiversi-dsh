@@ -54,19 +54,34 @@ export function readJournalDocument(document) {
 
 /** Translate source-log references, never application-local references. */
 export function remap(input,seq,sourceAt) {
-  const event={...input,seq};
+  let event=input;
+  const set=(key,value)=>{
+    if(value===input[key])return;
+    if(event===input)event={...input};
+    event[key]=value;
+  };
+  set('seq',seq);
   const reference=value=>{
     if(!integer(value)||value>=input.seq||!sourceAt(value))throw Error('Native event reference is outside its observed prefix');
     return sourceAt(value).seq;
   };
-  if(event.surfaceOp&&event.surfaceOp!=='append')event.surfaceOp={
-    ...event.surfaceOp,startSeq:reference(event.surfaceOp.startSeq),endSeq:reference(event.surfaceOp.endSeq),
-  };
-  if(event.sourceEventSeqs)event.sourceEventSeqs=event.sourceEventSeqs.map(reference);
-  if(event.type==='developer/message'&&event.data.headerSeq!==undefined)
-    event.data={...event.data,headerSeq:reference(event.data.headerSeq)};
-  if(event.type==='command/done'&&event.data.sourceEventSeq!==undefined)
-    event.data={...event.data,sourceEventSeq:reference(event.data.sourceEventSeq)};
+  if(input.surfaceOp&&input.surfaceOp!=='append'){
+    const startSeq=reference(input.surfaceOp.startSeq),endSeq=reference(input.surfaceOp.endSeq);
+    if(startSeq!==input.surfaceOp.startSeq||endSeq!==input.surfaceOp.endSeq)
+      set('surfaceOp',{...input.surfaceOp,startSeq,endSeq});
+  }
+  if(input.sourceEventSeqs){
+    const references=input.sourceEventSeqs.map(reference);
+    if(references.some((value,index)=>value!==input.sourceEventSeqs[index]))set('sourceEventSeqs',references);
+  }
+  if(input.type==='developer/message'&&input.data.headerSeq!==undefined){
+    const headerSeq=reference(input.data.headerSeq);
+    if(headerSeq!==input.data.headerSeq)set('data',{...input.data,headerSeq});
+  }
+  if(input.type==='command/done'&&input.data.sourceEventSeq!==undefined){
+    const sourceEventSeq=reference(input.data.sourceEventSeq);
+    if(sourceEventSeq!==input.data.sourceEventSeq)set('data',{...input.data,sourceEventSeq});
+  }
   return event;
 }
 

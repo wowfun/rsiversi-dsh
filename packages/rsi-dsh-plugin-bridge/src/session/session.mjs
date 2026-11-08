@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
 
+// Only completed admission establishes this evidence; freezing alone does not.
+const admitted = new WeakMap();
 const journalEvents = new Set(['session/title', 'approval/asked', 'approval/decided', 'approval/policy',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
   'feedback/message-put', 'feedback/message-delete', 'feedback/record']);
@@ -161,11 +163,16 @@ export class SessionFacade {
     const event = adopt ? input : this.#api.snapshotJsonValue(input);
     if (!event) throw new Error('event must be lossless JSON');
     envelope(event, this.seq);
-    const bytes = Buffer.byteLength(JSON.stringify(event));
+    const known = adopt ? admitted.get(event) : undefined;
+    const bytes = known?.bytes ?? Buffer.byteLength(JSON.stringify(event));
     if (this.#bytes + bytes > 64 * 1024 * 1024 || this.seq >= 100_000) throw new Error('Session mirror capacity');
-    this.#api.adoptSessionEvent(event);
+    if (!known || known.validate !== this.#api.adoptSessionEvent) this.#api.adoptSessionEvent(event);
     this.#surface.validateNext(event);
-    if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
+    if (!known) {
+      if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
+    }
+    if (!known || known.validate !== this.#api.adoptSessionEvent)
+      admitted.set(event, {bytes,validate:this.#api.adoptSessionEvent});
     if(event.type==='request/header')this.#requestHeader=Object.freeze(this.#api.canonicalHeader(event.data.header));
     if(event.type==='session/title')this.#titleEvent=event;
     this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;
