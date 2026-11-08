@@ -106,6 +106,15 @@ assembled message. Admission freezes newly owned containers without copying
 that stream again. Native input records remain independently owned. Completed,
 interrupted and diagnostic-only attempts retain the same validation and history
 semantics.
+Native Turn/Step markers, converted input and Tool messages, inbox splices and
+model choices also transfer their newly constructed event graphs into admission.
+Conversion detaches borrowed provenance, authored-message sources, image
+dimensions and native Tool metadata before transfer; it does not freeze or
+retain mutable children of the original Fact/control records. Already admitted
+Tool-call arguments and inbox messages can remain shared immutable values.
+The producer does not mutate a transferred graph. External callers of
+`appendObserved` still receive snapshot isolation, and every transferred event
+retains the same schema, surface, coordinate and capacity checks.
 Within one native projection, references to the same decoded inline evidence
 reuse its parsed value. Weak keys follow the lifetime of that page's evidence
 objects, so projection does not retain old pages or build a second transcript.

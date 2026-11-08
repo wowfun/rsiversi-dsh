@@ -81,7 +81,7 @@ export async function preparedMessages(session, mapping, fact, readFact) {
       let blocks = contentBlocks(content, fact.seq, offset);
       offset += content.length;
       if (role === 'developer' && blocks.length) blocks = [{ type: 'text', text: blocks.map(block => block.text).join('\n') }];
-      result.push({ role, id: attribution.id, source: attribution.source, content: blocks });
+      result.push({ role, id: attribution.id, source: structuredClone(attribution.source), content: blocks });
     } else throw Error('Unknown prepared input entry');
   }
   clearClaims(mapping);

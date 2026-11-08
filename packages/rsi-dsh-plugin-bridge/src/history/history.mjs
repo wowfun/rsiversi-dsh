@@ -37,7 +37,8 @@ export function restoreMapping(value) {
 
 function closeStep(session, mapping, time) {
   if (mapping.pendingMessages.length) throw new Error('Step closed before its committed messages');
-  if (mapping.stepOpen) session.appendObserved('step/end', { turn: mapping.turn, step: mapping.step }, time);
+  if (mapping.stepOpen) session.adoptObserved({type:'step/end',seq:session.seq,time,
+    data:{turn:mapping.turn,step:mapping.step}});
   mapping.stepOpen = false;
 }
 export function factObserver(session, mapping, readFact, llm) {
@@ -60,7 +61,8 @@ async function observeFact(session, mapping, fact, readFact, llm, observeRequest
       if (mapping.turnId !== null) throw new Error('new Turn precedes canonical terminal');
       if (!Number.isSafeInteger(mapping.turn + 1)) throw new Error('Turn counter exhausted');
       mapping.turnId = fact.turn_id; mapping.turn++; mapping.step = 0;
-      session.appendObserved('turn/start', { turn: mapping.turn, rsi: { session: session.id, fact: fact.seq, turn: fact.turn_id } }, fact.timestamp_ms);
+      session.adoptObserved({type:'turn/start',seq:session.seq,time:fact.timestamp_ms,
+        data:{turn:mapping.turn,rsi:{session:session.id,fact:fact.seq,turn:fact.turn_id}}});
     }
     if (fact.type === 'step_started') mapping.stepId = fact.step_id;
     if (fact.type === 'turn_accepted') claimInput(mapping, fact);
@@ -88,7 +90,8 @@ async function observeFact(session, mapping, fact, readFact, llm, observeRequest
     const reason = { completed: { kind: 'completed' }, blocked: { kind: 'blocked' }, cancelled: { kind: 'aborted', reason: { kind: 'legacy' } },
       interrupted: { kind: 'interrupted' }, max_tokens: { kind: 'max-tokens' } }[outcome.status]
       ?? { kind: 'error', error: { code: outcome.code, message: outcome.message } };
-    session.appendObserved('turn/end', { turn: mapping.turn, reason, rsi: { session: session.id, fact: fact.seq, turn: fact.turn_id } }, fact.timestamp_ms);
+    session.adoptObserved({type:'turn/end',seq:session.seq,time:fact.timestamp_ms,
+      data:{turn:mapping.turn,reason,rsi:{session:session.id,fact:fact.seq,turn:fact.turn_id}}});
     mapping.turnId = null; mapping.stepId = null; mapping.model = null;
   }
 }
@@ -97,5 +100,5 @@ export function prepareStep(session, mapping, turnId, stepId, now=Date.now()) {
   if (!Number.isSafeInteger(mapping.step + 1)) throw new Error('Step counter exhausted');
   closeStep(session, mapping, now);
   mapping.step++; mapping.stepOpen = true;
-  session.appendObserved('step/start', { turn: mapping.turn, step: mapping.step }, now);
+  session.adoptObserved({type:'step/start',seq:session.seq,time:now,data:{turn:mapping.turn,step:mapping.step}});
 }

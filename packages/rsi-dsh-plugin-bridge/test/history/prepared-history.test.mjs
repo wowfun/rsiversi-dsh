@@ -11,12 +11,12 @@ import { SessionFacade } from '../../src/session/session.mjs';
 const root = process.env.RSI_DSH_MARKET_COHORT;
 async function fixture(t, original) {
   const events = [];
-  let session = { id: 'prepared', surface: { nodes: [] }, eventAt: seq => events[seq],
+  let session = { id: 'prepared', get seq(){return events.length;}, surface: { nodes: [] }, eventAt: seq => events[seq],
     snapshotEvents: () => events,
-    appendObserved(type, data, time, options = {}) {
-      const event = { seq: events.length, type, data, time, ...options };
+    adoptObserved(event) {
+      assert.equal(event.seq,events.length);
       events.push(event);
-      if (options.surfaceOp === 'append') this.surface.nodes.push(event.seq);
+      if (event.surfaceOp === 'append') this.surface.nodes.push(event.seq);
       return event;
     } };
   if (original) {

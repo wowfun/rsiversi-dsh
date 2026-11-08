@@ -7,9 +7,9 @@ export function systemHead(session, mapping, time, content) {
   const previous = headSeq === undefined ? undefined : session.eventAt(headSeq);
   if (previous && previous.type !== 'system/message') throw new Error('conversation lacks its system head');
   if (previous && (content === undefined || JSON.stringify(previous.data.message.content) === JSON.stringify(content))) return;
-  session.appendObserved('system/message', { turn: mapping.turn, step: mapping.step,
-    message: { id: `rsi:${session.id}:system`, role: 'system', source: { kind: 'system-prompt' }, content: content ?? [] } }, time,
-  previous ? { surfaceOp: { op: 'replace', startSeq: headSeq, endSeq: headSeq }, sourceEventSeqs: [headSeq] } : { surfaceOp: 'append' });
+  session.adoptObserved({type:'system/message',seq:session.seq,time,data:{turn:mapping.turn,step:mapping.step,
+    message:{id:`rsi:${session.id}:system`,role:'system',source:{kind:'system-prompt'},content:content??[]}},
+    ...(previous?{surfaceOp:{op:'replace',startSeq:headSeq,endSeq:headSeq},sourceEventSeqs:[headSeq]}:{surfaceOp:'append'})});
 }
 
 export function contentBlocks(content, seq, offset = 0) {
@@ -46,11 +46,11 @@ export function nativeMessageId(source,fallback) {
 export function inputMessage(sessionId, fact, ordinal = 0) {
   if (fact.type === 'tool_contexts_claimed') {
     const { message } = fact.messages[ordinal];
-    return toolUserMessage(message.id, message.source, message.text.map(text => ({ type: 'text', text })));
+    return toolUserMessage(message.id, structuredClone(message.source), message.text.map(text => ({ type: 'text', text })));
   }
   if (fact.source?.type === 'plugin_context' && fact.source.tool) {
     const origin=fact.source.tool;
-    return toolUserMessage(origin.message_id,origin.source,contentBlocks(fact.content, fact.seq));
+    return toolUserMessage(origin.message_id,structuredClone(origin.source),contentBlocks(fact.content, fact.seq));
   }
   const source = fact.type === 'turn_accepted' ? { type: 'human' } : fact.source;
   const role = ['agent_instructions', 'skill_catalog', 'plugin_context'].includes(source.type) ? 'developer' : 'user';
@@ -61,14 +61,14 @@ export function inputMessage(sessionId, fact, ordinal = 0) {
     content = [{ type: 'text', text: content.map(block => block.text).join('\n') }];
   }
   return { id: nativeMessageId(source,`rsi:${sessionId}:input:${source.message_id ?? fact.seq}`), role, content,
-    source: nativeMessageSource(source) };
+    source: structuredClone(nativeMessageSource(source)) };
 }
 
 export function observeInput(session, mapping, message, time) {
   systemHead(session, mapping, time);
   const { role } = message;
   const data = role === 'user' ? message : { turn: mapping.turn, step: mapping.step, message };
-  session.appendObserved(`${role}/message`, data, time, { surfaceOp: 'append' });
+  session.adoptObserved({type:`${role}/message`,seq:session.seq,time,data,surfaceOp:'append'});
 }
 
 export function retainCalls(mapping, fact, event) {
@@ -86,15 +86,16 @@ function callBlock(session, call) {
   return block;
 }
 function observeCall(session, call, block, time) {
-  call.callEvent = session.appendObserved('tool/call', { turn: call.turn, step: call.step, callId: call.id,
-    name: block.name, arguments: block.arguments }, time).seq;
+  call.callEvent = session.adoptObserved({type:'tool/call',seq:session.seq,time,
+    data:{turn:call.turn,step:call.step,callId:call.id,name:block.name,arguments:block.arguments}}).seq;
 }
 function result(session, mapping, call, time, content, isError, error, meta) {
   if (call.callEvent === null) observeCall(session, call, callBlock(session, call), time);
   const message = { id: `rsi:${session.id}:result:${call.model}:${call.id}`, role: 'tool', toolCallId: call.id,
     source: { kind: 'tool', callId: call.id }, content, isError };
-  session.appendObserved('tool/result', { turn: call.turn, step: call.step, message, ...(error ? { error } : {}), ...(meta !== undefined ? { meta } : {}) }, time,
-    { surfaceOp: 'append', sourceEventSeqs: [call.callEvent] });
+  session.adoptObserved({type:'tool/result',seq:session.seq,time,
+    data:{turn:call.turn,step:call.step,message,...(error?{error}:{}),...(meta!==undefined?{meta}:{})},
+    surfaceOp:'append',sourceEventSeqs:[call.callEvent]});
   mapping.calls.splice(mapping.calls.indexOf(call), 1);
 }
 export function observeTool(session, mapping, fact) {
@@ -122,7 +123,8 @@ export function observeTool(session, mapping, fact) {
     if (fact.identity.call_id !== call.id) throw new Error('Tool result identity mismatch');
     const content = fact.result.content.length ? contentBlocks(fact.result.content) : [{ type: 'text', text: JSON.stringify(fact.result.value) }];
     const details=fact.result.metadata?.dsh;
-    result(session, mapping, call, fact.timestamp_ms, content, fact.result.is_error, details?.error, details?.meta);
+    result(session, mapping, call, fact.timestamp_ms, content, fact.result.is_error,
+      structuredClone(details?.error),structuredClone(details?.meta));
   } else {
     const selected = [...mapping.calls].filter(call => fact.type === 'turn_terminal' || call.model === fact.source_model_effect_id && call.effect === null);
     for (const call of selected) {

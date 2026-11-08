@@ -14,7 +14,7 @@ export function nativeMedia(attachment) {
 export function dshImage({media,presentation}) {
   return {attachmentId:'sha256:'+media.id,mediaType:media.mime,bytes:media.bytes,width:media.width,height:media.height,
     ...(presentation?.name===undefined?{}:{name:presentation.name}),
-    ...(presentation?.original_dimensions===undefined?{}:{originalDimensions:presentation.original_dimensions})};
+    ...(presentation?.original_dimensions===undefined?{}:{originalDimensions:{...presentation.original_dimensions}})};
 }
 
 export const submissionContent = content => content.map(part=>nativePart(part,'kind'));
