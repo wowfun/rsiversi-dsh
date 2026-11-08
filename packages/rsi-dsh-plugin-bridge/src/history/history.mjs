@@ -1,4 +1,4 @@
-import { observeRequest } from './request-history.mjs';
+import { requestObserver } from './request-history.mjs';
 import { observeAttempt } from './model-history.mjs';
 import { observeInput, observeTool } from './conversation-history.mjs';
 import { stepMessageText } from './step-messages.mjs';
@@ -40,11 +40,16 @@ function closeStep(session, mapping, time) {
   if (mapping.stepOpen) session.appendObserved('step/end', { turn: mapping.turn, step: mapping.step }, time);
   mapping.stepOpen = false;
 }
+export function factObserver(session, mapping, readFact, llm) {
+  const observeRequest = requestObserver(readFact);
+  return fact => observeFact(session, mapping, fact, readFact, llm, observeRequest);
+}
+
 /** Only lifecycle Facts affect these counters; provider attempts do not fabricate acceptance. */
-export async function observeFact(session, mapping, fact, readFact, llm) {
+async function observeFact(session, mapping, fact, readFact, llm, observeRequest) {
   if (!integer(fact.timestamp_ms) || fact.timestamp_ms === 0) throw new Error('invalid canonical Fact time');
   if (fact.type === 'model_intent') {
-    await observeRequest(session, fact, readFact, mapping);
+    await observeRequest(session, fact, mapping);
     if (fact.purpose?.kind === 'conversation') mapping.model = { effectId: fact.effect_id, provider: fact.snapshot.deployment_id, model: fact.snapshot.model, startedAt: null };
   } else if (fact.type === 'model_started' && mapping.model?.effectId === fact.effect_id) {
     mapping.model.startedAt = fact.timestamp_ms;

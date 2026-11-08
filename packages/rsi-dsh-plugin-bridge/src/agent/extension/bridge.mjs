@@ -8,7 +8,7 @@ import { resultMetadata, toolPipeline } from '../../tools/tool-pipeline.mjs';
 import { toolContextOutput } from '../../history/step-messages.mjs';
 import { prepareRows, runtimeContextProjection } from '../request-input.mjs';
 import { claimedRows } from '../../history/input-history.mjs';
-import { observeFact } from '../../history/history.mjs';
+import { factObserver } from '../../history/history.mjs';
 import { readHistory } from '../../history/pages.mjs';
 
 /** Original Cordis + original Todo/Plan, with RSI-owned receipt and Session seams. */
@@ -114,7 +114,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
       return original;
     };
     record.mapping.factCursor = await readHistory(request, identity,
-      record.mapping.factCursor, horizon, fact => observeFact(record.session, record.mapping, fact, readFact, llm), operation.signal);
+      record.mapping.factCursor, horizon, factObserver(record.session, record.mapping, readFact, llm), operation.signal);
   }
   return Object.freeze({
     ...mirrors.protocol,

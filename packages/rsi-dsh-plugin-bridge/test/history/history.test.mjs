@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { loadCohort } from '../../../rsi-dsh-cordis/src/runtime/cohort.mjs';
 import { createBridge } from '../../src/index.mjs';
-import { observeRequest } from '../../src/history/request-history.mjs';
+import { requestObserver } from '../../src/history/request-history.mjs';
 import { SessionFacade } from '../../src/session/session.mjs';
-import { restoreMapping, observeFact } from '../../src/history/history.mjs';
-import {projectFacts} from '../../src/workbench/seed.mjs';
+import { restoreMapping, factObserver } from '../../src/history/history.mjs';
+import {factProjector} from '../../src/workbench/seed.mjs';
 
 const cohortRoot = process.env.RSI_DSH_COHORT;
 const integration = (name, run) => test(name, { skip: !cohortRoot }, run);
@@ -21,6 +21,50 @@ const evidence = () => ({ availability: 'available',
   tools: inline({ definitions: [{ name: 'todo_write', description: 'Actual schema', input_schema: { type: 'object' } }], hosted: [], choice: { type: 'auto' } }),
   system: inline([{ role: 'system', content: [{ type: 'text', content: {text:'Actual instructions'} }] }]) });
 
+integration('referenced request schemas share immutable bodies within one projection', async t => {
+  const cohort = await loadCohort(cohortRoot);
+  const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
+  t.after(() => ctx.fiber.dispose());
+  const api = {...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session', 'surface'),
+    ...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const session = new SessionFacade(ctx, api, {header:{version:4,id:'shared-evidence',createdAt:1,isSeeded:false}}, false);
+  const original = {type:'model_intent',seq:1,timestamp_ms:10,purpose:{kind:'conversation'},snapshot,evidence:evidence()};
+  const reference = {...original,seq:2,timestamp_ms:12,evidence:{availability:'available'}};
+  for (const name of ['configuration','tools']) reference.evidence[name] = {kind:'reference',seq:1,section:name,
+    bytes:Buffer.byteLength(original.evidence[name].text),sha256:original.evidence[name].sha256};
+  const read = async seq => { assert.equal(seq, 1); return original; };
+  const observeRequest = requestObserver(read);
+  session.begin();
+  try {
+    await observeRequest(session, original);
+    const first = session.requestHeader();
+    session.appendObserved('step/start', {turn:1,step:1}, 11);
+    await observeRequest(session, reference);
+    const second = session.requestHeader();
+    assert.deepEqual(second, first);
+    assert.equal(second.tools[0].parameters, first.tools[0].parameters, 'a reference must not allocate another schema');
+    assert.ok(Object.isFrozen(second.tools[0].parameters));
+    assert.throws(() => { second.tools[0].parameters.type = 'changed'; }, TypeError);
+    const isolated = new SessionFacade(ctx, api, {header:{version:4,id:'other-projection',createdAt:1,isSeeded:false}}, false);
+    isolated.begin();
+    try {
+      await requestObserver(read)(isolated, reference);
+      assert.deepEqual(isolated.requestHeader(), first);
+      assert.notEqual(isolated.requestHeader().tools[0].parameters, first.tools[0].parameters, 'decoder lifetime belongs to one projection');
+    } finally { isolated.end(); }
+    const through = session.seq;
+    for (const change of [{bytes:0},{sha256:'0'.repeat(64)},{seq:2},{section:'system'}]) {
+      const bad = {...reference,evidence:{...reference.evidence,tools:{...reference.evidence.tools,...change}}};
+      await assert.rejects(observeRequest(session, bad), /request evidence/);
+      assert.equal(session.seq, through);
+    }
+    original.evidence.tools.text += ' ';
+    await assert.rejects(observeRequest(session, original), /digest mismatch/);
+    assert.equal(session.seq, through, 'memoized evidence cannot hide changed source bytes');
+  } finally { session.end(); }
+});
+
 integration('privately decoded request schemas transfer once while external inputs remain detached', async t => {
   const cohort = await loadCohort(cohortRoot);
   const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
@@ -32,6 +76,7 @@ integration('privately decoded request schemas transfer once while external inpu
   api.snapshotJsonValue = value => { snapshots.push(value); return snapshotValue(value); };
   const session = new SessionFacade(ctx, api, {header:{version:4,id:'owned-header',createdAt:1,isSeeded:false}}, false);
   const fact = {seq:1,timestamp_ms:10,purpose:{kind:'conversation'},snapshot,evidence:evidence()};
+  const observeRequest = requestObserver();
   session.begin();
   try {
     await observeRequest(session, fact);
@@ -208,14 +253,24 @@ integration('native semantic system evidence round-trips through original JSONL 
   const facts=[{type:'turn_accepted',turn_id:'turn',text:'input'},
     {type:'step_started',turn_id:'turn',step_id:'step'},
     {type:'step_inputs_prepared',turn_id:'turn',step_id:'step',decision:{kind:'enter',messages:[{kind:'claimed',claim:{fact_seq:1,ordinal:0}}]}},
-    ...[first,reference].map((evidence,index)=>({type:'model_intent',effect_id:'model-'+index,purpose:{kind:'conversation'},snapshot,evidence}))]
+    {type:'model_intent',effect_id:'model-0',purpose:{kind:'conversation'},snapshot,evidence:first},
+    {type:'step_ended',turn_id:'turn'},
+    {type:'step_started',turn_id:'turn',step_id:'step-2'},
+    {type:'step_inputs_prepared',turn_id:'turn',step_id:'step-2',decision:{kind:'enter',messages:[]}},
+    {type:'model_intent',effect_id:'model-1',purpose:{kind:'conversation'},snapshot,evidence:reference}]
     .map((fact,index)=>({...fact,seq:index+1,timestamp_ms:10+index}));
   let reads=0;
-  await projectFacts(session,restoreMapping(),async after=>{
+  const project=factProjector(session,restoreMapping(),async after=>{
     reads++;assert.equal(after,0,'references borrow the already decoded page');
-    return {through:5,value:facts};
-  },5,undefined,await cohort.import('@deepseek-ai/dsh-llm'));
+    return {through:8,value:facts};
+  },8,undefined,await cohort.import('@deepseek-ai/dsh-llm'));
+  await project(4);
+  const firstSchema=session.requestHeader().tools[0].parameters;
+  await project(8);
   assert.equal(reads,1);
+  const headers=session.snapshotEvents().filter(event=>event.type==='request/header');
+  assert.deepEqual(headers.map(event=>event.data.reason),['initial','series']);
+  assert.equal(session.requestHeader().tools[0].parameters,firstSchema,'control anchors retain the same page decoder');
   const writer=await ctx.sessionPersistence.create(session.header);
   try{await writer.append(session.snapshotEvents());}finally{await writer.close();}
   const reader=await ctx.sessionPersistence.open(session.id,'read');
@@ -226,6 +281,7 @@ integration('native semantic system evidence round-trips through original JSONL 
 });
 
 test('disabled tools and unsupported request controls cannot publish misleading headers', async () => {
+  const observeRequest = requestObserver();
   const appended = [];
   const session = { seq:0, lastEvent() {}, adoptObserved(event) { appended.push(event); } };
   const fact = { seq: 1, timestamp_ms: 10, purpose: { kind: 'conversation' }, snapshot, evidence: evidence() };
@@ -252,8 +308,8 @@ integration('original surface folds preserve roles, system replacements, raw cal
   session.begin();
   let mapping = restoreMapping(); let seq = 0;
   let projected;
-  const observe = body => observeFact(session, mapping, { seq: ++seq, timestamp_ms: seq * 100, ...body },
-    () => { throw new Error('unexpected reference'); }, llm);
+  const observe = body => factObserver(session, mapping,
+    () => { throw new Error('unexpected reference'); }, llm)({ seq: ++seq, timestamp_ms: seq * 100, ...body });
   await observe({ type: 'turn_accepted', turn_id: 'turn', text: 'Original user text' });
   await observe({ type: 'step_started', turn_id: 'turn', step_id: 'step' });
   await observe({ type: 'input_message_claimed', turn_id: 'turn', step_id: 'step', source: { type: 'plugin_context', contribution_id: 'context' },

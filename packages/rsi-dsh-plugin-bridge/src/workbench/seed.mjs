@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {forkSnapshot} from '../session/fork.mjs';
-import {observeFact,restoreMapping} from '../history/history.mjs';
+import {factObserver,restoreMapping} from '../history/history.mjs';
 import {factPageReader} from '../history/pages.mjs';
 import {nativeFactPages} from '../history/native-pages.mjs';
 import {SessionFacade} from '../session/session.mjs';
@@ -20,13 +20,14 @@ export function factProjector(session,mapping,fetch,horizon,signal,llm,observed)
     if(fact?.seq!==seq)throw new Error('Referenced Fact is unavailable');
     return fact;
   };
+  const observe=factObserver(session,mapping,readFact,llm);
   return async through=>{
     session.begin();
     try{
       mapping.factCursor=await advance(through,async (fact,facts)=>{
         page=facts;
         try {
-          await observeFact(session,mapping,fact,readFact,llm);
+          await observe(fact);
           const completion=observed?.(fact);
           if(completion)await completion;
         } finally {page=undefined;}

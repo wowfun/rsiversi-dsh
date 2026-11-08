@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { systemHead } from './conversation-history.mjs';
 
 const hash = text => createHash('sha256').update(text).digest('hex');
-async function section(fact, name, readFact) {
+async function section(fact, name, readFact, decoded) {
   if (fact.evidence?.availability !== 'available') throw new Error('request evidence unavailable');
   const part = fact.evidence[name];
   let inline = part;
@@ -11,20 +11,34 @@ async function section(fact, name, readFact) {
     const original = await readFact(part.seq);
     inline = original?.type === 'model_intent' && original.evidence?.availability === 'available'
       ? original.evidence[name] : undefined;
-    if (inline?.kind !== 'inline' || Buffer.byteLength(inline.text) !== part.bytes) throw new Error('missing original inline request evidence');
+    if (inline?.kind !== 'inline') throw new Error('missing original inline request evidence');
   }
-  if (inline?.kind !== 'inline' || typeof inline.text !== 'string' || Buffer.byteLength(inline.text) > 16 * 1024 * 1024
-      || inline.sha256 !== part.sha256 || hash(inline.text) !== part.sha256) throw new Error('request evidence digest mismatch');
-  return JSON.parse(inline.text);
+  if (inline?.kind !== 'inline' || typeof inline.text !== 'string' || inline.sha256 !== part.sha256)
+    throw new Error('request evidence digest mismatch');
+  let entry = decoded.get(inline);
+  if (!entry || entry.text !== inline.text || entry.sha256 !== inline.sha256) {
+    const bytes = Buffer.byteLength(inline.text);
+    if (bytes > 16 * 1024 * 1024 || hash(inline.text) !== part.sha256) throw new Error('request evidence digest mismatch');
+    entry = {text:inline.text,sha256:inline.sha256,bytes,value:JSON.parse(inline.text)};
+    decoded.set(inline, entry);
+  }
+  if (part.kind === 'reference' && entry.bytes !== part.bytes) throw new Error('missing original inline request evidence');
+  return entry.value;
+}
+
+/** One projection owns decoded evidence; weak keys do not keep old native pages alive. */
+export function requestObserver(readFact) {
+  const decoded = new WeakMap();
+  return (session, fact, mapping) => observeRequest(session, fact, readFact, mapping, decoded);
 }
 
 /** Only canonical conversation intents establish what the model has been told. */
-export async function observeRequest(session, fact, readFact, mapping) {
+async function observeRequest(session, fact, readFact, mapping, decoded) {
   if (fact.purpose?.kind !== 'conversation') return;
-  const configuration = await section(fact, 'configuration', readFact);
-  const tools = await section(fact, 'tools', readFact);
+  const configuration = await section(fact, 'configuration', readFact, decoded);
+  const tools = await section(fact, 'tools', readFact, decoded);
   if (mapping) {
-    const system = await section(fact, 'system', readFact);
+    const system = await section(fact, 'system', readFact, decoded);
     if (!Array.isArray(system) || system.some(message => !['system', 'developer'].includes(message.role))) throw new Error('invalid system request evidence');
     const content = system.filter(message => message.role === 'system').flatMap(message => message.content.map(block => {
       if (block.type !== 'text' || typeof block.content?.text !== 'string') throw new Error('unsupported system request content');

@@ -84,6 +84,14 @@ The canonical request header freezes its new outer wrapper while sharing the
 event's immutable configuration and tool schemas. Request-evidence JSON is
 decoded into privately owned values; its newly constructed request-header event
 transfers those values directly into admission without another schema copy.
+Within one native projection, references to the same decoded inline evidence
+reuse its parsed value. Weak keys follow the lifetime of that page's evidence
+objects, so projection does not retain old pages or build a second transcript.
+Each reference still checks its earlier Fact coordinate, section, byte count
+and digest binding. The inline text and digest identify the memoized decode;
+changed input crosses validation again. Shared schema subtrees become immutable
+at their first event admission. A new projection has a new decoder, with no
+cross-Session or durable evidence cache.
 This transfer retains event, surface and size validation and freezes the whole
 owned graph. Externally supplied mutable inputs still cross the snapshot boundary.
 Restored local records cross
