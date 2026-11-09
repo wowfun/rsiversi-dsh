@@ -113,7 +113,7 @@ test('base workbench serves authorized cold pages through published Typert witho
     if(method==='application.workspaces'){
       assert.equal(request,'issued-request');
       switch(args.operation.type){
-      case 'drafts':return {items:['one','blank-native','fork-native'].map(id=>({id,workspace:'ws',cwd:profile,
+      case 'drafts':return {items:['one','blank-native','fork-native'].map(id=>({id,workspace:'a'.repeat(64),cwd:profile,
         updatedAt:2,blank:id!=='fork-native',running:false})),next:null};
       case 'unarchive':return {archivedSessionIds:[]};
       case 'archive_activity':{
@@ -142,11 +142,11 @@ test('base workbench serves authorized cold pages through published Typert witho
         if(session==='archived'&&pinned)return {status:'archived'};
         return {status:'applied',pinnedSessionIds:pinned?[session]:[]};
       }
-      case 'rename': return {id:'ws'};
-      case 'list':return {items:[{id:'ws',path:profile,title:'Renamed',created:1}],next:null,order:['ws']};
-      case 'insert_before':return args.operation.id==='ws' && (!args.operation.before || args.operation.before==='ws')
-        ?{status:'applied',ids:['ws']}:{status:'unknown',id:args.operation.id==='ws'?args.operation.before:args.operation.id};
-      case 'membership':return {groups:['ws'],members:[{group:0,session:'one',archived:false,pinned:true,last_activity_ms:'3'}]};
+      case 'rename': return {id:'a'.repeat(64)};
+      case 'list':return {items:[{id:'a'.repeat(64),path:profile,title:'Renamed',created:1}],next:null,order:['a'.repeat(64)]};
+      case 'insert_before':return args.operation.id==='a'.repeat(64) && (!args.operation.before || args.operation.before==='a'.repeat(64))
+        ?{status:'applied',ids:['a'.repeat(64)]}:{status:'unknown',id:args.operation.id==='a'.repeat(64)?args.operation.before:args.operation.id};
+      case 'membership':return {groups:['a'.repeat(64)],members:[{group:0,session:'one',archived:false,pinned:true,last_activity_ms:'3'}]};
       default:throw Error('unexpected workspace operation');
       }
     }
@@ -299,15 +299,16 @@ test('base workbench serves authorized cold pages through published Typert witho
   assert.deepEqual(nativeStops,[['working',true],['mirror',false]]);
   const rename=await fetch(app.ctx.webServer.getOrigin()+'/api/workspace/rename',{method:'POST',
     headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
-    body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'workspace/rename',payload:{args:{request:{workspaceId:'ws',title:'Renamed'}}}})});
+    body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'workspace/rename',payload:{args:{request:{workspaceId:'a'.repeat(64),title:'Renamed'}}}})});
   const renamed=await rename.json();
   assert.deepEqual(renamed.result?.value.workspace.sessionIds,['fork-native','blank-native','one'],JSON.stringify(renamed));
   assert.equal(renamed.result.value.workspace.updatedAt,new Date(3).toISOString());
   for(const [request,expected] of [
-    [{workspaceId:'ws'},{ok:true,value:{workspaceIds:['ws']}}],
-    [{workspaceId:'ws',beforeWorkspaceId:'ws'},{ok:true,value:{workspaceIds:['ws']}}],
+    [{workspaceId:'a'.repeat(64)},{ok:true,value:{workspaceIds:['a'.repeat(64)]}}],
+    [{workspaceId:'a'.repeat(64),beforeWorkspaceId:'a'.repeat(64)},{ok:true,value:{workspaceIds:['a'.repeat(64)]}}],
     [{workspaceId:'absent'},{code:'workspace/not-found',id:'absent'}],
-    [{workspaceId:'ws',beforeWorkspaceId:'absent'},{code:'workspace/not-found',id:'absent'}],
+    [{workspaceId:'0'.repeat(64)},{code:'workspace/not-found',id:'0'.repeat(64)}],
+    [{workspaceId:'a'.repeat(64),beforeWorkspaceId:'absent'},{code:'workspace/not-found',id:'absent'}],
   ]){
     const method='workspace/insertBefore';
     const response=await fetch(app.ctx.webServer.getOrigin()+'/api/'+method,{method:'POST',

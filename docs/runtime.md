@@ -278,7 +278,9 @@ Workspace display order belongs to the native registry. The first Workspace list
 page carries that order alongside registration data; the bridge does not persist
 another registration list. `workspace/insertBefore` commits a native move before
 replying with the visible IDs. An unknown moved Workspace or anchor returns the
-original `workspace/not-found` error. The Workspace feed republishes committed
+original `workspace/not-found` error, including IDs that cannot name a native
+registration. The bridge maps those before the native typed request boundary.
+The Workspace feed republishes committed
 order changes, while creation cursors and browser-local view preferences retain
 their own semantics.
 

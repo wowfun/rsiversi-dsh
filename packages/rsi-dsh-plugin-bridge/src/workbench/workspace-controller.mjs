@@ -143,6 +143,10 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       return {deleted:true};
     }
     async insertBefore({workspaceId,beforeWorkspaceId},signal){
+      // Native Workspace identities are coordinate digests. Other DSH strings
+      // cannot name a registration; preserve DSH's business error at this seam.
+      const unknown=[workspaceId,beforeWorkspaceId].find(id=>id!==undefined&&!/^[0-9a-f]{64}$/.test(id));
+      if(unknown!==undefined)throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId:unknown});
       const result=await scope.workspace({type:'insert_before',id:workspaceId,before:beforeWorkspaceId},signal);
       if(result.status==='unknown')throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId:result.id});
       return {workspaceIds:result.ids};
