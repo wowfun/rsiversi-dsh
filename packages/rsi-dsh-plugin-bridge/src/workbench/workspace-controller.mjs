@@ -23,14 +23,16 @@ function mergeActivity(reported,native) {
 export function workspaceController(TypertRemoteService,scope,RemoteError) {
   async function baseline(signal) {
     const items=[];
-    let after=null,bytes=0;
+    let after=null,bytes=0,order;
     do {
       const page=await scope.workspace({type:'list',after},signal);
+      if(after===null)order=new Map(page.order.map((id,index)=>[id,index]));
       bytes+=Buffer.byteLength(JSON.stringify(page.items));
       if(bytes>4*1024*1024)throw new Error('Workspace catalog exceeds response capacity');
       items.push(...page.items);
       after=page.next;
     }while(after);
+    items.sort((a,b)=>order.get(a.id)-order.get(b.id));
     const {groups,members}=await scope.workspace({type:'membership'},signal);
     const published=new Set(members.map(row=>row.session));
     const byWorkspace=new Map(),archives=[],pins=[];
@@ -139,6 +141,11 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     async delete({workspaceId},signal){
       if(!await scope.workspace({type:'delete',id:workspaceId},signal))throw new Error('Workspace no longer registered');
       return {deleted:true};
+    }
+    async insertBefore({workspaceId,beforeWorkspaceId},signal){
+      const result=await scope.workspace({type:'insert_before',id:workspaceId,before:beforeWorkspaceId},signal);
+      if(result.status==='unknown')throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId:result.id});
+      return {workspaceIds:result.ids};
     }
   };
 }

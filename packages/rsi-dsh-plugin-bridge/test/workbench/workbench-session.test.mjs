@@ -143,7 +143,9 @@ test('base workbench serves authorized cold pages through published Typert witho
         return {status:'applied',pinnedSessionIds:pinned?[session]:[]};
       }
       case 'rename': return {id:'ws'};
-      case 'list':return {items:[{id:'ws',path:profile,title:'Renamed',created:1}],next:null};
+      case 'list':return {items:[{id:'ws',path:profile,title:'Renamed',created:1}],next:null,order:['ws']};
+      case 'insert_before':return args.operation.id==='ws' && (!args.operation.before || args.operation.before==='ws')
+        ?{status:'applied',ids:['ws']}:{status:'unknown',id:args.operation.id==='ws'?args.operation.before:args.operation.id};
       case 'membership':return {groups:['ws'],members:[{group:0,session:'one',archived:false,pinned:true,last_activity_ms:'3'}]};
       default:throw Error('unexpected workspace operation');
       }
@@ -301,6 +303,20 @@ test('base workbench serves authorized cold pages through published Typert witho
   const renamed=await rename.json();
   assert.deepEqual(renamed.result?.value.workspace.sessionIds,['fork-native','blank-native','one'],JSON.stringify(renamed));
   assert.equal(renamed.result.value.workspace.updatedAt,new Date(3).toISOString());
+  for(const [request,expected] of [
+    [{workspaceId:'ws'},{ok:true,value:{workspaceIds:['ws']}}],
+    [{workspaceId:'ws',beforeWorkspaceId:'ws'},{ok:true,value:{workspaceIds:['ws']}}],
+    [{workspaceId:'absent'},{code:'workspace/not-found',id:'absent'}],
+    [{workspaceId:'ws',beforeWorkspaceId:'absent'},{code:'workspace/not-found',id:'absent'}],
+  ]){
+    const method='workspace/insertBefore';
+    const response=await fetch(app.ctx.webServer.getOrigin()+'/api/'+method,{method:'POST',
+      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+      body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method,payload:{args:{request}}})});
+    const {result}=await response.json();
+    if(expected.ok)assert.deepEqual(result,expected);
+    else {assert.equal(result.error.code,expected.code);assert.deepEqual(result.error.details,{workspaceId:expected.id});}
+  }
   for(const mode of ['queue','steer']) {
     const requestId=randomUUID();
     const reply=await fetch(app.ctx.webServer.getOrigin()+'/api/session/prompt',{method:'POST',

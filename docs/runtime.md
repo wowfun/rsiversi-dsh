@@ -274,6 +274,14 @@ Navigation metadata. Their replies and the Workspace feed carry the caller's
 visible pins in most-recently-pinned order. A repeated command preserves both
 the revision and the order. Archiving a Session removes its pin atomically.
 
+Workspace display order belongs to the native registry. The first Workspace list
+page carries that order alongside registration data; the bridge does not persist
+another registration list. `workspace/insertBefore` commits a native move before
+replying with the visible IDs. An unknown moved Workspace or anchor returns the
+original `workspace/not-found` error. The Workspace feed republishes committed
+order changes, while creation cursors and browser-local view preferences retain
+their own semantics.
+
 The original Agent registry has a native-backed factory. Opening a workbench
 transcript attaches a live mirror without waking a model. Listing remains cold;
 sidebar reads refresh existing Agents and leave unattached side conversations for

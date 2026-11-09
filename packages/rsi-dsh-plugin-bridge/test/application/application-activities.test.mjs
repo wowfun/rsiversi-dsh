@@ -136,7 +136,7 @@ test('Workspace pin order uses lossless revisions and falls back to native activ
   ].map(([session,last_activity_ms,partition_revision])=>({group:0,session,last_activity_ms,partition_revision,pinned:true}));
   members.push(...[['second','1','9007199254740993'],['first','2','9007199254740992'],['old-b','9'],['old-a','1']].map(([session,last_activity_ms,partition_revision])=>({group:0,session,last_activity_ms,partition_revision,archived:true})));
   const Workspace=workspaceController(class {},{workspaceChange:()=>new AbortController().signal,drafts:async()=>[],
-    workspace:async({type})=>type==='list'?{items:[{id:'ws',path:'/work',created:1}]}:{groups:['ws'],members}});
+    workspace:async({type})=>type==='list'?{items:[{id:'ws',path:'/work',created:1}],order:['ws']}:{groups:['ws'],members}});
   const frames=new Workspace().follow(new AbortController().signal);
   const {value:{value}}=await frames.next();
   assert.deepEqual(value.pinnedSessionIds,['newest-pin','second-pin','z','Z','older']);
@@ -146,6 +146,24 @@ test('Workspace pin order uses lossless revisions and falls back to native activ
 
 const cohort=process.env.RSI_DSH_MARKET_COHORT;
 
+test('Workspace baseline preserves Host display order across creation-order pages',async()=>{
+  const requests=[];
+  const Workspace=workspaceController(class {},{
+    workspaceChange:()=>new AbortController().signal,drafts:async()=>[],
+    async workspace(operation){
+      requests.push(operation);
+      if(operation.type==='membership')return {groups:[],members:[]};
+      const ids=operation.after?['third']:['first','second'];
+      return {items:ids.map(id=>({id,path:'/work/'+id,created:1})),
+        next:operation.after?null:{after_order:2},order:operation.after?null:['third','first','second']};
+    },
+  });
+  const frames=new Workspace().follow(new AbortController().signal);
+  assert.deepEqual((await frames.next()).value.value.items.map(row=>row.workspaceId),['third','first','second']);
+  assert.deepEqual(requests.map(row=>row.type),['list','list','membership']);
+  await frames.return();
+});
+
 test('Workspace followers share invalidation across a suspended baseline and read their own rows',async()=>{
   const owner=applicationSessions(()=>{}, {owner:'owner'}),stop=new AbortController();
   let title='before',reads=0;
@@ -153,7 +171,7 @@ test('Workspace followers share invalidation across a suspended baseline and rea
     const Workspace=workspaceController(class {},{workspaceChange:owner.workspaceChange, drafts:async()=>[],
       async workspace({type}){
         if(type==='membership')return {groups:[],members:[]};
-        reads++;return {items:[{id,path:'/work/'+id,title,created:1}]};
+        reads++;return {items:[{id,path:'/work/'+id,title,created:1}],order:[id]};
       }});
     return new Workspace().follow(stop.signal);
   };
