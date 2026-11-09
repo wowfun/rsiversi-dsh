@@ -106,6 +106,12 @@ assembled message. Admission freezes newly owned containers without copying
 that stream again. Native input records remain independently owned. Completed,
 interrupted and diagnostic-only attempts retain the same validation and history
 semantics.
+The native model translator retains only each open block's content and closes
+that block directly, without assembling every preceding block. Live forwarding
+uses the compact stream accumulator alone. Settlement passes its immutable
+snapshot once to DSH's `assembleAssistantStream`; the original assembler owns
+final block ordering, usage and interruption/truncation rules. Open content is
+released at termination, and no synthetic close is added for an interrupted block.
 Native Turn/Step markers, converted input and Tool messages, inbox splices and
 model choices also transfer their newly constructed event graphs into admission.
 Conversion detaches borrowed provenance, authored-message sources, image
