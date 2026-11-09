@@ -13,6 +13,26 @@ history, workspace filtering, exclusion of the caller's performing step,
 incremental updates, cancellation, and reopening an index. Installation must
 use the published bundle patch rather than a hand-maintained list of plugins.
 
+Concurrent acceptance runs independent standard Agent Sessions through their
+actual provider transports. Hold their first model responses until the requests
+overlap, release several search calls, and cancel another held request. Verify
+that cancellation closes that provider request without dispatching its tool,
+each surviving Session publishes only its own call/result, and history/control
+requests can complete while searches are unfinished. Repeat with the original
+DSH Web profile under the same overlap and cancellation conditions. A serial
+original baseline cannot establish behavior under concurrent mutations.
+
+A completed Turn containing an error Tool result is a failed search. Preserve
+those results and their Session identities, separate them from successful result
+equivalence, and keep the search acceptance gate failed. A collector may continue
+after a known error to measure its frequency, but must retain every attempt and
+return failure when any search failed. Report control/cancellation invariants
+separately; do not use fast failed searches to claim throughput superiority.
+When investigating a model-safe storage error, capture the original query
+service's cause in an isolated diagnostic run before changing the persistence
+adapter. Keep such instrumentation and experimental engine replacements out of
+production and out of unmodified-package performance claims.
+
 Performance acceptance compares the original DSH tools and JSONL persistence
 with the bridge on the same machine, Node runtime, installed DSH distribution,
 and equivalent Session corpus. Report cold indexing, unchanged repeated search,
