@@ -36,7 +36,7 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     const {groups,members}=await scope.workspace({type:'membership'},signal);
     const published=new Set(members.map(row=>row.session));
     const byWorkspace=new Map(),archives=[],pins=[];
-    for(const member of members.sort((a,b)=>compareDecimal(b.last_activity_ms,a.last_activity_ms)||(a.session<b.session?1:a.session>b.session?-1:0))){
+    for(const member of members.sort((a,b)=>a.group-b.group||a.account_position-b.account_position)){
       if(member.archived)archives.push(member);
       if(member.pinned)pins.push(member);
       const group=groups[member.group],rows=byWorkspace.get(group)??[];
@@ -58,7 +58,9 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       return {workspaceId:row.id,path:row.path,title:row.title??row.path.split(/[/\\]/).filter(Boolean).at(-1)??row.path,
         createdAt,updatedAt,sessionIds:members.map(m=>m.session)};
     }),archivedSessionIds:archives.sort((a,b)=>compareDecimal(a.partition_revision??"0",b.partition_revision??"0")||
-      (a.session<b.session?-1:a.session>b.session?1:0)).map(row=>row.session),pinnedSessionIds:pins.sort((a,b)=>compareDecimal(b.partition_revision??"0",a.partition_revision??"0")).map(row=>row.session)};
+      (a.session<b.session?-1:a.session>b.session?1:0)).map(row=>row.session),pinnedSessionIds:pins.sort((a,b)=>
+        compareDecimal(b.partition_revision??"0",a.partition_revision??"0")||compareDecimal(b.last_activity_ms,a.last_activity_ms)||
+        (a.session<b.session?1:a.session>b.session?-1:0)).map(row=>row.session)};
   }
   function compareDecimal(a,b){
     return a.length-b.length||(a<b?-1:a>b?1:0);
@@ -150,6 +152,15 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       const result=await scope.workspace({type:'insert_before',id:workspaceId,before:beforeWorkspaceId},signal);
       if(result.status==='unknown')throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId:result.id});
       return {workspaceIds:result.ids};
+    }
+    async insertSessionBefore({workspaceId,sessionId,beforeSessionId},signal){
+      if(!/^[0-9a-f]{64}$/.test(workspaceId))
+        throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId});
+      const result=await scope.workspace({type:'insert_session_before',id:workspaceId,session:sessionId,before:beforeSessionId},signal);
+      if(result.status==='unknown')throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId});
+      if(result.status==='invalid_member')throw new RemoteError('workspace/move-invalid','Session or anchor is not in this Workspace',
+        {workspaceId,sessionId,...beforeSessionId===undefined?{}:{beforeSessionId}});
+      return selected(workspaceId,signal);
     }
   };
 }

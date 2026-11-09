@@ -1,5 +1,12 @@
 # Runtime contract
 
+Workspace Session account order comes from native Navigation. The controller's
+`insertSessionBefore` moves a published member within its exact Workspace and
+returns the updated projection. Unknown Workspaces produce `workspace/not-found`;
+unknown or foreign Session/anchor identities produce `workspace/move-invalid`.
+Activity, archiving and pinning do not rewrite account order. Drafts remain
+unpublished and cannot be moved through this durable account operation.
+
 The Cordis package owns process transport, release loading and package archives.
 The bridge composes these in its application entry. Session history and native
 commands, workbench services, tool execution, and market installation have

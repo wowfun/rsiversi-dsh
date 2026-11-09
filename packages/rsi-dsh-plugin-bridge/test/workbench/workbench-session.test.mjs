@@ -146,7 +146,7 @@ test('base workbench serves authorized cold pages through published Typert witho
       case 'list':return {items:[{id:'a'.repeat(64),path:profile,title:'Renamed',created:1}],next:null,order:['a'.repeat(64)]};
       case 'insert_before':return args.operation.id==='a'.repeat(64) && (!args.operation.before || args.operation.before==='a'.repeat(64))
         ?{status:'applied',ids:['a'.repeat(64)]}:{status:'unknown',id:args.operation.id==='a'.repeat(64)?args.operation.before:args.operation.id};
-      case 'membership':return {groups:['a'.repeat(64)],members:[{group:0,session:'one',archived:false,pinned:true,last_activity_ms:'3'}]};
+      case 'membership':return {groups:['a'.repeat(64)],members:[{group:0,session:'one',account_position:0,archived:false,pinned:true,last_activity_ms:'3'}]};
       default:throw Error('unexpected workspace operation');
       }
     }
