@@ -19,8 +19,8 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       }catch(error){ctx.logger.warn('Agent Session observer failed:',error);}
     }
   }
-  async function refresh(record,signal) {
-    const next=(record.refreshing??Promise.resolve()).catch(()=>{}).then(async()=>{
+  function capture(record) {
+    const next=scope.observeOwned(async signal=>{
       if(record.closed)throw Error('Agent has retired');
       const captured=await captureAgentView(scope,history,record.id,signal);
       if(record.closed)throw Error('Agent has retired');
@@ -29,8 +29,29 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       publishEvents(record);
       if(record.agent.status!==previous)record.dispatch.emit('agent/status',{status:record.agent.status});
       return record.agent;
+    },record.idleStop.signal);
+    record.refreshing=next;
+    const clear=()=>{record.refreshing=undefined;};
+    void next.then(clear,clear);
+    return next;
+  }
+  async function refresh(record,signal) {
+    signal?.throwIfAborted();
+    if(record.closed)throw Error('Agent has retired');
+    // Callers arriving during a read share the next pass, never a cut captured
+    // before their request.
+    const next=record.refreshQueued??(record.refreshing
+      ?record.refreshQueued=record.refreshing.catch(()=>{}).then(()=>{
+        record.refreshQueued=undefined;
+        return capture(record);
+      }):capture(record));
+    if(!signal)return next;
+    return new Promise((resolve,reject)=>{
+      const abort=()=>reject(signal.reason);
+      signal.addEventListener('abort',abort,{once:true});
+      void next.then(value=>{signal.removeEventListener('abort',abort);resolve(value);},
+        error=>{signal.removeEventListener('abort',abort);reject(error);});
     });
-    record.refreshing=next;return next;
   }
   function observe(record) {
     const stop=record.observerStop=new AbortController();
@@ -214,7 +235,8 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       } finally {
         try {await record.releaseDraft?.();}
         finally {
-          record.closed=true;record.idleStop.abort(Error('Agent has retired'));detach?.();
+          record.closed=true;record.idleStop.abort(Error('Agent has retired'));
+          await Promise.allSettled([record.refreshing,record.refreshQueued]);detach?.();
           if(records.get(id)===record)records.delete(id);
           if(announced)ctx.emit(scopeTarget(agent.session,agent),'session/disposed',agent.session);
         }

@@ -310,6 +310,16 @@ the Agent captures again before publishing its view. The registry's caller Cordi
 setup, publication and disposal. A created side conversation uses an independent
 native manual fork at the supplied history cut, not a Kernel-owned child.
 
+Refreshes of one attached Agent share at most one active capture and one queued
+capture. A request arriving during a capture waits for the next capture, which
+starts after that request; it never reuses the older in-flight cut. Requests
+waiting for that next capture share its result, including its failure. A failed
+capture does not prevent a queued or later refresh from trying again. The
+application owns these reads; cancelling one caller stops its wait without
+cancelling another caller's read. Agent retirement cancels and drains the reads
+before releasing its scoped context. A read can finish after its last caller
+cancels; it remains a single read of authoritative state, not a polling task.
+
 An attached Agent observes native history and the native model stream under its
 application-owned lifetime, including while no browser is open. It publishes
 the original scoped `agent/assistant-stream` start/chunk/end contract. An
