@@ -213,7 +213,7 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 11. The native Host supplies an opaque `owner`
+Application opening uses protocol 12. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -397,9 +397,13 @@ withdrawal, with no fabricated durable slot or cursor. An empty clear remains
 a no-op. Writable Session log events still require their own native contracts.
 
 Durable inbox transitions replay as original `agent/inbox/spliced` Session events
-at their native Fact/control anchors. Accepted message bodies use the existing
-fragmented native read boundary. Pending arrays follow the native inspection's
-acceptance order; claims, promotion and discard update that same projection. A new
+at their native Fact/control anchors. Accepted message bodies come from history
+controls at the captured cut. Durable inbox capture returns metadata in one call,
+without fetching those bodies again or retaining an inbox reader. Draft capture
+includes its unpublished message bodies in the same reply, within their native
+aggregate bound. Inbox capture requires no fragment or close calls. Pending arrays
+follow the native inspection's acceptance order; claims, promotion and discard
+update that same projection. A new
 child replays only its own inbox controls, so inherited pending work is not copied.
 Queue-only changes advance the real projected event log and notify ordinary
 Session observers. Draft intents remain outside that durable event log.

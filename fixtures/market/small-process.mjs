@@ -11,7 +11,7 @@ new Peer({input:process.stdin,output:process.stdout,generation:process.argv[2],h
   if(method==='extension.hello') return {protocol:1};
   if(method==='extension.ping') return null;
   if(method==='extension.close') {server.close();return null;}
-  if(method!=='application.open' || args.protocol!==9) throw new Error('Unknown application operation or protocol');
+  if(method!=='application.open' || args.protocol!==12) throw new Error('Unknown application operation or protocol');
   key=args.key;
   server.listen(0,'127.0.0.1');await once(server,'listening');
   return {protocol:args.protocol,port:server.address().port,prefixes:['/document']};
