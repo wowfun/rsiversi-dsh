@@ -6,6 +6,22 @@ class RemoteError extends Error {
   constructor(code,message,data){super(message);Object.assign(this,{code,data});}
 }
 const workspaceId='a'.repeat(64);
+
+test('Workspace deletion preserves the native absent result and failures',async()=>{
+  const signal=new AbortController().signal,calls=[];
+  let present=true,failure;
+  const scope={async workspace(input,received){
+    assert.equal(received,signal);calls.push(input);
+    if(failure)throw failure;
+    const deleted=present;present=false;return deleted;
+  }};
+  const Controller=workspaceController(class {},scope,RemoteError),controller=new Controller();
+  assert.deepEqual(await controller.delete({workspaceId},signal),{deleted:true});
+  assert.deepEqual(await controller.delete({workspaceId},signal),{deleted:false});
+  assert.deepEqual(calls,[{type:'delete',id:workspaceId},{type:'delete',id:workspaceId}]);
+  failure=Error('native outcome unknown');
+  await assert.rejects(controller.delete({workspaceId},signal),error=>error===failure);
+});
 test('Workspace baseline uses native account order and moves return the updated projection',async()=>{
   const calls=[],rows=[{session:'newer',account_position:0,last_activity_ms:'2'},
     {session:'older',account_position:1,last_activity_ms:'999'}];

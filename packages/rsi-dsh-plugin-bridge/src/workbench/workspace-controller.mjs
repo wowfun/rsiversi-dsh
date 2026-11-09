@@ -141,11 +141,10 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       return selected(row.id,signal);
     }
     async delete({workspaceId},signal){
-      if(!await scope.workspace({type:'delete',id:workspaceId},signal))throw new Error('Workspace no longer registered');
-      return {deleted:true};
+      return {deleted:await scope.workspace({type:'delete',id:workspaceId},signal)};
     }
     async insertBefore({workspaceId,beforeWorkspaceId},signal){
-      // Native Workspace identities are coordinate digests. Other DSH strings
+      // Native Workspace identities use opaque lowercase hex. Other DSH strings
       // cannot name a registration; preserve DSH's business error at this seam.
       const unknown=[workspaceId,beforeWorkspaceId].find(id=>id!==undefined&&!/^[0-9a-f]{64}$/.test(id));
       if(unknown!==undefined)throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId:unknown});
