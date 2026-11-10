@@ -6,12 +6,13 @@ import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
 const admitted = new WeakMap();
 const journalEvents = new Set(['session/title', 'approval/asked', 'approval/decided', 'approval/policy',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
-  'feedback/message-put', 'feedback/message-delete', 'feedback/record']);
+  'feedback/message-put', 'feedback/message-delete', 'feedback/record', 'agent-preset/selected']);
 export const isJournalEvent = type => journalEvents.has(type);
 const allowed = new Set([...journalEvents, 'todo/write', 'plan/mode', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
   'tool/call', 'tool/result', 'session/end-seed', 'model/selection', 'agent/inbox/spliced']);
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
+const presetId = value => typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
 const shape = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).every(key => keys.includes(key));
 function envelope(event, seq) {
@@ -30,6 +31,9 @@ function envelope(event, seq) {
           || !['pending', 'in_progress', 'completed'].includes(todo.status))) throw new Error('invalid Todo event');
   } else if (event.type === 'plan/mode') {
     if (!shape(data, ['active']) || typeof data.active !== 'boolean') throw new Error('invalid Plan event');
+  } else if (event.type === 'agent-preset/selected') {
+    if (!shape(data, ['agentPreset']) || !presetId(data.agentPreset))
+      throw new Error('invalid Agent preset selection');
   } else if (event.type === 'session/title') {
     if(typeof data?.title!=='string'||!data.title.trim()||typeof data.source?.kind!=='string'||
       !Array.isArray(data.messageSeqs)||data.messageSeqs.some(value=>!integer(value)||value>=seq))throw Error('Invalid Session title');
@@ -59,7 +63,7 @@ export function validateHeader(header) {
       || (header.cwd !== undefined && (typeof header.cwd !== 'string' || !isAbsolute(header.cwd)))
       || (header.origin !== undefined && header.origin !== 'subagent')
       || (header.parentSession !== undefined && typeof header.parentSession !== 'string')
-      || (header.agentPreset !== undefined && typeof header.agentPreset !== 'string')
+      || (header.agentPreset !== undefined && !presetId(header.agentPreset))
       || (header.delegationDepth !== undefined && !integer(header.delegationDepth))) throw new Error('invalid Session header');
   return Object.freeze(structuredClone(header));
 }

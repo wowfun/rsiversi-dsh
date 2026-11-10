@@ -9,6 +9,7 @@ import {readNativeMessage} from '../history/native-pages.mjs';
 import {readJournalDocument} from '../session/journal-document.mjs';
 
 const cut=meta=>meta.selection_cursor??{kind:'durable',fact_seq:meta.through,control_seq:0};
+const identityHeader=({agentPreset,...header})=>header;
 function compare(a,b) {
   if(a.kind!==b.kind)return a.kind==='durable'?1:-1;
   if(a.kind==='draft')return Math.sign(a.revision-b.revision);
@@ -29,6 +30,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     let annotations=creation?.annotations;
     if(meta.inherited&&declared?.origin==='subagent')
       header={...header,origin:declared.origin,...(declared.delegationDepth===undefined?{}:{delegationDepth:declared.delegationDepth})};
+    if(restore)header={...identityHeader(header),...restore.header.agentPreset===undefined?{}:{agentPreset:restore.header.agentPreset}};
     const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome});
     if(header.origin&&source.current.session.header.parentSession!==declared.parentSession)
       throw Error('Declared fork parent differs from its native seed');
@@ -92,11 +94,16 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           const correlations=modelObservationCorrelations(journal,driver,events,native.origins);
           const inbox=inboxObservationProjection(journal,events,native.inbox.transitions);
           for(const [seq,id] of inbox.correlations)correlations.set(seq,id);
+          const preceding=[];
+          if(meta.preset!==undefined&&meta.preset!==row.meta?.preset) {
+            const selected=journal.session.lastEvent('agent-preset/selected')?.data.agentPreset??journal.session.header.agentPreset;
+            if(meta.preset!==selected)preceding.push({type:'agent-preset/selected',data:{agentPreset:meta.preset},time:Date.now()});
+          }
           batch=[];
           let appended;
           try {
-            if(row.merged)journal.advance(after,events,correlations,inbox.projections);
-            else journal.merge(events,correlations,native.session.inheritedEventCount,inbox.projections,annotations);
+            if(row.merged)journal.advance(after,events,correlations,inbox.projections,preceding);
+            else journal.merge(events,correlations,native.session.inheritedEventCount,inbox.projections,annotations,preceding);
             staged.commit();initial=undefined;row.meta=structuredClone(meta);row.merged=true;annotations=undefined;appended=batch;
           }finally{batch=undefined;}
           changed();for(const event of appended)publish(event);
@@ -144,8 +151,8 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
         }
         row=await pending;
       }
-      const {parentSession,origin,delegationDepth,...existing}=row.journal.session.header;
-      if(!isDeepStrictEqual(existing,header))throw Error('Application Session identity changed');
+      const {parentSession,origin,delegationDepth,...existing}=identityHeader(row.journal.session.header);
+      if(!isDeepStrictEqual(existing,identityHeader(header)))throw Error('Application Session identity changed');
       await row.apply(meta,call,release,signal,first);return row;
     },
     get(session){return retained.get(session);},

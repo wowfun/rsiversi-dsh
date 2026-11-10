@@ -10,6 +10,19 @@ Agents, workbench history and cold persistence. Native Kernel owns execution.
 The attached Agent's model-selection append and the ordinary workbench model
 selector both use this log and its native command driver.
 
+A native draft can change Agent preset without changing Session identity.
+The application retains its original creation Header and records a changed
+native choice as `agent-preset/selected`, before the events in the same newly
+observed cut. Re-reading a cut adds nothing; an older draft revision cannot
+undo a newer choice. Selection records and native events publish atomically.
+The compact journal keeps those records and the original Header so a cold
+reader reconstructs the same immutable events. Native Session admission remains
+the sole authority for choosing a preset; the record performs no mutation.
+The native owner must advance the cut when changing the preset. Selection times
+record local observation time; event sequence, not wall-clock time, orders the log.
+Preset identifiers in the Header and selection records are nonblank strings of
+at most 256 UTF-16 code units; native admission owns the preset-name grammar.
+
 Plugins read the model-visible messages with `session.deriveMessages()`.
 It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
@@ -69,6 +82,9 @@ immediately before the child's tagged `session/end-seed`. They count as
 inherited events for DSH projections and have no native Fact position.
 Cold replay uses the same boundary. A child created before these events
 were recorded has only the metadata present in its log.
+Preceding observation records must be log-only events. They cannot precede the
+initial inherited prefix or its constructor annotations; such a batch is rejected
+before publication so every accepted layout can be restored.
 Already prepared invocation metadata is installed before synchronous observers
 see its event. Readiness walks the journal's event-position index only through
 the boundary captured by the calling mutation, retaining progress across calls.

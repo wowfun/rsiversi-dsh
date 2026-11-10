@@ -67,6 +67,51 @@ async function fixture(t) {
   return {ctx,history,options,load,controls,change,capture,persistence,meta,hooks,get reads(){return reads;}};
 }
 
+test('native draft preset changes preserve the Session and replay the observed choice before its first Turn', {skip:!root},async t=>{
+  const f=await fixture(t);
+  const projection=await f.ctx.sessionProjections.register((await f.load('dsh-agent-preset-registry')).agentPresetProjectionDefinition);
+  let meta={...f.meta(),preset:'standard',selection_cursor:{kind:'draft',revision:1}};
+  const facts=[];
+  const options={...f.options,read:async(id,operation)=>{
+    assert.equal(id,'one');
+    if(operation.type==='open')return meta;
+    if(operation.type==='page_close')return null;
+    if(operation.type==='fact')return historyPage(facts.filter(fact=>fact.seq>operation.after_seq&&fact.seq<=operation.through_seq),operation.through_seq,operation.offset);
+    assert.equal(operation.type,'capture');return historyCapture(meta,operation,facts,[]);
+  }};
+  const history=workbenchHistory(options);t.after(()=>history.close());
+  const original=meta,session=await history.capture('one',meta),header=session.header;
+  assert.equal(projection.stateOf(session),'standard');
+  meta={...meta,preset:'custom',selection_cursor:{kind:'draft',revision:2}};
+  assert.equal(await history.capture('one',meta),session);
+  const selected=session.lastEvent('agent-preset/selected');
+  assert.deepEqual(selected.data,{agentPreset:'custom'});
+  assert.equal(session.header,header);assert.equal(header.agentPreset,'standard');
+  assert.equal(projection.stateOf(session),'custom');
+  await history.capture('one',meta);await history.capture('one',original);
+  await history.capture('one',{...meta,preset:'same-cut-is-not-a-new-observation'});
+  assert.equal(session.seq,1,'unchanged and older cuts do not append or reverse selection');
+  assert.equal(session.eventAt(0),selected);
+  const cold=workbenchHistory(options);t.after(()=>cold.close());
+  const restored=await cold.capture('one',meta);
+  assert.deepEqual(restored.header,header);assert.deepEqual(restored.snapshotEvents(),session.snapshotEvents());
+  assert.equal(projection.stateOf(restored),'custom');
+  const stored=JSON.parse(await f.options.storage.read('one'));
+  assert.deepEqual(stored.events,[selected]);assert.deepEqual(stored.sources,[]);
+  await assert.rejects(history.capture('one',{...meta,created_at:2}),/identity changed/);
+  facts.push({seq:1,timestamp_ms:3,type:'message_turn_accepted',turn_id:'first'});
+  meta={...meta,preset:'standard',through:1,selection_cursor:{kind:'durable',fact_seq:1,control_seq:0}};
+  await history.capture('one',meta);
+  assert.deepEqual(session.snapshotEvents().map(event=>event.type),
+    ['agent-preset/selected','agent-preset/selected','turn/start']);
+  assert.equal(projection.stateOf(session),'standard');
+  assert.equal(session.header,header);
+  const durable=workbenchHistory(options);t.after(()=>durable.close());
+  const reopened=await durable.capture('one',meta);
+  assert.deepEqual(reopened.snapshotEvents(),session.snapshotEvents());
+  assert.equal(projection.stateOf(reopened),'standard');
+});
+
 test('model commands publish passive changes without a transcript or attached Agent', {skip:!root},async t=>{
   const f=await fixture(t),life=new AbortController();
   t.after(()=>life.abort());

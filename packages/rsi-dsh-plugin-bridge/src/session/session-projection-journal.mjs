@@ -157,26 +157,27 @@ export class SessionProjectionJournal {
     if(operation.failure===message)return;
     this.#operations.set(id,Object.freeze({...operation,failure:message}));this.#revision++;
   }
-  merge(nativeEvents,correlations=new Map(),inheritedEventCount=0,projections=new Map(),annotations=[]) {
-    return this.#merge(nativeEvents,correlations,inheritedEventCount,0,projections,annotations);
+  merge(nativeEvents,correlations=new Map(),inheritedEventCount=0,projections=new Map(),annotations=[],preceding=[]) {
+    return this.#merge(nativeEvents,correlations,inheritedEventCount,0,projections,annotations,preceding);
   }
-  advance(after,nativeEvents,correlations=new Map(),projections=new Map()) {
+  advance(after,nativeEvents,correlations=new Map(),projections=new Map(),preceding=[]) {
     if(after!==this.#sources.length)throw Error('Native delta does not follow the retained source cursor');
-    return this.#merge(nativeEvents,correlations,this.#session.inheritedEventCount-this.#annotationCount,after,projections,[]);
+    return this.#merge(nativeEvents,correlations,this.#session.inheritedEventCount-this.#annotationCount,after,projections,[],preceding);
   }
-  #merge(nativeEvents,correlations,inheritedEventCount,after,projections,annotations) {
+  #merge(nativeEvents,correlations,inheritedEventCount,after,projections,annotations,preceding) {
     this.#entry();
     const input=this.#nativeInput(nativeEvents);
     if(!Array.isArray(input)||after+input.length<this.#sources.length||!integer(inheritedEventCount)
       ||inheritedEventCount>after+input.length)throw Error('Native event prefix moved backwards');
     if(annotations.length&&(this.seq||after||!this.#session.header.isSeeded||!isInheritedMarker(input[inheritedEventCount])))
       throw Error('Fork annotations require a fresh inherited boundary');
-    if(!input.length&&after===this.#sources.length) {
+    if(preceding.some(event=>!isJournalEvent(event?.type)))throw Error('Preceding events must be log-only');
+    if(!input.length&&!preceding.length&&after===this.#sources.length) {
       if(this.#rewrite){this.#revision++;this.#rewrite=false;}
       return Object.freeze([]);
     }
     const start=this.seq,sourceStart=this.#sources.length;
-    const sources=[],operations=new Map(),events=[];
+    const sources=[],operations=new Map(),events=preceding.map((event,index)=>this.#snapshot({...event,seq:start+index}));
     const sourceAt=seq=>seq<sourceStart?this.#sources[seq]:sources[seq-sourceStart];
     const eventAt=seq=>seq<start?this.#session.eventAt(seq):events[seq-start];
     const operationAt=id=>operations.get(id)??this.#operations.get(id);
@@ -184,7 +185,7 @@ export class SessionProjectionJournal {
       if(event.seq!==after+index)throw Error('Native event positions are not dense');
       if(event.seq===inheritedEventCount)for(const annotation of annotations) {
         if(!isForkAnnotation(annotation.type))throw Error('Unknown fork annotation');
-        events.push({...this.#snapshot(annotation),seq:start+events.length});
+        events.push(this.#snapshot({...annotation,seq:start+events.length}));
       }
       const translated=projections.has(event.seq)?{...event,data:this.#nativeInput(projections.get(event.seq))}:event;
       const existing=sourceAt(event.seq),correlation=correlations.get(event.seq);
@@ -214,17 +215,18 @@ export class SessionProjectionJournal {
     }
     const count=this.#annotationCount+annotations.length;
     const inherited=(inheritedEventCount?sourceAt(inheritedEventCount-1).seq+1:0)+count;
+    if(!sourceStart&&inherited&&(start||preceding.length))throw Error('Local application mutation cannot enter an inherited prefix');
     if(count&&!after&&(sourceAt(inheritedEventCount)?.seq!==inherited||!isInheritedMarker(input[inheritedEventCount])))
       throw Error('Fork annotations moved outside their inherited boundary');
     if(this.#sources.length&&inherited!==this.#session.inheritedEventCount)
       throw Error('Native inherited prefix changed');
-    if(!sourceStart&&inherited&&start)throw Error('Local application mutation cannot enter an inherited prefix');
     if(events.length) {
       const candidate=this.#session.branch();candidate.inheritedEventCount=inherited;
       candidate.begin();
       try {for(const event of events)candidate.adoptObserved(event);}finally{candidate.end();}
       this.#session.adoptBranch(candidate);
     }
+    for(let index=0;index<preceding.length;index++)this.#owned.push(this.#session.eventAt(start+index));
     for(let index=0;index<annotations.length;index++) {
       const seq=inherited-annotations.length+index;
       this.#owned.push(this.#session.eventAt(seq));
@@ -232,7 +234,7 @@ export class SessionProjectionJournal {
     this.#annotationCount=count;
     for(const source of sources){this.#sources.push(source);this.#sourceDigest.update(source.hash);}
     for(const [id,operation] of operations)this.#operations.set(id,operation);
-    if(sources.length||this.#rewrite)this.#revision++;
+    if(sources.length||preceding.length||this.#rewrite)this.#revision++;
     this.#rewrite=false;
     const appended=this.#session.snapshotEvents(start);this.#publish(appended);return Object.freeze(appended);
   }

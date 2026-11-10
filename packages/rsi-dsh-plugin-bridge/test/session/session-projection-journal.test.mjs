@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {test} from 'node:test';
 import {readJournalDocument} from '../../src/session/journal-document.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
-import {SessionFacade} from '../../src/session/session.mjs';
+import {SessionFacade,validateHeader} from '../../src/session/session.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -21,6 +21,85 @@ async function fixture(t,options={}) {
   const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
+
+test('selection records and the native delta commit together without copying native events into storage', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t);
+  const first={seq:0,time:1,type:'turn/start',data:{turn:1}};
+  const second={seq:1,time:2,type:'turn/end',data:{turn:1,reason:'completed'}};
+  journal.merge([first]);
+  const before=journal.encode(),selection={time:2,type:'agent-preset/selected',data:{agentPreset:'custom'}};
+  assert.throws(()=>journal.advance(1,[{...second,seq:2}],new Map(),new Map(),[selection]),/not dense/);
+  assert.equal(journal.encode(),before);
+  assert.throws(()=>journal.advance(1,[second],new Map(),new Map(),[{...selection,surfaceOp:'append'}]),/Log-only/);
+  assert.equal(journal.encode(),before);
+  journal.advance(1,[second],new Map(),new Map(),[selection]);
+  assert.deepEqual(journal.session.snapshotEvents().map(event=>event.type),['turn/start','agent-preset/selected','turn/end']);
+  const stored=readJournalDocument(journal.encode());
+  assert.deepEqual(stored.events,[{...selection,seq:1}]);
+  assert.deepEqual(stored.sources.map(row=>row.seq),[0,2]);
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:stored,native:[first,second]});
+  assert.equal(cold.encode(),journal.encode());
+});
+
+test('preceding records and a full native merge publish or fail as one restorable batch', {skip:!root},async t=>{
+  const notices=[],{ctx,api,journal}=await fixture(t,{notify:(_session,event)=>notices.push(event)});
+  const first={seq:0,time:1,type:'turn/start',data:{turn:1}};
+  const second={seq:1,time:2,type:'turn/end',data:{turn:1,reason:'completed'}};
+  const preceding={time:3,type:'agent-preset/selected',data:{agentPreset:'custom'}};
+  const merge=(native,extra=[preceding])=>journal.merge(native,new Map(),0,new Map(),[],extra);
+  const before=journal.encode();
+  assert.throws(()=>merge([first,{seq:1,time:2,type:'plan/mode',data:{active:'invalid'}}]),/Plan/);
+  assert.throws(()=>merge([first,second],[first]),/log-only/);
+  assert.equal(journal.encode(),before);
+  assert.deepEqual([journal.seq,journal.nativeSeq,journal.ownedEventCount,journal.revision,notices.length],[0,0,0,0,0]);
+  merge([first,second]);
+  assert.deepEqual(notices.map(event=>event.type),['agent-preset/selected','turn/start','turn/end']);
+  assert.deepEqual([journal.sourceAt(0).seq,journal.sourceAt(1).seq],[1,2]);
+  preceding.data.agentPreset='mutated after acceptance';
+  assert.equal(journal.session.eventAt(0).data.agentPreset,'custom');
+  assert.ok(Object.isFrozen(journal.session.eventAt(0)));
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode()),native:[first,second]});
+  assert.equal(cold.encode(),journal.encode());
+});
+
+test('preceding records cannot enter a fresh inherited prefix, with or without constructor annotations', {skip:!root},async t=>{
+  const {ctx,api}=await fixture(t),child={...header,isSeeded:true,parentSession:'parent'};
+  for(const [cut,annotated] of [[1,true],[1,false],[0,true]]) {
+    const prefix=cut?[{type:'session/end-seed',seq:0,time:1,data:{inherited:true}}]:[];
+    const native=[...prefix,{type:'session/end-seed',seq:cut,time:2,data:{inherited:true}}];
+    const annotations=annotated?[{type:'working-directory/change',time:2,data:{cwd:process.cwd()},ignorable:true}]:[];
+    const notices=[],journal=new SessionProjectionJournal(ctx,api,{header:child},{notify:(_session,event)=>notices.push(event)});
+    const before=journal.encode();
+    assert.throws(()=>journal.merge(native,new Map(),cut,new Map(),annotations,
+      [{type:'agent-preset/selected',time:3,data:{agentPreset:'custom'}}]),/inherited prefix/);
+    assert.equal(journal.encode(),before);
+    assert.deepEqual([journal.seq,journal.nativeSeq,journal.ownedEventCount,journal.revision,notices.length],[0,0,0,0,0]);
+    journal.merge(native,new Map(),cut,new Map(),annotations);
+    const cold=new SessionProjectionJournal(ctx,api,{header:child},{restore:readJournalDocument(journal.encode()),native});
+    assert.equal(cold.encode(),journal.encode());
+  }
+  const journal=new SessionProjectionJournal(ctx,api,{header:child});
+  assert.throws(()=>journal.merge([],new Map(),1,new Map(),[],
+    [{type:'agent-preset/selected',time:3,data:{agentPreset:'custom'}}]),/prefix moved backwards/);
+});
+
+test('Header preset identifiers are bounded nonblank values when present',()=>{
+  assert.deepEqual(validateHeader(header),header);
+  for(const agentPreset of ['', ' \t ', 'x'.repeat(257), 1, null])
+    assert.throws(()=>validateHeader({...header,agentPreset}),/Session header/);
+  assert.equal(validateHeader({...header,agentPreset:'x'.repeat(256)}).agentPreset.length,256);
+});
+
+test('selection identifiers share Header bounds and rejected selections leave no durable record', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t),before=journal.encode();
+  for(const agentPreset of ['', ' \t ', 'x'.repeat(257), 1, null]) {
+    assert.throws(()=>journal.append('agent-preset/selected',{agentPreset}),/Agent preset selection/);
+    assert.equal(journal.encode(),before);
+  }
+  journal.append('agent-preset/selected',{agentPreset:'x'.repeat(256)});
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode())});
+  assert.equal(cold.encode(),journal.encode());
+});
 
 test('native admission shares one encoding with source digests while cold replay still checks them', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t,{nativeEventState:'shared-frozen'});
