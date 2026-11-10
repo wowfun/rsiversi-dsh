@@ -1,23 +1,39 @@
 import {randomUUID} from 'node:crypto';
 import {forkSnapshot} from '../session/fork.mjs';
-import {observeFact,readAttempt,readHistory,restoreMapping} from '../history/history.mjs';
+import {factObserver,restoreMapping} from '../history/history.mjs';
+import {factPageReader} from '../history/pages.mjs';
+import {nativeFactPages} from '../history/native-pages.mjs';
 import {SessionFacade} from '../session/session.mjs';
 
 export async function projectFacts(session,mapping,fetch,through,signal,llm,observed){
-  const identity={session_id:session.id};
+  return factProjector(session,mapping,fetch,through,signal,llm,observed)(through);
+}
+
+export function factProjector(session,mapping,fetch,horizon,signal,llm,observed){
+  const advance=factPageReader(fetch,mapping.factCursor,horizon,signal);
+  let page;
   const readFact=async seq=>{
+    const retained=page[seq-page[0]?.seq];
+    if(retained?.seq===seq)return retained;
     let fact;
-    await readHistory(fetch,identity,seq-1,seq,value=>{fact=value;},signal);
+    await factPageReader(fetch,seq-1,seq,signal)(seq,value=>{fact=value;});
     if(fact?.seq!==seq)throw new Error('Referenced Fact is unavailable');
     return fact;
   };
-  session.begin();
-  try{
-    mapping.factCursor=await readHistory(fetch,identity,mapping.factCursor,through,async fact=>{
-      await observeFact(session,mapping,fact,readFact,seq=>readAttempt(fetch,identity,seq,signal),llm);
-      observed?.(fact);
-    },signal);
-  }finally{session.end();}
+  const observe=factObserver(session,mapping,readFact,llm);
+  return async through=>{
+    session.begin();
+    try{
+      mapping.factCursor=await advance(through,async (fact,facts)=>{
+        page=facts;
+        try {
+          await observe(fact);
+          const completion=observed?.(fact);
+          if(completion)await completion;
+        } finally {page=undefined;}
+      });
+    }finally{session.end();}
+  };
 }
 
 export async function inheritedSession(ctx,api,llm,call,release,header,signal){
@@ -31,7 +47,7 @@ export async function inheritedSession(ctx,api,llm,call,release,header,signal){
       const parent=canonical??{header:{version:4,id:row.parent,createdAt:row.parent_time,isSeeded:false},
         mapping:restoreMapping(null),events:[],inheritedEventCount:0};
       const session=new SessionFacade(ctx,api,parent,false);
-      const fetch=(method,{after_seq,offset})=>call({type:'seed_read',key,interval,after_seq,offset,attempt:method==='agent.history.attempt.read'});
+      const fetch=nativeFactPages(call,release,signal,{type:'seed_read',key,interval});
       await projectFacts(session,parent.mapping,fetch,row.through,signal,llm);
       canonical=forkSnapshot({...parent,events:session.snapshotEvents()},{
         header:row.child===header.id?{...header,parentSession:row.parent}:

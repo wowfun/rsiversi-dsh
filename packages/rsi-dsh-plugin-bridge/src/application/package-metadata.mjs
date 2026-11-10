@@ -17,6 +17,11 @@ export function leasedPluginPackages({PluginPackages,resolvePluginResource},leas
       packages.set(binding,pkg);return pkg;
     }
     metaOf(specifier,parentURL) {
+      const selected=leases.bindingFor(specifier,parentURL);
+      if(selected?.name===specifier){
+        const cached=metadata.get(selected);
+        if(cached)return cached;
+      }
       let manifest;
       try {manifest=resolvePluginResource(specifier+'/package.json',parentURL);}
       catch {return super.metaOf(specifier,parentURL);}

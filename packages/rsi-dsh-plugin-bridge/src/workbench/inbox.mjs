@@ -1,5 +1,4 @@
 import {contentBlocks,nativeMessageSource,nativeMessageId} from '../history/conversation-history.mjs';
-import {readNativeMessage} from '../history/history.mjs';
 
 /** Fold committed controls; the native queue remains the only execution owner. */
 export function workbenchInbox(seed) {
@@ -9,10 +8,12 @@ export function workbenchInbox(seed) {
   const list=target=>[...rows.values()].filter(row=>row.target===target)
     .sort((a,b)=>a.accepted-b.accepted);
   function splice(session,time,target,start,removed,inserted,outcome,effects=[],transition) {
-    const event=session.appendObserved('agent/inbox/spliced',{
+    const event=session.adoptObserved({type:'agent/inbox/spliced',seq:session.seq,time,data:{
       target:target.replace('_','-'),start,...(removed?{removedCount:removed}:{}),inserted,
       ...(outcome?{outcome}:{}),
-    },time);
+    }});
+    for(let index=0;index<transition.inserted.length;index++)
+      transition.inserted[index].message=event.data.inserted[index];
     if(effects.length)transition.notifications=effects.map(effect=>effect.type==='agent/inbox/inserted'
       ?{...effect,data:{message:event.data.inserted.find(message=>message.id===effect.data.message.id)}}:effect);
     transitions.set(event.seq,transition);
@@ -30,7 +31,7 @@ export function workbenchInbox(seed) {
   }
   return {transitions,branch:()=>workbenchInbox({rows:[...rows],transitions,successor}),
     snapshot:()=>({'next-step':list('next_step').map(row=>row.message),
-    'next-turn':list('next_turn').map(row=>row.message)}),async observe(event,session,call,signal,turn,inboxSlotFrom=0) {
+    'next-turn':list('next_turn').map(row=>row.message)}),observe(event,session,turn,inboxSlotFrom=0) {
     if(successor&&event.kind!=='accepted')throw Error('Native inbox successor lacks its next acceptance');
     if(event.kind==='successor') {
       const row=rows.get(event.predecessor_id);
@@ -39,12 +40,13 @@ export function workbenchInbox(seed) {
     }
     if(event.kind==='accepted') {
       if(rows.has(event.message_id)||!['next_step','next_turn'].includes(event.target))throw Error('Invalid native inbox acceptance');
-      const native=await readNativeMessage(call,event.message_id,event.seq,signal);
+      const native=event.message;
+      if(native?.message_id!==event.message_id)throw Error('Native inbox acceptance identity mismatch');
       const slotId=successor?.slot.id??event.message_id;
       const useSlot=session.seq>=inboxSlotFrom;
       const identity=useSlot?slotId:native.message_id;
       const message={id:nativeMessageId(native.source,identity),role:'user',content:contentBlocks(native.content),
-        source:nativeMessageSource(native.source,identity)};
+        source:structuredClone(nativeMessageSource(native.source,identity))};
       const accepted=useSlot&&successor?.row.target===event.target?successor.row.accepted:event.seq;
       if(successor) {
         if(successor.successor_id!==event.message_id)throw Error('Native inbox successor identity changed');

@@ -4,6 +4,7 @@ import {mkdir,mkdtemp,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
 import {provideHttp} from '../../src/application/http.mjs';
@@ -11,6 +12,7 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workspaceController} from '../../src/workbench/workspace-controller.mjs';
 import {sessionController} from '../../src/workbench/session-controller.mjs';
 import {catalogObserver} from '../../src/workbench/catalog.mjs';
+import {workbenchProfile} from '../../src/workbench/profile.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('follow opens authorized history before optional independent Agent startup',async()=>{
@@ -94,7 +96,7 @@ test('restore waits for stop providers; a stop failure leaves the committed arch
   assert.ok(warnings.some(line=>line.includes('plugin stop failed')));
 });
 
-test('published Typert gateway serves two authorized cold pages using the original session codec', {skip:!root},async t=>{
+test('base workbench serves authorized cold pages through published Typert without a registry importer', {skip:!root},async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-workbench-list-'));
   t.after(()=>rm(profile,{recursive:true,force:true}));
   await mkdir(join(profile,'node_modules'));
@@ -111,7 +113,7 @@ test('published Typert gateway serves two authorized cold pages using the origin
     if(method==='application.workspaces'){
       assert.equal(request,'issued-request');
       switch(args.operation.type){
-      case 'drafts':return {items:['one','blank-native','fork-native'].map(id=>({id,workspace:'ws',cwd:profile,
+      case 'drafts':return {items:['one','blank-native','fork-native'].map(id=>({id,workspace:'a'.repeat(64),cwd:profile,
         updatedAt:2,blank:id!=='fork-native',running:false})),next:null};
       case 'unarchive':return {archivedSessionIds:[]};
       case 'archive_activity':{
@@ -140,9 +142,11 @@ test('published Typert gateway serves two authorized cold pages using the origin
         if(session==='archived'&&pinned)return {status:'archived'};
         return {status:'applied',pinnedSessionIds:pinned?[session]:[]};
       }
-      case 'rename': return {id:'ws'};
-      case 'list':return {items:[{id:'ws',path:profile,title:'Renamed',created:1}],next:null};
-      case 'membership':return {groups:['ws'],members:[{group:0,session:'one',archived:false,pinned:true,last_activity_ms:'3'}]};
+      case 'rename': return {id:'a'.repeat(64)};
+      case 'list':return {items:[{id:'a'.repeat(64),path:profile,title:'Renamed',created:1}],next:null,order:['a'.repeat(64)]};
+      case 'insert_before':return args.operation.id==='a'.repeat(64) && (!args.operation.before || args.operation.before==='a'.repeat(64))
+        ?{status:'applied',ids:['a'.repeat(64)]}:{status:'unknown',id:args.operation.id==='a'.repeat(64)?args.operation.before:args.operation.id};
+      case 'membership':return {groups:['a'.repeat(64)],members:[{group:0,session:'one',account_position:0,archived:false,pinned:true,last_activity_ms:'3'}]};
       default:throw Error('unexpected workspace operation');
       }
     }
@@ -184,7 +188,9 @@ test('published Typert gateway serves two authorized cold pages using the origin
   }});
   t.after(()=>app.close());
   const entries=['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway','dsh-api-remotes','dsh-api-session-controller','dsh-api-workspace-controller'];
-  await app.reconcile([{insert:entries.map(id=>({id,name:'@deepseek-ai/'+id}))}]);
+  const boot=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')));
+  const selected=await workbenchProfile(modules,boot,profile);
+  await app.reconcile([{insert:selected.rows.filter(row=>entries.some(name=>row.name==='@deepseek-ai/'+name))}]);
   const additions=[];app.ctx.on('api-session/added',row=>additions.push(row));
   const lifetime=new AbortController();t.after(()=>lifetime.abort());
   const peer=app.ctx.connection.admit({headers:{'x-rsi-upstream-key':key}}).peer;
@@ -293,10 +299,25 @@ test('published Typert gateway serves two authorized cold pages using the origin
   assert.deepEqual(nativeStops,[['working',true],['mirror',false]]);
   const rename=await fetch(app.ctx.webServer.getOrigin()+'/api/workspace/rename',{method:'POST',
     headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
-    body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'workspace/rename',payload:{args:{request:{workspaceId:'ws',title:'Renamed'}}}})});
+    body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'workspace/rename',payload:{args:{request:{workspaceId:'a'.repeat(64),title:'Renamed'}}}})});
   const renamed=await rename.json();
   assert.deepEqual(renamed.result?.value.workspace.sessionIds,['fork-native','blank-native','one'],JSON.stringify(renamed));
   assert.equal(renamed.result.value.workspace.updatedAt,new Date(3).toISOString());
+  for(const [request,expected] of [
+    [{workspaceId:'a'.repeat(64)},{ok:true,value:{workspaceIds:['a'.repeat(64)]}}],
+    [{workspaceId:'a'.repeat(64),beforeWorkspaceId:'a'.repeat(64)},{ok:true,value:{workspaceIds:['a'.repeat(64)]}}],
+    [{workspaceId:'absent'},{code:'workspace/not-found',id:'absent'}],
+    [{workspaceId:'0'.repeat(64)},{code:'workspace/not-found',id:'0'.repeat(64)}],
+    [{workspaceId:'a'.repeat(64),beforeWorkspaceId:'absent'},{code:'workspace/not-found',id:'absent'}],
+  ]){
+    const method='workspace/insertBefore';
+    const response=await fetch(app.ctx.webServer.getOrigin()+'/api/'+method,{method:'POST',
+      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+      body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method,payload:{args:{request}}})});
+    const {result}=await response.json();
+    if(expected.ok)assert.deepEqual(result,expected);
+    else {assert.equal(result.error.code,expected.code);assert.deepEqual(result.error.details,{workspaceId:expected.id});}
+  }
   for(const mode of ['queue','steer']) {
     const requestId=randomUUID();
     const reply=await fetch(app.ctx.webServer.getOrigin()+'/api/session/prompt',{method:'POST',

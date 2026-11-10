@@ -33,11 +33,10 @@ function finish(event) {
 /** The same native events produce DSH chunks for a live prefix and a durable settlement. */
 export function modelProjection(llm,startedAt,onChunk) {
   const stream = new llm.AssistantStreamAccumulator();
-  const blocks = new llm.BlockAssembler();
-  const starts = new Map(); let previous = 0;
+  const open = new Map(); let previous = 0;
   function push(time, chunk) {
     const item=stream.push({time,chunk});
-    blocks.push(item.chunk);onChunk?.(item);
+    onChunk?.(item);
   }
   function accept(elapsed,event) {
     if (!integer(elapsed) || elapsed < previous || !integer(startedAt + elapsed)) throw new Error('invalid canonical model timing');
@@ -46,42 +45,51 @@ export function modelProjection(llm,startedAt,onChunk) {
       case 'content_started': {
         const type = { text: 'text', reasoning: 'reasoning', tool_call: 'tool-call' }[event.content.type];
         if (!type || type === 'tool-call' && event.content.kind !== 'function') throw new Error('unsupported model content kind');
-        starts.set(event.index, event.content);
+        open.set(event.index,type==='tool-call'
+          ?{type,id:event.content.id,name:event.content.name,arguments:''}:{type,text:''});
         push(time, { type: 'block-start', index: event.index, blockType: type });
         if (type === 'tool-call') push(time, { type: 'tool-call-delta', index: event.index, id: event.content.id, name: event.content.name, argumentsDelta: '' });
         break;
       }
       case 'content_delta': {
-        const start = starts.get(event.index);
-        if (!start) throw new Error('model delta lacks its content start');
-        if (event.delta.type === 'tool_arguments') push(time, { type: 'tool-call-delta', index: event.index, id: start.id, argumentsDelta: event.delta.value });
-        else if (['text', 'reasoning'].includes(event.delta.type)) push(time, { type: `${event.delta.type}-delta`, index: event.index, text: event.delta.value });
+        const block = open.get(event.index);
+        if (!block) throw new Error('model delta lacks its content start');
+        if (event.delta.type === 'tool_arguments') {
+          block.arguments+=event.delta.value;
+          push(time, { type: 'tool-call-delta', index: event.index, id: block.id, argumentsDelta: event.delta.value });
+        } else if (['text', 'reasoning'].includes(event.delta.type)) {
+          block.text+=event.delta.value;
+          push(time, { type: `${event.delta.type}-delta`, index: event.index, text: event.delta.value });
+        }
         else throw new Error('unsupported model delta');
         break;
       }
       case 'content_finished': {
-        const block = blocks.blocks()[event.index];
+        const block = open.get(event.index);
         if (!block) throw new Error('model close lacks its content');
+        open.delete(event.index);
         push(time, { type: 'block-end', index: event.index, block });
         break;
       }
       case 'usage': push(time, { type: 'usage', usage: usage(event.usage) }); break;
-      case 'finished': case 'failed': push(time, { type: 'finish', reason: finish(event) }); break;
+      case 'finished': case 'failed':
+        push(time, { type: 'finish', reason: finish(event) });open.clear();break;
       default: throw new Error(`model event needs an explicit DSH mapping: ${event.type}`);
     }
   }
-  return {stream,blocks,accept};
+  return {stream,accept};
 }
 
-export async function observeAttempt(session, mapping, fact, readAttempt, llm) {
+export function observeAttempt(session, mapping, fact, llm) {
   if (fact.purpose !== 'conversation') return;
   const model = mapping.model;
   if (!model || model.effectId !== fact.effect_id || !integer(model.startedAt)) throw new Error('attempt lacks its captured model start');
-  const projected = await readAttempt(fact.seq);
-  if (projected.seq !== fact.seq || typeof projected.retain_context !== 'boolean' || !Array.isArray(projected.events)) throw new Error('invalid normalized model projection');
-  const {stream,blocks,accept}=modelProjection(llm,model.startedAt);
+  const projected = fact.attempt;
+  if (!projected || typeof projected.retain_context !== 'boolean' || !Array.isArray(projected.events)) throw new Error('invalid normalized model projection');
+  const {stream,accept}=modelProjection(llm,model.startedAt);
   for(const [elapsed,event] of projected.events)accept(elapsed,event);
   const data = { turn: mapping.turn, step: mapping.step, stream: stream.snapshot() };
+  const blocks = llm.assembleAssistantStream(data.stream);
   const partial = ['error', 'aborted', 'max-tokens'].includes(blocks.finish.kind);
   const content = partial ? blocks.interruptedBlocks() : blocks.blocks();
   if (!partial || projected.retain_context && content.length) {
@@ -90,10 +98,11 @@ export async function observeAttempt(session, mapping, fact, readAttempt, llm) {
       content };
     if (blocks.usage) data.usage = blocks.usage;
     if (partial) data.interrupted = true;
-    const event = session.appendObserved('assistant/message', data, fact.timestamp_ms, { surfaceOp: 'append' });
+    // Assembly owns the new containers; stream snapshots and closed blocks are already immutable.
+    const event = session.adoptObserved({type:'assistant/message',seq:session.seq,time:fact.timestamp_ms,data,surfaceOp:'append'});
     // A truncated batch is diagnostic only, including its complete sibling calls.
     if (blocks.finish.kind !== 'max-tokens') retainCalls(mapping, fact, event);
-  } else session.appendObserved('assistant/attempt', data, fact.timestamp_ms);
+  } else session.adoptObserved({type:'assistant/attempt',seq:session.seq,time:fact.timestamp_ms,data});
   mapping.model = null;
   return blocks.finish.kind === 'max-tokens' || !partial && !mapping.calls.length;
 }

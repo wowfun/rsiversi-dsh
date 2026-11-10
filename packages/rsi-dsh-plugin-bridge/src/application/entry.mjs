@@ -1,4 +1,4 @@
-import {Worker} from 'node:worker_threads';
+import {MessageChannel,Worker} from 'node:worker_threads';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 
 // The worker owns the Cordis tree, including its sockets. Synchronous module
@@ -20,9 +20,11 @@ export function serveApplication(input,output,generation,arguments_,entry) {
     if(closing || !['package.import','application.open'].includes(method))
       throw new Error('Unknown application operation');
     if(!worker) {
-      worker=new Worker(entry,{argv:arguments_,stdin:true,stdout:true,stderr:true});
+      const {port1,port2}=new MessageChannel();
+      worker=new Worker(entry,{argv:arguments_,stdout:true,stderr:true,workerData:port2,transferList:[port2]});
+      worker.stdout.pipe(process.stderr,{end:false});
       worker.stderr.pipe(process.stderr,{end:false});
-      backend=new Peer({input:worker.stdout,output:worker.stdin,generation,
+      backend=new Peer({port:port1,generation,
         handler:(name,args,cancel)=>carrier.request(name,args,{signal:cancel}),
         onClose:error=>{if(!closing) carrier.close(error);}});
       worker.once('error',error=>carrier.close(error));

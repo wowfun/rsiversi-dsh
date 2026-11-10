@@ -1,12 +1,13 @@
 import {SessionFacade} from '../session/session.mjs';
 import {restoreMapping} from '../history/history.mjs';
-import {inheritedSession,projectFacts} from './seed.mjs';
+import {inheritedSession,factProjector} from './seed.mjs';
 import {workbenchModel} from './model.mjs';
 import {workbenchInbox} from './inbox.mjs';
 import {cloneMapping} from '../history/input-history.mjs';
+import {readControls,nativeFactPages} from '../history/native-pages.mjs';
 
 /** A retained native projector has no retained request authority or partial published batches. */
-export async function workbenchSource({ctx,api,llm,header,meta,call,release,signal}) {
+export async function workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome}) {
   const seed=meta.inherited?await inheritedSession(ctx,api,llm,call,release,header,signal):{header};
   const session=new SessionFacade(ctx,api,seed,false);
   let current={session,mapping:seed.mapping??restoreMapping(null),controlThrough:0,
@@ -14,14 +15,29 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
     inbox:workbenchInbox(),spawning:new Set(),spawned:new Map(),settled:new Map(),origins:new Map()};
   return {
     get current(){return current;},
-    async stage(call,signal,through,controlThrough,localRequests=new Set(),inboxSlotFrom=0) {
+    async stage(call,release,signal,through,controlThrough,localRequests=new Set(),inboxSlotFrom=0,first) {
       const original=current;
       const next={...original,session:session.branch(),mapping:cloneMapping(original.mapping),
         model:original.model.branch(),inbox:original.inbox.branch(),
         spawning:new Set(original.spawning),spawned:new Map(original.spawned),
         settled:new Map(original.settled),origins:new Map()};
-      const fetch=(method,{after_seq,offset})=>call({type:method==='agent.history.read'?'fact':'attempt',after_seq,offset});
-      const project=until=>projectFacts(next.session,next.mapping,fetch,until,signal,llm,fact=>{
+      const loadFacts=nativeFactPages(call,release,signal);
+      let firstControl=first?.after.control_seq===next.controlThrough&&first.cut.control_seq===controlThrough?first.controls:undefined;
+      let firstFact=first?.after.fact_seq===next.mapping.factCursor&&first.cut.fact_seq===through?first.facts:undefined;
+      if(next.controlThrough<controlThrough&&next.mapping.factCursor<through) {
+        const pages=await Promise.allSettled([
+          firstControl??readControls(call,release,next.controlThrough,controlThrough,signal),
+          firstFact??loadFacts(next.mapping.factCursor,through),
+        ]);
+        signal?.throwIfAborted();
+        for(const page of pages)if(page.status==='rejected')throw page.reason;
+        [firstControl,firstFact]=pages.map(page=>page.value);
+      }
+      const fetch=(after,horizon)=>{
+        const page=firstFact;firstFact=undefined;
+        return page??loadFacts(after,horizon);
+      };
+      const project=factProjector(next.session,next.mapping,fetch,through,signal,llm,fact=>{
         if(fact.type==='model_started'&&next.mapping.model?.effectId===fact.effect_id)
           next.mapping.model.startedAfterSeq=next.session.seq-1;
         if(fact.type==='model_attempt_settled') {
@@ -38,11 +54,11 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
           }
         }
         if(fact.type==='turn_terminal')next.spawning.clear();
+        if(fact.type==='tool_result')return retireToolOutcome?.(header.id,fact.effect_id,fact.identity);
       });
       while(next.controlThrough<controlThrough) {
-        const page=await call({type:'controls',after_seq:next.controlThrough,through_seq:controlThrough});
-        if(!Number.isSafeInteger(page.through)||page.through<=next.controlThrough||page.through>controlThrough)
-          throw Error('Control history did not advance within its captured cut');
+        const page=firstControl??await readControls(call,release,next.controlThrough,controlThrough,signal);
+        firstControl=undefined;
         for(const event of page.events) {
           if(event.after_fact_seq<next.mapping.factCursor||event.after_fact_seq>through)
             throw Error('Control history changed its Fact anchor');
@@ -52,7 +68,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
               const appended=next.model.observe(event,next.session);
               if(localRequests.has(event.invocation?.request_id))next.origins.set(appended.seq,event);
             }
-            else await next.inbox.observe(event,next.session,call,signal,next.mapping.turn,inboxSlotFrom);
+            else next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
           }finally{next.session.end();}
         }
         next.controlThrough=page.through;

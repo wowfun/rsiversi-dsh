@@ -4,14 +4,11 @@ import {isDeepStrictEqual} from 'node:util';
 export async function captureAgentView(scope,history,id,signal) {
   for(;;){
     signal?.throwIfAborted();
-    const inbox=await scope.inbox.capture(id,signal),meta=await history.metadata(id,signal);
+    const inbox=await scope.inbox.capture(id,signal);
+    const meta=inbox.kind==='draft'?await history.metadata(id,signal):inbox.history;
     if(!meta)throw Error('Agent Session is no longer available');
     if(inbox.kind==='draft') {
       if(meta.selection_cursor.kind!=='draft'||meta.selection_cursor.revision!==inbox.revision)continue;
-    } else {
-      if(meta.selection_cursor.kind!=='durable')throw Error('Published Session reverted to draft');
-      meta.through=inbox.cursor.fact_seq;
-      meta.selection_cursor={kind:'durable',...inbox.cursor};
     }
     const {session,options,sourceCursor}=await history.captureAgent(id,meta,signal);
     if(sourceCursor&&!isDeepStrictEqual(sourceCursor,meta.selection_cursor))continue;

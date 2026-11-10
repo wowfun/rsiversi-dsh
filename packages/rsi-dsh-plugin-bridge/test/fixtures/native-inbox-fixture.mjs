@@ -10,6 +10,17 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {workbenchAgents} from '../../src/workbench/agents.mjs';
 import {invocationDigest} from '../../src/session/command-receipts.mjs';
+import {contextRequest} from '../../src/session/inbox/input-invocation.mjs';
+import {historyPage} from './history-page.mjs';
+
+export function contextIntent(command,expected_revision,id,event) {
+  const invocation={command,expected_revision};
+  return {kind:'context-input',...invocation,sha256:invocationDigest(contextRequest({id,invocation},event))};
+}
+
+export function nativeMessagePage(message,op) {
+  return historyPage(message,op.accepted_control_seq,op.offset);
+}
 
 export const message=(id,text=id)=>({id,role:'user',source:{kind:'plugin:test',tag:{n:1}},content:[{type:'text',text},{type:'text',text:'第二块'}]});
 export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
@@ -38,16 +49,17 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
   const meta=()=>({id:'one',created_at:1,cwd:process.cwd(),inherited:false,through:0,model_baseline:baseline,model_selection:baseline,
     selection_cursor:state.kind==='draft'?{kind:'draft',revision:state.revision}:{kind:'durable',...cursor()}});
   const snapshot=()=>structuredClone({kind:state.kind,session_id:'one',pending:state.pending,active_turn_id:state.activeTurn?'turn':null,
-    driver_active:!!(state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.source_kind==='human'))),
-    ...(state.kind==='draft'?{revision:state.revision}:{cursor:cursor()})});
+    driver_active:!!(state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.target==='next_turn'))),
+    ...(state.kind==='draft'?{revision:state.revision}:{cursor:cursor(),history:meta()})});
   const read=async(id,op,signal)=>{
     assert.equal(id,'one');signal?.throwIfAborted();
     if(op.type==='open')return meta();
-    if(op.type==='controls')return {through:op.through_seq,events:state.controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)};
-    if(op.type==='message') {
-      const json=JSON.stringify(state.messages.get(op.message_id));
-      return {through_seq:op.accepted_control_seq,offset:0,next_offset:Buffer.byteLength(json),total_bytes:Buffer.byteLength(json),json};
+    if(op.type==='controls'){
+      const through=Math.min(op.after_seq+64,op.through_seq);
+      return historyPage(state.controls.filter(row=>row.seq>op.after_seq&&row.seq<=through)
+        .map(row=>row.kind==='accepted'?{...row,message:state.messages.get(row.message_id)}:row),through,op.offset);
     }
+    if(op.type==='message')return nativeMessagePage(state.messages.get(op.message_id),op);
     assert.equal(op.type,'wait');if(op.cursor.control_seq<state.control)return cursor();
     return new Promise((resolve,reject)=>{
       const done=()=>{waiters.delete(done);signal?.removeEventListener('abort',aborted);resolve(cursor());};
@@ -92,7 +104,7 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
     if(method==='application.inbox') {
       if(op.type==='wait_idle') {
         await state.idleGate?.promise;
-        const busy=()=>state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.source_kind==='human'));
+        const busy=()=>state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.target==='next_turn'));
         if(!busy())return null;
         return new Promise((resolve,reject)=>{
           const done=()=>{if(busy())return;waiters.delete(done);signal?.removeEventListener('abort',aborted);resolve(null);};
@@ -145,16 +157,16 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
       if(state.failSubmit==='rejected')throw new RemoteRequestError('mailbox refused');
       const {request,...input}=args,prior=state.submissions.get(args.message_id);
       if(prior){assert.deepEqual(prior.input,input);return prior.receipt;}
-      state.paused=false;
+      if(args.delivery!=='next_step')state.paused=false;
       if(state.kind==='draft') {state.kind='durable';for(const row of state.pending)control({kind:'accepted',message_id:row.message_id,target:row.target});}
       const native={message_id:args.message_id,source:{type:args.origin==='application'?'application':'human',attribution:args.attribution},
         content:args.content.map(({kind,...part})=>({type:kind,...part}))};state.messages.set(args.message_id,native);
-      const target=args.delivery==='steer'&&state.activeTurn?'next_step':'next_turn';
+      const target=args.delivery==='next_step'||args.delivery==='steer'&&state.activeTurn?'next_step':'next_turn';
       state.pending.push({message_id:args.message_id,source_kind:native.source.type,target,queue_slot:{id:args.message_id},message:native});
       control({kind:'accepted',message_id:args.message_id,target});
       const receipt={session_id:'one',message_id:args.message_id,accepted_control_seq:state.control};
       state.submissions.set(args.message_id,{input,receipt});
-      if(!state.holdSubmissions){for(const row of state.pending)control({kind:'claimed',message_id:row.message_id});state.pending=[];}
+      if(args.delivery!=='next_step'&&!state.holdSubmissions){for(const row of state.pending)control({kind:'claimed',message_id:row.message_id});state.pending=[];}
       if(state.failSubmit==='after')throw Error('submission reply lost');
       if(state.failSubmit==='committed-error')throw new RemoteRequestError('reply failed after commit');
       return receipt;

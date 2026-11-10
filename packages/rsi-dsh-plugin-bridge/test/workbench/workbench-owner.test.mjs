@@ -11,6 +11,7 @@ import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchAgents} from '../../src/workbench/agents.mjs';
+import {historyPage,historyCapture} from '../fixtures/history-page.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 const base={provider:'native',model:'configured',reasoningEffort:'low'};
@@ -34,8 +35,12 @@ async function fixture(t) {
   const read=async(id,operation,signal)=>{
     assert.equal(id,'one');signal?.throwIfAborted();
     if(operation.type==='open')return meta();
-    if(operation.type==='controls'){reads++;return {through:operation.through_seq,
-      events:controls.filter(event=>event.seq>operation.after_seq&&event.seq<=operation.through_seq)};}
+    if(operation.type==='capture'){
+      if(operation.after.control_seq<cursor().control_seq)reads++;
+      return historyCapture(meta(),operation,[],controls);
+    }
+    if(operation.type==='controls'){reads++;return historyPage(
+      controls.filter(event=>event.seq>operation.after_seq&&event.seq<=operation.through_seq),operation.through_seq,operation.offset);}
     assert.equal(operation.type,'wait');
     if(operation.cursor.control_seq<cursor().control_seq)return cursor();
     return new Promise((resolve,reject)=>{
@@ -62,16 +67,140 @@ async function fixture(t) {
   return {ctx,history,options,load,controls,change,capture,persistence,meta,hooks,get reads(){return reads;}};
 }
 
+test('native draft preset changes preserve the Session and replay the observed choice before its first Turn', {skip:!root},async t=>{
+  const f=await fixture(t);
+  const projection=await f.ctx.sessionProjections.register((await f.load('dsh-agent-preset-registry')).agentPresetProjectionDefinition);
+  let meta={...f.meta(),preset:'standard',selection_cursor:{kind:'draft',revision:1}};
+  const facts=[];
+  const options={...f.options,read:async(id,operation)=>{
+    assert.equal(id,'one');
+    if(operation.type==='open')return meta;
+    if(operation.type==='page_close')return null;
+    if(operation.type==='fact')return historyPage(facts.filter(fact=>fact.seq>operation.after_seq&&fact.seq<=operation.through_seq),operation.through_seq,operation.offset);
+    assert.equal(operation.type,'capture');return historyCapture(meta,operation,facts,[]);
+  }};
+  const history=workbenchHistory(options);t.after(()=>history.close());
+  const original=meta,session=await history.capture('one',meta),header=session.header;
+  assert.equal(projection.stateOf(session),'standard');
+  meta={...meta,preset:'custom',selection_cursor:{kind:'draft',revision:2}};
+  assert.equal(await history.capture('one',meta),session);
+  const selected=session.lastEvent('agent-preset/selected');
+  assert.deepEqual(selected.data,{agentPreset:'custom'});
+  assert.equal(session.header,header);assert.equal(header.agentPreset,'standard');
+  assert.equal(projection.stateOf(session),'custom');
+  await history.capture('one',meta);await history.capture('one',original);
+  await history.capture('one',{...meta,preset:'same-cut-is-not-a-new-observation'});
+  assert.equal(session.seq,1,'unchanged and older cuts do not append or reverse selection');
+  assert.equal(session.eventAt(0),selected);
+  const cold=workbenchHistory(options);t.after(()=>cold.close());
+  const restored=await cold.capture('one',meta);
+  assert.deepEqual(restored.header,header);assert.deepEqual(restored.snapshotEvents(),session.snapshotEvents());
+  assert.equal(projection.stateOf(restored),'custom');
+  const stored=JSON.parse(await f.options.storage.read('one'));
+  assert.deepEqual(stored.events,[selected]);assert.deepEqual(stored.sources,[]);
+  await assert.rejects(history.capture('one',{...meta,created_at:2}),/identity changed/);
+  facts.push({seq:1,timestamp_ms:3,type:'message_turn_accepted',turn_id:'first'});
+  meta={...meta,preset:'standard',through:1,selection_cursor:{kind:'durable',fact_seq:1,control_seq:0}};
+  await history.capture('one',meta);
+  assert.deepEqual(session.snapshotEvents().map(event=>event.type),
+    ['agent-preset/selected','agent-preset/selected','turn/start']);
+  assert.equal(projection.stateOf(session),'standard');
+  assert.equal(session.header,header);
+  const durable=workbenchHistory(options);t.after(()=>durable.close());
+  const reopened=await durable.capture('one',meta);
+  assert.deepEqual(reopened.snapshotEvents(),session.snapshotEvents());
+  assert.equal(projection.stateOf(reopened),'standard');
+});
+
+test('model commands publish passive changes without a transcript or attached Agent', {skip:!root},async t=>{
+  const f=await fixture(t),life=new AbortController();
+  t.after(()=>life.abort());
+  const stream=f.history.observeProjections({sessionId:'one'},AbortSignal.any([life.signal,AbortSignal.timeout(10000)]));
+  assert.deepEqual((await stream.next()).value,{type:'ready'});
+  for(const reasoningEffort of ['high','low']){
+    await f.history.selectModel({sessionId:'one',...base,reasoningEffort});
+    const frame=(await stream.next()).value;
+    assert.equal(frame?.type,'projection');
+    const session=await f.capture(),event=session.eventAt(frame.seq);
+    assert.equal(event.type,'model/selection');assert.equal(event.data.reasoningEffort,reasoningEffort);
+    assert.deepEqual(frame.changes,[{key:'modelSelection',val:{lastUsed:null,next:event.data}}]);
+  }
+  await stream.return();
+});
+
 test('a log-only approval with no native mutation receipt persists across owners', {skip:!root},async t=>{
   const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session);
+  const beforeRevision=(await f.persistence.stat('one')).revision;
   assert.equal(await f.options.storage.read('one'),undefined);
   owner.journal.append('approval/asked',{id:'proof',toolName:'bash'});
   owner.journal.append('approval/decided',{id:'proof',outcome:'rejected'});
   await owner.flush();
+  const snapshot=await f.persistence.stat('one');
+  assert.notEqual(snapshot.revision,beforeRevision,'application-owned events invalidate the stored observation');
+  const stored=JSON.parse(await f.options.storage.read('one'));
+  assert.equal(stored.version,7);
+  assert.deepEqual(stored.events.map(row=>row.type),['approval/asked','approval/decided']);
+  const before=f.reads;
   const cold=workbenchHistory(f.options);t.after(()=>cold.close());
+  assert.deepEqual(await cold.snapshot(f.meta()),snapshot,'the cold catalog preserves application event revisions');
   const reopened=await cold.capture('one',await cold.metadata('one'));
+  assert.deepEqual(await cold.snapshot(f.meta()),snapshot,'restoring an unchanged journal preserves its revision');
+  assert.equal(f.reads-before,1,'cold reconstruction and reconciliation share one native capture');
   assert.deepEqual(reopened.lastEvent('approval/decided')?.data,{id:'proof',outcome:'rejected'});
   assert.deepEqual(cold.owner(reopened).journal.operations(),[]);
+});
+
+test('the original search engine observes a native-only cold Session without a synthetic revision retry', {skip:!root},async t=>{
+  const f=await fixture(t);let lists=0,opens=0;
+  const persistence=workbenchPersistence({...f.history,stored(...args){opens++;return f.history.stored(...args);}},
+    await f.load('dsh-session-persistence'),async function*(){lists++;yield [f.meta()];});
+  f.ctx.provide('sessions',{list:()=>[],get:()=>undefined});
+  f.ctx.provide('sessionPersistence',persistence);
+  await f.ctx.plugin((await f.load('dsh-session-query-sqlite')).default,{path:':memory:',openAt:'first-search'});
+  assert.deepEqual(await f.ctx.sessionQuery.searchSessions({query:'absent'}),{items:[]});
+  assert.equal(lists,2,'one before/after catalog pair suffices for the unchanged native cut');
+  assert.equal(opens,2,'one cold open and one fresh read suffice');
+  assert.equal(f.reads,1);
+  lists=0;opens=0;
+  await f.ctx.sessionQuery.searchSessions({query:'absent'});
+  assert.equal(lists,2);assert.equal(opens,0,'an unchanged index does not reopen the Session');
+  f.change({selection:native({...base,reasoningEffort:'high'})});
+  lists=0;
+  await f.ctx.sessionQuery.searchSessions({query:'absent'});
+  assert.equal(lists,2);assert.equal(opens,2,'a native control-only change still rebuilds the index');
+  assert.equal(f.reads,2);
+});
+
+test('an existing full journal is rewritten after canonical reconciliation without changing event coordinates', {skip:!root},async t=>{
+  const f=await fixture(t),session=await f.capture();
+  // A native-only existing file also needs rewriting, even without local operations.
+  const state=JSON.parse(f.history.owner(session).journal.encode());
+  state.version=1;state.events=session.snapshotEvents();delete state.ownedEventCount;
+  delete state.sourceDigest;state.sources=state.sources.map((_,index)=>f.history.owner(session).journal.sourceAt(index));
+  await f.options.storage.save('one',JSON.stringify(state).replace(',"version"',',\n"version"'));
+  const cold=workbenchHistory(f.options);t.after(()=>cold.close());
+  const before=f.reads,reopened=await cold.capture('one',await cold.metadata('one'));
+  assert.equal(f.reads-before,1);
+  assert.deepEqual(reopened.snapshotEvents(),session.snapshotEvents());
+  const stored=JSON.parse(await f.options.storage.read('one'));
+  assert.equal(stored.version,7);assert.deepEqual(stored.events,[]);assert.equal(stored.ownedEventCount,0);
+  assert.equal(Object.hasOwn(stored,'eventCount'),false);
+  const again=workbenchHistory(f.options);t.after(()=>again.close());
+  assert.deepEqual((await again.capture('one',await again.metadata('one'))).snapshotEvents(),session.snapshotEvents());
+});
+
+test('failed canonical reconciliation cannot rewrite a full journal during owner disposal', {skip:!root},async t=>{
+  const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session);
+  owner.driver.accept({...base,reasoningEffort:'high'});await owner.driver.ready();await f.capture();
+  const state=JSON.parse(owner.journal.encode());state.version=1;state.events=session.snapshotEvents();delete state.ownedEventCount;
+  delete state.sourceDigest;state.sources=state.sources.map((_,index)=>structuredClone(owner.journal.sourceAt(index)));
+  delete state.operations[0].receipt;
+  state.sources[0].hash='0'.repeat(64);
+  const document=JSON.stringify(state).replace(',"version"',',\n"version"');
+  await f.options.storage.save('one',document);
+  const cold=workbenchHistory(f.options);
+  await assert.rejects(cold.capture('one',await cold.metadata('one')),/prefix changed/);
+  await cold.close();assert.equal(await f.options.storage.read('one'),document);
 });
 
 test('one journal serves follow, Agent capture and cold persistence; local choices wake before native acknowledgement',
@@ -142,7 +271,7 @@ test('original attached Agent returns its synchronous event and publishes depend
     f.hooks.submit=scope.submit;
     t.after(()=>scope.close());
     scope.inbox.capture=async()=>({kind:'durable',session_id:'one',cursor:{fact_seq:0,control_seq:f.meta().selection_cursor.control_seq},
-      active_turn_id:null,pending:[]});scope.history=f.options.read;
+      history:f.meta(),active_turn_id:null,pending:[]});scope.history=f.options.read;
     const agents=await workbenchAgents(f.ctx,scope,f.history,await f.load('dsh-scope'),await f.load('dsh-agent'),f.options.api.snapshotJsonValue);
     const agent=await scope.runOwned(()=>agents.ensure('one')),notices=[];
     assert.ok(agent.model instanceof (await f.load('dsh-agent')).AgentModel);

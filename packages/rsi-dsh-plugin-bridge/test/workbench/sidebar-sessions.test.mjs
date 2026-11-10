@@ -12,6 +12,7 @@ import {createApplication} from '../../src/application/application.mjs';
 import {provideHttp} from '../../src/application/http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
+import {historyCapture} from '../fixtures/history-page.mjs';
 import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -38,13 +39,16 @@ test('original sidebar resolves each file and Git request through its authentica
     if(!workspaces.has(input.session_id) || input.request!==input.session_id) throw new Error('Session refused');
     if(method==='application.history'){
       const id=input.session_id,op=input.operation,through=id==='one'?4:0;
-      if(op.type==='open')return {id,created_at:1,cwd:workspaces.get(id),preset:'standard',through,inherited:false,
+      const meta={id,created_at:1,cwd:workspaces.get(id),preset:'standard',through,inherited:false,
         selection_cursor:{kind:'durable',fact_seq:through,control_seq:0},model_baseline:{model:route},model_selection:{model:route}};
-      assert.equal(op.type,'fact');
-      const fact=[{type:'message_turn_accepted',turn_id:'turn'},
+      if(op.type==='open')return meta;
+      const facts=[{type:'message_turn_accepted',turn_id:'turn'},
         {type:'step_started',turn_id:'turn',step_id:'step'},
         {type:'input_message_claimed',turn_id:'turn',step_id:'step',source:{type:'human',message_id:'input'},content:[{type:'text',text:'native context'}]},
-        {type:'step_inputs_prepared',turn_id:'turn',step_id:'step',decision:{kind:'enter',messages:[{kind:'claimed',claim:{fact_seq:3,ordinal:0}}]}}][op.after_seq];
+        {type:'step_inputs_prepared',turn_id:'turn',step_id:'step',decision:{kind:'enter',messages:[{kind:'claimed',claim:{fact_seq:3,ordinal:0}}]}}]
+        .map((fact,index)=>({...fact,seq:index+1,timestamp_ms:1}));
+      if(op.type==='capture')return historyCapture(meta,op,facts);
+      assert.equal(op.type,'fact');const fact=facts[op.after_seq];
       const json=JSON.stringify([{...fact,seq:op.after_seq+1,timestamp_ms:1}]),size=Buffer.byteLength(json);
       return {through_seq:op.after_seq+1,offset:0,next_offset:size,total_bytes:size,json};
     }

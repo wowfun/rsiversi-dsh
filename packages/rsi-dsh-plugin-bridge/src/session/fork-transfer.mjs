@@ -1,5 +1,6 @@
 import { SessionFacade } from './session.mjs';
-import { restoreMapping, readHistory, readAttempt, observeFact } from '../history/history.mjs';
+import { restoreMapping, factObserver } from '../history/history.mjs';
+import { readHistory } from '../history/pages.mjs';
 import { forkSnapshot, validateLineage } from './fork.mjs';
 
 const bytes = value => Buffer.byteLength(JSON.stringify(value));
@@ -56,7 +57,7 @@ export class ForkTransfers {
         return value;
       };
       canonical.mapping.factCursor = await readHistory(this.request, identity, canonical.mapping.factCursor, entry.through_seq,
-        fact => observeFact(session, canonical.mapping, fact, readFact, seq => readAttempt(this.request, identity, seq, cancellation), this.llm), cancellation);
+        factObserver(session, canonical.mapping, readFact, this.llm), cancellation);
       cancellation.throwIfAborted();
       canonical.events = session.snapshotEvents();
       const result = forkSnapshot(canonical, { header: { version: 4, id: `fork-${operation_id}`.slice(0, 256), createdAt: entry.created_at },

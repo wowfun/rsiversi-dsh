@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
-import { restoreMapping, observeFact } from '../../src/history/history.mjs';
+import { restoreMapping, factObserver } from '../../src/history/history.mjs';
 import { cloneMapping, claimedRows } from '../../src/history/input-history.mjs';
 import { prepareRequestInputs } from '../../src/agent/request-input.mjs';
 import { SessionFacade } from '../../src/session/session.mjs';
@@ -11,12 +11,12 @@ import { SessionFacade } from '../../src/session/session.mjs';
 const root = process.env.RSI_DSH_MARKET_COHORT;
 async function fixture(t, original) {
   const events = [];
-  let session = { id: 'prepared', surface: { nodes: [] }, eventAt: seq => events[seq],
+  let session = { id: 'prepared', get seq(){return events.length;}, surface: { nodes: [] }, eventAt: seq => events[seq],
     snapshotEvents: () => events,
-    appendObserved(type, data, time, options = {}) {
-      const event = { seq: events.length, type, data, time, ...options };
+    adoptObserved(event) {
+      assert.equal(event.seq,events.length);
       events.push(event);
-      if (options.surfaceOp === 'append') this.surface.nodes.push(event.seq);
+      if (event.surfaceOp === 'append') this.surface.nodes.push(event.seq);
       return event;
     } };
   if (original) {
@@ -36,7 +36,7 @@ async function fixture(t, original) {
     async observe(body) {
       const fact = { seq: facts.length + 1, timestamp_ms: 100 + facts.length, turn_id: 'turn', step_id: 'step', ...body };
       facts.push(fact);
-      await observeFact(session, mapping, fact, read);
+      await factObserver(session, mapping, read)(fact);
       mapping.factCursor = fact.seq;
       return fact;
     },

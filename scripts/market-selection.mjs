@@ -15,7 +15,7 @@ export async function writeNpmToolchain(destination,npmRoot,target) {
   const tree=await writePayload(npmRoot,join(directory,'npm.rsi'),{prefix:'node_modules/npm'});
   const manifest=json({format:2,name,version:npm.version,target,dependencies:[],requires:[],
     files:[{path:'npm.rsi',bytes:tree.bytes,digest:tree.digest,executable:false}],
-    exports:{runtime:{kind:'payload_tree',path:'npm.rsi'}}});
+    exports:{runtime:{kind:'payload_tree',path:'npm.rsi',index_digest:tree.indexDigest}}});
   await writeFile(join(directory,'package.json'),manifest);
   return {name,digest:sha(manifest)};
 }
@@ -56,7 +56,7 @@ export async function writeSelection(destination,version,target,plugins,location
     requires:[{name:'rsi.extension.process',version:1}],
     files:[{path:'profile.rsi',bytes:data.bytes,digest:data.digest,executable:false},
       {path:'application.json',bytes:descriptor.length,digest:sha(descriptor),executable:false}],
-    exports:{profile:{kind:'payload_tree',path:'profile.rsi'},application:{kind:'process_extension',path:'application.json'}}});
+    exports:{profile:{kind:'payload_tree',path:'profile.rsi',index_digest:data.indexDigest},application:{kind:'process_extension',path:'application.json'}}});
   await writeFile(join(dir,'package.json'),bytes);
   const selection={name,digest:sha(bytes)};
   let importer;

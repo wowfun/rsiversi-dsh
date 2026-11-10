@@ -16,7 +16,7 @@ for(const [owner,packages] of groups) {
     const data=await writePayloadFiles(part.flatMap(pkg=>pkg.files),join(dir,'payload.rsi'),signal);
     const bytes=json({format:2,name,version,target:target,dependencies:[],requires:[],
       files:[{path:'payload.rsi',bytes:data.bytes,digest:data.digest,executable:false}],
-      exports:{runtime:{kind:'payload_tree',path:'payload.rsi'}}});
+      exports:{runtime:{kind:'payload_tree',path:'payload.rsi',index_digest:data.indexDigest}}});
     await writeFile(join(dir,'package.json'),bytes);
     for(const pkg of part) locations[pkg.location] = {package:name,version:pkg.version,dependencies:pkg.dependencies};
     artifacts.push({name,owner,files:data.files,bytes:data.bytes,payloadDigest:data.digest,manifestDigest:digest(bytes)});

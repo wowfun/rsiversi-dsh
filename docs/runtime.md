@@ -1,5 +1,25 @@
 # Runtime contract
 
+Tool capture emits the exact registration's `timeout_ms` as its numeric DSH
+`timeoutMs`, or explicit `null` when absent. Capture rejects non-finite values
+before JSON serialization can turn them into `null`. Native admission checks conversion;
+the bridge does not invent a default deadline. Cancellation still waits for the
+original invocation and retains its settled receipt. The native Tools owner
+preserves non-cancellation settlement evidence; an explicitly selected original
+DSH timeout-policy wrapper retains its own timer-result classification.
+
+Workspace Session account order comes from native Navigation. The controller's
+`insertSessionBefore` moves a published member within its exact Workspace and
+returns the updated projection. Unknown Workspaces produce `workspace/not-found`;
+unknown or foreign Session/anchor identities produce `workspace/move-invalid`.
+Activity, archiving and pinning do not rewrite account order. Drafts remain
+unpublished and cannot be moved through this durable account operation.
+
+Workspace registration IDs are opaque and change when the same directory is
+deleted and registered again. Deletion returns the native `deleted` boolean,
+including false for an already absent registration, as the original DSH service
+does. A retired ID cannot delete its replacement. Native failures still propagate.
+
 The Cordis package owns process transport, release loading and package archives.
 The bridge composes these in its application entry. Session history and native
 commands, workbench services, tool execution, and market installation have
@@ -9,6 +29,21 @@ the selected payload. In the Agent extension, Session loading and eviction
 share the same canonical mirror used to accept or undo staged Agent operations.
 The market's desktop pnpm and Plugin Manager invocations operate on the same
 profile selection journal and live package bindings.
+
+Payload producers bind the exact `RSITREE1` prefix and encoded header with the
+export's `index_digest`, in addition to the complete source-container FileRecord.
+Native admission stores this index and one materialized file tree. The source
+container is transport input, not a second installed copy of the bodies.
+
+Control history pages carry the accepted native message with its immutable
+sequence and Fact anchor. The reader assembles the same bounded UTF-8 fragments
+as Fact pages and folds that body directly; it does not fetch each acceptance
+again. Ordinary control pages use half the native process frame's capacity as
+their stored-body budget, with one larger record read alone. Fragments fill the
+existing frame budget after JSON escaping, reserving space for reply metadata;
+the reader checks their byte geometry against that transport bound, without a
+second, smaller fragment cap. Exact-message reads remain for submission receipt recovery.
+This transport shares the canonical acceptance and adds no durable event body.
 
 The market dispatches `agent/turn-stopping` serially on the producing Agent
 after its Step has settled and before its Turn ends. Listeners read the
@@ -43,6 +78,14 @@ allowlist. Resolve peers strictly using DSH app-boot's prerelease semantics
 for host-provided DSH peers. When npm would exclude such a peer, the plugin
 binds it to the selected host version. The published-release fixture uses the
 same rule and the requested host's declared Cordis dependency range.
+
+Compatibility tests opted into with `RSI_DSH_MARKET_COHORT` resolve the original
+model-aware Tools and Claude Code Mods from that complete installed cohort.
+Missing required packages fail these opted-in tests; separate package-entry or
+alternate-cohort environment variables do not silently exclude their cases.
+Source-comparison tests that compile an upstream source file still require
+their explicit source path.
+
 Share the runtime's physical Cordis, React
 and DSH service identities. Keep the plugin's own dependencies private where
 their ranges or module identities differ. Registry resolution runs with scripts
@@ -64,6 +107,17 @@ original Typert service; the bridge does not emulate an empty successful reply.
 The original browser Connection entry uses RSI's authenticated carrier. Its
 host row depends on the running connection service. Listener flags and trusted
 hosts belong to the launcher that opens the listener.
+The original Typert Loader belongs to the base workbench, independently of the
+optional registry importer. It registers mounted packages' published `./typert`
+contracts for the Gateway, including the native Session and Workspace adapters.
+Profile context, ConfigEditor, Settings and the published Settings controller
+also belong to the base workbench. Forms edit the running plugin's volatile
+Config through the original profile patch and survive reopening. The optional
+registry importer adds package installation, not configuration ownership.
+The Settings controller keeps DSH's explicit missing-provider error for a
+credential service that the composition has not selected. Local application
+discovery and opening use the original `dsh-host-open-in-app` routes and
+subprocess provider, with the same authenticated browser carrier.
 
 A profile owns one application Cordis root and one loader. A mixed plugin
 registers its routes and tools in that tree, sharing one instance of its
@@ -153,8 +207,11 @@ with Linux Node and a Linux-native release installation. The standard tool runs
 under the release's `workspace-write` policy. The test checks that a relative
 `workdir` can write inside the Session workspace, that a sibling write is
 denied, and that the next command starts in the Session cwd. It also checks
-foreground exit status 7, background output and cancellation. A fixture
-Mod runs in the release Claude Code Mods engine and reads the calling
+foreground exit status 7, background output and cancellation. Cancellation of
+an executing foreground or persistent command must settle through the same
+application receipt. A subsequent command remains usable; the release's
+persistent tool resets its terminal on cancellation, discarding shell variables.
+A fixture Mod runs in the release Claude Code Mods engine and reads the calling
 Agent's restored messages before deciding whether to run the standard shell.
 The test checks the application tool receipt and the contents of the shared
 workspace for both decisions. Two Agents sharing a working directory keep
@@ -164,7 +221,7 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 5. The native Host supplies an opaque `owner`
+Application opening uses protocol 12. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -237,15 +294,39 @@ Navigation metadata. Their replies and the Workspace feed carry the caller's
 visible pins in most-recently-pinned order. A repeated command preserves both
 the revision and the order. Archiving a Session removes its pin atomically.
 
+Workspace display order belongs to the native registry. The first Workspace list
+page carries that order alongside registration data; the bridge does not persist
+another registration list. `workspace/insertBefore` commits a native move before
+replying with the visible IDs. An unknown moved Workspace or anchor returns the
+original `workspace/not-found` error, including IDs that cannot name a native
+registration. The bridge maps those before the native typed request boundary.
+The Workspace feed republishes committed
+order changes, while creation cursors and browser-local view preferences retain
+their own semantics.
+
 The original Agent registry has a native-backed factory. Opening a workbench
 transcript attaches a live mirror without waking a model. Listing remains cold;
 sidebar reads refresh existing Agents and leave unattached side conversations for
 the caller's resume setup. Owned Agents and their working directories remain
 accessible outside a browser request. Each mirror reads history and
-pending input at one native cut: durable inbox cursors bound replay; draft
-revision changes cause a fresh capture. The registry's caller Cordis context owns
+pending input at one native cut: durable inbox openings include the history
+metadata and model baseline from that same native inspection, with no separate
+history opening. Draft model selection is read from its command baseline through
+a revision-matched history opening; a revision change causes a fresh capture.
+If a concurrent reader advances the shared event owner beyond the captured cut,
+the Agent captures again before publishing its view. The registry's caller Cordis context owns
 setup, publication and disposal. A created side conversation uses an independent
 native manual fork at the supplied history cut, not a Kernel-owned child.
+
+Refreshes of one attached Agent share at most one active capture and one queued
+capture. A request arriving during a capture waits for the next capture, which
+starts after that request; it never reuses the older in-flight cut. Requests
+waiting for that next capture share its result, including its failure. A failed
+capture does not prevent a queued or later refresh from trying again. The
+application owns these reads; cancelling one caller stops its wait without
+cancelling another caller's read. Agent retirement cancels and drains the reads
+before releasing its scoped context. A read can finish after its last caller
+cancels; it remains a single read of authoritative state, not a polling task.
 
 An attached Agent observes native history and the native model stream under its
 application-owned lifetime, including while no browser is open. It publishes
@@ -253,8 +334,10 @@ the original scoped `agent/assistant-stream` start/chunk/end contract. An
 attachment or read reconnection inside an attempt replays its retained prefix
 before subsequent chunks. Revisions increase throughout that Agent lifecycle;
 chunk positions are dense within the attempt. Stream frames are transient and
-never appended as synthetic Session events. A committed end follows publication
-of its actual assistant event; read failure or disposal abandons the live
+never appended as synthetic Session events. Initial snapshots and durable event
+notifications refresh the Agent view before stream delivery. Stream markers
+reuse that view without recapturing the native inbox. A committed end follows
+publication of its actual assistant event; read failure or disposal abandons the live
 attempt and clears plugin buffers. The workbench and Agent use the same native
 stream conversion, including the final chunks when durable settlement wins the
 race against an outstanding stream read. Closing an observer releases its read
@@ -274,11 +357,11 @@ tools are labeled as such, with no claimed result. The snapshot retains at most
 An empty native prefix selects before the source's first local Turn. When a
 plugin already truncated its open tail and supplies its own snapshot through
 inject, that original input remains the snapshot owner.
-Inject stages the native non-waking context command with ordered native content
+Inject submits native non-waking `NextStep` input with ordered native content
 blocks and presentation attribution (`id` and `source`). Text and verbatim files
 use the same conversion as waking submissions; native admission verifies file
 objects before publication. Native pending and
-consumed history readers expose that original message while native command
+consumed history readers expose that original message while native message
 identity remains the key for receipts, queue mutation and transition correlation.
 This survives cold replay and inherited history without a local metadata map.
 Followup submits a human
@@ -322,9 +405,13 @@ withdrawal, with no fabricated durable slot or cursor. An empty clear remains
 a no-op. Writable Session log events still require their own native contracts.
 
 Durable inbox transitions replay as original `agent/inbox/spliced` Session events
-at their native Fact/control anchors. Accepted message bodies use the existing
-fragmented native read boundary. Pending arrays follow the native inspection's
-acceptance order; claims, promotion and discard update that same projection. A new
+at their native Fact/control anchors. Accepted message bodies come from history
+controls at the captured cut. Durable inbox capture returns metadata in one call,
+without fetching those bodies again or retaining an inbox reader. Draft capture
+includes its unpublished message bodies in the same reply, within their native
+aggregate bound. Inbox capture requires no fragment or close calls. Pending arrays
+follow the native inspection's acceptance order; claims, promotion and discard
+update that same projection. A new
 child replays only its own inbox controls, so inherited pending work is not copied.
 Queue-only changes advance the real projected event log and notify ordinary
 Session observers. Draft intents remain outside that durable event log.
@@ -341,17 +428,40 @@ one native request series. The DSH registry owns registration, activation
 and withdrawal. An admitted native body belongs to that invocation's DSH
 execution source. Public registry lookups made by hooks still see the actual
 registered plugin, including when it has the same name as the native tool.
-A started invocation is recorded under its native
-Session and effect before entering the original pipeline. Protocol 11 keeps
-the initial start request open and returns the committed JSON snapshot after
-the atomic outcome write. A repeated start for the same retained invocation returns its
+After native view and invocation admission, the original pipeline resolves the
+captured registration. Withdrawal before dispatch or across an asynchronous hook
+produces the same structured DSH `UNKNOWN_TOOL` result and final-result notification;
+the bridge does not scan the tool catalog first or substitute its own missing-tool result.
+A started invocation is bound in memory under its native
+Session and effect before entering the original pipeline. The native Tool intent
+owns durable admission; the application persists only settled results. The initial
+start request stays open until the atomic outcome write completes. The original
+DSH pipeline owns detachment and freezing of plugin-authored results. The bridge
+builds a private native envelope from those values and returns that same owned
+outcome after publication, without parsing its own serialized copy. Reads from
+the durable ledger still decode the stored receipt at that boundary. A repeated
+start for the same retained invocation returns its
 recorded state. A read of its outcome never dispatches the tool. An interrupted
 body without a recorded result reports uncertainty. Reads and cancellation bind to the
 original registration and native Tool result identity, including the caller's
-argument digest. A cancellation arriving during admission observes the pending
-write before deciding whether the body is running. Lost HTTP responses can be followed by another outcome read
-on the current or replacement process. At most eight calls run at once.
-When the application retires, a call still writing its admission receipt cannot
+argument digest. A cancellation arriving during admission waits for that ordered
+admission before deciding whether the body is running. Lost HTTP responses are followed
+only by outcome reads on the current or replacement process. A new execution requires
+the original live captured view and registration; duplicate start may read an existing
+matching receipt without that view. Missing receipts in a replacement process remain
+unknown. At most eight calls run at once. Pending and unknown live bindings share the
+128-record retention limit with settled files; only settled files count toward the
+64 MiB disk budget. Identity fields follow the native 256-byte identifier bound.
+Once an authorized native history read observes the matching committed
+`ToolResult`, its Session, effect and full result identity retire the redundant
+application receipt. Native Fact publication is the ownership transfer; a DSH
+surface event or a tool-body return is insufficient. The live ledger retains
+only the bounded invocation binding to refuse another execution, and subsequent
+outcome reads report unknown because the canonical result now belongs to Store.
+Cold history can retire leftover receipts after a crash. Unobserved receipts
+retain the existing recovery window and capacity policy. Cleanup failures are
+reported and leave the receipt available; they do not fail history reads.
+When the application retires, a call still awaiting admission cannot
 enter the plugin body. Retirement cancels bodies already running and waits for
 their final receipt writes before releasing the captured tool sets.
 Market tool hooks return text `additionalContexts` through this receipt.
@@ -429,7 +539,11 @@ waiting for a user answer does not hold the reader, writer or Session mutation
 lane. Cancellation replies use the same correlation identity. Loss of a process
 does not authorize replay of a callback.
 
-Original dependencies of the Agent reference are packed from its selected source. Shared peers, including
+The standalone Agent importer packs the shared peers actually installed in its
+leased host cohort: `@deepseek-ai/*`, React, React DOM and Zod. It does not use a
+source-revision package inventory, and resource-only packages need no JavaScript
+entry point. Other dependencies are resolved by npm from those packages' current
+manifests. Shared peers, including
 Cordis and UserQuestionError, resolve to one exact physical cohort. Private
 ordinary libraries may have multiple versions. Import uses a pinned npm CLI,
 isolated configuration/cache/home and explicit registry settings; lifecycle
@@ -439,6 +553,12 @@ and owns immutable payload leases. Import success is not compatibility evidence.
 The generated market profile and npm child use the selected credential-free
 HTTP(S) proxy and bypass list. With a proxy selected, Node also routes native
 fetch through it, including requests from the original Discover plugin.
+The generated workbench process has a private OS home under the profile's
+Host-owned state, separate from its portable DSH profile. `HOME` and
+`USERPROFILE` point there, so tools that use the OS home for caches or runtime
+downloads do not turn them into exported profile configuration. The explicit
+DSH profile location and the registry importer's staging home retain their
+own contracts.
 
 The bridge's `import` export handles registry specifications, local npm tarballs
 and built package directories through the generic RSI importer. It stages a new
@@ -449,6 +569,9 @@ that process export and pins the generated manifest digest; installation never
 enables code or edits a user's presets. Browser code still requires an explicitly
 rebuilt document. Unsupported injected services fail activation; unknown event
 schemas refuse history-window forks. No universal plugin compatibility is claimed.
+The import receipt records the running DSH and npm versions and the resulting
+npm lock digest. Its temporary installation is removed after payload publication
+or failure; the staged RSI package retains everything needed for execution.
 
 Fresh release builds and plugin imports ask npm to prefer a shared dependency
 placement when the declared versions and peers permit one. npm records the
@@ -462,8 +585,12 @@ unless the plugin requests it.
 The bundled npm resolves in an empty work directory with an explicit registry,
 private home/cache and empty user/global configuration. Pinned original packages
 are supplied as local archives from the leased cohort. Imports cannot replace
-them. Both their complete files and every shared-peer resolution are checked
-after installation. The importer checks the original engines.dsh rule first, otherwise the DSH peer ranges, including prereleases. Its tree reader caps files at 16,384, total entries at 65,536, path depth at 128 and total bytes at 4 GiB; file content is read in bounded chunks. The recorded npm lockfile binds the resolved dependency tree;
+them. Packaging checks their complete files; nested copies of a shared peer are
+rejected after installation. The importer checks the original engines.dsh rule
+first, otherwise the DSH peer ranges, including prereleases. npm receives the
+same prerelease peer overrides as the release importer. Its tree reader caps
+files at 16,384, total entries at 65,536, path depth at 128 and total bytes at
+4 GiB; file content is read in bounded chunks. The recorded npm lockfile binds the resolved dependency tree;
 Git/HTTP dependency specifications are refused at every depth. Local tarballs
 and directories are admitted only as explicit root inputs, including the pinned
 archives. Lifecycle scripts, executable links and filesystem links are refused. Build-required packages must be built before import. This
@@ -551,12 +678,18 @@ per prepared request, while the RSI acceptance identity remains unchanged.
 Conversation ModelIntents map their actual route, effective reasoning effort,
 sampling controls and complete JSON Tool schemas to DSH request headers. Referenced
 evidence is read from the same captured Fact authority and checked against its
-original inline digest; missing evidence fails the stage. Retries with unchanged
+original inline digest; missing evidence fails the stage. History reads carry their
+captured horizon and consume bounded contiguous Fact pages. Inherited reads use
+the same page contract within their retained native interval. Evidence references
+to a Fact in the current decoded page borrow that Fact instead of issuing another
+read. No extra durable copy or cross-page cache is retained. Retries with unchanged
 headers do not invent a new series. Compaction calls do not update conversation
 mode narration. DSH cannot represent hosted/freeform tools or RSI-only sampling
 controls in an EpochHeader; these fail explicitly instead of publishing a partial
-header. Normalized model attempts come from RSI's canonical decoder, under the
-same captured authority. Their elapsed offsets remain unchanged and are anchored
+header. Each model-attempt Fact carries `attempt: {retain_context, events}` from
+RSI's canonical decoder in the same captured page. Encoded attempt chunks and a
+second attempt-read callback are absent. Agent extensions require native
+`rsi.extension.agent` version 8 for this history view. Their elapsed offsets remain unchanged and are anchored
 to the canonical ModelStarted timestamp. Original DSH stream accumulation and
 block assembly produce assistant messages and failed-attempt records. RSI's
 inclusive input-token total is converted to DSH's disjoint uncached/cache counters.
@@ -574,7 +707,11 @@ Entered user and developer inputs preserve their role, canonical source and stab
 message identity. A dormant empty system head precedes the first input; it denotes
 that no request has established instructions yet. Each conversation ModelIntent
 replaces that head with its authenticated system evidence. No placeholder is used
-as model-request evidence. Tool calls retain the model's raw argument text; only
+as model-request evidence. Native semantic text blocks (`type: text`,
+`content.text`) become DSH text blocks (`type: text`, `text`) at this evidence
+boundary. Projected system messages must round-trip through the original DSH
+Session format, including its JSONL persistence codec.
+Tool calls retain the model's raw argument text; only
 model-origin outcomes join the conversation, while Program internals stay in RSI
 Facts. Denials and terminal/superseded calls carry explicit non-execution or unknown
 outcome provenance. Pending call references are bounded and survive restart.
@@ -655,6 +792,8 @@ The application's PluginPackages service uses DSH's metadata reader for
 localized titles, descriptions and icons. When the caller's ESM resolution
 selects a leased package's own exported root manifest, readers can share its
 successful, read-only metadata for the lifetime of that package binding.
+After that first resolved read, an exact root request with the same active
+binding uses the cached metadata without resolving its resource again.
 A bare resource lookup from the application profile follows the nearest
 installed package link to its current leased directory. Manifest and version
 lookups use the same binding as module resolution, including for packages
@@ -821,8 +960,9 @@ Header and local domain baseline. Published Sessions merge committed selection
 controls into the observed log at their native Fact anchors. Those real
 `model/selection` events advance the DSH cursor even without a model request.
 The original Host-wide `session/control` stream forwards changed projection
-values from active history readers after checking the receiving request's
-Session access. A new control reader receives all visible active baselines.
+values from active history readers, attached Agents and model commands after
+checking the receiving request's Session access. A new control reader receives
+all visible active baselines.
 An immediately available history snapshot and its control baseline share one
 projection read at the same Session cursor. A recovering assistant stream
 captures its baseline after catch-up. Both
@@ -830,18 +970,37 @@ captures its baseline after catch-up. Both
 event that changes a projection. Its `seq` identifies the event and `changes`
 contains the ordered `{key, val}` replacements. Readers can recover from a
 fresh baseline. Slow readers see intervening changes at their original cursors.
+Per-Session subscriptions use the same publisher without opening a history
+reader; their [passive subscription contract](session-journal.md) separates
+readiness from fetching the baseline.
 Refreshing an Agent's model options reads its Session owner's selection
 directly. A transcript or an explicit projection request reads the full view.
 Unpublished drafts still have no durable control history.
-The application supplies shared Session journals and read-only Session persistence.
+One native projection update reads Facts toward its complete captured horizon,
+retaining one forward page while merging controls at their Fact anchors. An
+anchor limits observation, not the page fetch. Later anchors consume the retained
+page before requesting another one; they cannot expose later Facts early. The
+cursor belongs to that update and is discarded after success, cancellation or
+failure. References outside that page still use bounded point reads. There is no
+cross-request page cache or additional durable corpus.
+The application supplies shared Session journals and Session persistence.
 `stat` and `list` observe the same immutable headers and opaque revisions from
 native metadata and the application journal. Listing reads authorized durable
 Sessions in pages without opening their event logs. Registered live Sessions
 can be merged with a catalog larger than one browser response. The native
 transport bounds each page independently.
+Reconstructing a mirror does not change its persistence revision: the native
+Fact/control cut already identifies native history. The application contributes
+only its owned-event count, identical in memory and the journal catalog. Derived
+native events do not advance that count, even when local events also exist.
+An application append changes the revision; native catch-up at an already
+identified cut does not invalidate the stored Session in the query service.
 The original synchronous `sessions.list()` contract enumerates attached Sessions.
 The workbench mounts the distribution's attachments and Session Query services
 with attachments in the application profile and the release's index policy.
+The optional [Session search bundle](session-search.md) has its own isolated
+query service; its compatibility and performance acceptance covers the original
+tool implementations over this persistence boundary.
 The original file-upload service resolves a cold Session through the same
 native-authorized Agent lookup as Typert. Uploaded bytes stream directly into
 its attachment store, outside the extension JSON frame. The receiving Session
@@ -857,8 +1016,24 @@ atomically, and concurrent readers share one source cursor and application log.
 Stored handles exclude unpublished
 drafts, preserve inherited event counts and return frozen event values in fresh
 outer arrays. Read handles cannot append or flush. Closing is idempotent and
-invalidates later reads. The bounded captured-view cache includes the native
+invalidates later operations. One application write handle per Session may append
+contiguous log-only events to the same journal; readers remain available. It
+cannot manufacture native conversation or execution events. Appends preserve
+the supplied event coordinates and timestamps, and publish a validated batch
+atomically without copying existing event bodies. Flush and write-handle close
+complete the journal's durability barrier. Cold writes do not create an Agent
+or wake a model. The bounded captured-view cache includes the native
 draft revision or durable Fact/control pair and the application journal revision.
+Persisted opens and reads use a fresh native history capture, including a cold
+open. It returns the authorized immutable model baseline and Fact/control cut
+with the first missing slices from the retained projector's positions. A changed
+revision passes that cut and those slices to the projector; later pages remain
+demand-driven. The slices share one bounded transfer and do not become another
+cache or durable history. Oversized records keep the ordinary fragmented reader.
+An unchanged cut returns no event bodies. A concurrently advanced projector
+discards slices that no longer start at its positions. Metadata-only stat and
+catalog operations remain body-free. Neither path opens a live model projection.
+Draft capture still uses its live snapshot; persistence never opens a draft.
 A pending capture orders later captures for the same Session. Readers of other
 Sessions proceed independently. Point and last-event lookups stay within the
 captured prefix and allocate no event array.
@@ -980,6 +1155,12 @@ The release application runs the original Cordis workbench and its module
 resolver in one Node Worker. The process owns the bounded extension carrier
 and its heartbeat while the Worker reads and evaluates plugins. Close waits
 for the Cordis scope to retire; losing either side terminates the carrier.
+The native process boundary owns JSON framing and its byte limit. The carrier
+and Worker exchange cloned message envelopes over the Worker's private
+`MessagePort`, with the same generation, request admission and cancellation
+semantics. They do not encode another JSON byte stream inside the process.
+Worker stdout and stderr are diagnostics routed to the process's stderr, never
+protocol frames. Only the carrier handles process hello and heartbeat requests.
 The generated brand belongs to the writable application profile. Its assets
 can be republished on restart or upgrade even when an older asset inherited
 the Store's read-only permissions.
@@ -1000,7 +1181,9 @@ The application inbox reader captures the native durable inspection once, then
 reads its exact acceptance records. It preserves native message IDs, routing,
 source classification and queue slots across process restarts. Fragment assembly
 checks byte offsets and UTF-8 boundaries before exposing a complete value.
-Opening supplies complete bounded metadata without nested JSON encoding. An
+Opening supplies complete bounded metadata without nested JSON encoding. Its
+durable `history` contains Header metadata, the model baseline and the exact
+Fact/control cut for replay. It needs no current-projection subscription. An
 empty snapshot needs one call and retains no native resource; other snapshots
 are closed after their message reads.
 The native reader reuses one encoded acceptance across consecutive fragments
@@ -1054,8 +1237,8 @@ optimistic clears reconcile against an authoritative inbox snapshot, restoring
 still-pending native messages with their original acceptance identity; restoring
 a projection does not resubmit input. The shared journal owns that reconciliation.
 
-Waking `followup()` and `steer()` submissions use native direct application/user
-ingress with `NextTurn` and `Steer` intent. Each call captures the original
+`inject()`, `followup()` and `steer()` submissions use native direct application/user
+ingress with `NextStep`, `NextTurn` and `Steer` intent. Each call captures the original
 message ID, source and text/file blocks before asynchronous publication and allocates
 an independent native request ID. Native accepted inputs and consumed Facts
 retain that attribution, so pending projections and cold history show the same

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomUUID} from 'node:crypto';
-import {mkdir,mkdtemp,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,rm,readdir,rename} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
@@ -12,6 +12,111 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 const nativeSelection={provider:'native',model:'selected',reasoningEffort:'low'};
+
+test('capture preserves actual optional deadlines and the original timeout wrapper owns its expiry result',
+  {skip:!root,timeout:30000},async t=>{
+    const directory=await mkdtemp(join(tmpdir(),'rsi-tool-deadlines-'));
+    const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+    const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
+    for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
+    await ctx.plugin(tools.default);
+    const sessions=applicationSessions(()=>{throw Error('deadline fixture does not access native Session state');});
+    let calls=0,settled=0;
+    for(const [name,timeoutMs] of [['absent',undefined],['fractional',0.25],['short',5],['long',900001.5]]) {
+      ctx.tools.register(tools.defineTool({name,description:name,parameters:{},timeoutMs,
+        output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
+        async execute(_,exec){calls++;if(name==='short')await new Promise(resolve=>exec.signal.addEventListener('abort',resolve,{once:true}));settled++;return 'settled '+name;}}));
+    }
+    const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+    t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
+    assert.equal(listener.protocol,15);
+    const post=async(path,input,status=200)=>{
+      const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,{method:'POST',headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input)});
+      const value=await response.json();assert.equal(response.status,status,JSON.stringify(value));return value;
+    };
+    const captured=await post('capture',{view:randomUUID(),header:{id:'deadline',cwd:directory},reserved:[],modelSelection:nativeSelection});
+    assert.deepEqual(captured.tools.map(row=>[row.definition.name,row.timeout_ms]),[['absent',null],['fractional',0.25],['long',900001.5],['short',5]]);
+    const mutable=tools.defineTool({name:'mutable',description:'mutable registration',parameters:{},timeoutMs:1,
+      output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},execute(){assert.fail('capture must not execute');}});
+    const dispose=ctx.tools.register(mutable),view=randomUUID();
+    for(const timeoutMs of [Infinity,-Infinity,NaN]) {
+      mutable.timeoutMs=timeoutMs;
+      const failure=await post('capture',{view,header:{id:'deadline',cwd:directory},reserved:[],modelSelection:nativeSelection},400);
+      assert.match(failure.error,/finite/);
+    }
+    mutable.timeoutMs=0.25;
+    const retried=await post('capture',{view,header:{id:'deadline',cwd:directory},reserved:[],modelSelection:nativeSelection});
+    assert.equal(retried.tools.find(row=>row.definition.name==='mutable').timeout_ms,0.25,'failed captures release their view');
+    dispose();
+    await ctx.plugin(await load('@deepseek-ai/dsh-tool-call-timeout-policy'));
+    for(const name of ['absent','long','short']) {
+      const effect=randomUUID(),input={view:captured.view,session:'deadline',effect,name,args:{},registration:captured.tools.find(row=>row.definition.name===name).registration,
+        identity:{owner_id:'deadlines',invocation_id:effect,call_id:effect,request_sha256:'a'.repeat(64)}};
+      const result=await post('start',input);
+      assert.equal(result.state,'settled');assert.equal(result.result.is_error,name==='short');
+      if(name==='short')assert.match(JSON.stringify(result.result.content),/timed out after 5ms/);
+      assert.deepEqual(await post('outcome',input),result);assert.deepEqual(await post('start',input),result);
+    }
+    assert.equal(calls,3);assert.equal(settled,3,'wrapper expiry joins the actual body before publication');
+  });
+
+test('replacement processes only query old effects and cannot restart them through a new captured view', {skip:!root},async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-tool-replacement-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+  const tools=await load('@deepseek-ai/dsh-tools');let calls=0,failWrite=true;
+  async function host(){
+    const ctx=new (await load('@deepseek-ai/cordis')).Context();
+    for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
+    await ctx.plugin(tools.default);
+    ctx.tools.register(tools.defineTool({name:'counter',description:'Count executions',parameters:{},
+      output:{schema:{type:'number'},render:(_,value)=>[{type:'text',text:String(value)}]},execute(){return ++calls;}}));
+    const sessions=applicationSessions(()=>{throw Error('unexpected native Session access');}),key=randomUUID();
+    const listener=await applicationTools(ctx,{key,generation:randomUUID(),directory,sessions,
+      load:async name=>name==='@deepseek-ai/dsh-atomic-write'?{writeFileAtomic:async(...args)=>{
+        if(failWrite)throw Error('result write lost');return (await load(name)).writeFileAtomic(...args);
+      }}:load(name)});
+    const close=async()=>{await ctx.fiber.dispose();await sessions.close();};t.after(close);
+    const post=async(path,input,status=200)=>{
+      const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,{method:'POST',
+        headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input)});
+      const value=await response.json();assert.equal(response.status,status,JSON.stringify(value));return value;
+    };
+    return {close,post,retireOutcome:listener.retireOutcome,
+      capture:()=>post('capture',{view:randomUUID(),header:{id:'session',cwd:directory},reserved:[],modelSelection:nativeSelection})};
+  }
+  const first=await host(),captured=await first.capture(),effect=randomUUID();
+  const input={view:captured.view,session:'session',effect,name:'counter',args:{},registration:captured.tools[0].registration,
+    identity:{owner_id:'owner',invocation_id:effect,call_id:randomUUID(),request_sha256:'a'.repeat(64)}};
+  assert.deepEqual(await first.post('start',input),{state:'unknown'});
+  assert.deepEqual(await first.post('start',input),{state:'unknown'});assert.equal(calls,1);
+  assert.deepEqual(await readdir(directory),[]);await first.close();
+  failWrite=false;
+  const replacement=await host(),next=await replacement.capture();
+  assert.deepEqual(await replacement.post('outcome',input),{state:'unknown'});
+  assert.deepEqual(await replacement.post('start',input),{state:'unknown'});
+  assert.deepEqual(await replacement.post('start',{...input,view:next.view}),{state:'unknown'});
+  assert.equal(calls,1,'an old registration cannot enter the replacement plugin');
+  const nextEffect=randomUUID(),fresh={...input,view:next.view,effect:nextEffect,registration:next.tools[0].registration,
+    identity:{...input.identity,invocation_id:nextEffect,call_id:randomUUID()}};
+  const settled=await replacement.post('start',fresh);assert.equal(settled.state,'settled');assert.equal(settled.result.value,2);
+  assert.equal((await readdir(directory)).length,1);
+  await replacement.post('release',{view:next.view});assert.deepEqual(await replacement.post('start',fresh),settled);
+  assert.deepEqual(await replacement.post('outcome',fresh),settled);await replacement.close();
+  const cold=await host();assert.deepEqual(await cold.post('outcome',fresh),settled);
+  assert.deepEqual(await cold.post('start',fresh),settled);assert.equal(calls,2);
+  await cold.post('retire',fresh,400);
+  assert.equal((await readdir(directory)).length,1,'retirement is not a public Tool operation');
+  const receiptPath=join(directory,(await readdir(directory))[0]),backup=join(directory,'saved-outcome');
+  await rename(receiptPath,backup);await mkdir(receiptPath);
+  try {await cold.retireOutcome(fresh.session,fresh.effect,fresh.identity);}
+  finally {await rm(receiptPath,{recursive:true});await rename(backup,receiptPath);}
+  assert.deepEqual(await cold.post('outcome',fresh),settled,'cleanup failure preserves recovery and does not reject the observer');
+  await cold.retireOutcome(fresh.session,fresh.effect,fresh.identity);
+  assert.deepEqual(await readdir(directory),[]);
+  assert.deepEqual(await cold.post('outcome',fresh),{state:'unknown'});
+  assert.deepEqual(await cold.post('start',fresh),{state:'unknown'});assert.equal(calls,2);
+});
 
 test('original application policy allows by default, asks once when requested and preserves denial and guards',
   {skip:!root,timeout:30000},async t=>{
@@ -66,9 +171,9 @@ test('original application policy allows by default, asks once when requested an
   });
 
 test('original model-dependent activation uses the native request choice instead of the live Agent choice',
-  {skip:!process.env.RSI_DSH_SOURCE_COHORT},async t=>{
+  {skip:!root},async t=>{
     const directory=await mkdtemp(join(tmpdir(),'rsi-model-tools-'));
-    const require=createRequire(join(process.env.RSI_DSH_SOURCE_COHORT,'package.json'));
+    const require=createRequire(join(root,'package.json'));
     const load=name=>import(pathToFileURL(require.resolve(name)));
     const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
     for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
@@ -249,7 +354,7 @@ test('a captured Cordis registration settles once in its own Session and survive
       assert.equal((await post('outcome',{...input,identity:{...input.identity,request_sha256:'b'.repeat(64)}})).value.state,'unknown');
       assert.equal((await post('outcome',{...input,registration:randomUUID()})).value.state,'unknown');
       const wrong=request(selected,session==='one'?'two':'one');
-      assert.equal((await outcome('start',wrong)).result.value.code,'UNKNOWN_TOOL');
+      assert.deepEqual(await outcome('start',wrong),{state:'unknown'});
       await post('release',{view:selected.view});
     }
     assert.equal(calls,2);
@@ -264,11 +369,10 @@ test('a captured Cordis registration settles once in its own Session and survive
     const missing=randomUUID();
     assert.equal((await outcome('outcome',{...inputs[0],effect:missing,identity:{...inputs[0].identity,invocation_id:missing}})).state,'unknown');
     assert.equal(calls,2);
-    const modsEntry=process.env.RSI_DSH_MODS_ENTRY;
     await t.test('published Claude Code Mods reads the market Agent cwd and denies a real tool body',
-      {skip:!modsEntry},async()=>{
+      async()=>{
         await (await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry)).await();
-        const mods=await import(pathToFileURL(modsEntry));
+        const mods=await load('@deepseek-ai/dsh-experimental-claude-code-mods');
         await (await ctx.plugin(mods.default)).await();
         let observed,allowedCall,handledCall;
         await (await ctx.plugin(mods.defineMod({name:'market-guard',register(on){

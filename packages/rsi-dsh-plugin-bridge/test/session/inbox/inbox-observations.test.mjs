@@ -7,6 +7,9 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workbenchHistory} from '../../../src/workbench/history.mjs';
 import {invocationDigest} from '../../../src/session/command-receipts.mjs';
+import {contextRequest} from '../../../src/session/inbox/input-invocation.mjs';
+import {contextIntent,nativeMessagePage} from '../../fixtures/native-inbox-fixture.mjs';
+import {historyPage} from '../../fixtures/history-page.mjs';
 import {inboxObservationProjection} from '../../../src/session/inbox/inbox-observations.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT,source=process.env.RSI_DSH_INBOX_SOURCE;
@@ -31,9 +34,9 @@ async function fixture(t) {
     async read(id,op) {
       assert.equal(id,'inbox');
       if(op.type==='open')return meta();
-      if(op.type==='controls')return {through:op.through_seq,events:controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)};
-      assert.equal(op.type,'message');const json=JSON.stringify(messages.get(op.message_id));
-      return {through_seq:op.accepted_control_seq,offset:0,next_offset:Buffer.byteLength(json),total_bytes:Buffer.byteLength(json),json};
+      if(op.type==='controls')return historyPage(controls.filter(row=>row.seq>op.after_seq&&row.seq<=op.through_seq)
+        .map(row=>row.kind==='accepted'?{...row,message:messages.get(row.message_id)}:row),op.through_seq,op.offset);
+      assert.equal(op.type,'message');return nativeMessagePage(messages.get(op.message_id),op);
     }};
   const history=workbenchHistory(options);t.after(()=>history.close());
   const capture=()=>history.capture('inbox',meta()),session=await capture(),owner=history.owner(session),journal=owner.journal;
@@ -41,12 +44,12 @@ async function fixture(t) {
   const control=value=>controls.push({seq:controls.length+1,after_fact_seq:0,time:controls.length+10,...value});
   function accept(id,message) {
     const event=journal.accept(id,'agent/inbox/spliced',{target:'next-step',start:state()['next-step'].length,inserted:[message]}, {},1);
-    journal.prepare(id,{command:'rsi.context-input.command',request_id:id,expected_revision:{kind:'durable',control_seq:controls.length},
-      arguments:{content:message.content,attribution:{id:message.id,source:message.source}}});
+    journal.prepare(id,contextIntent('rsi.context-input.command',{kind:'durable',control_seq:controls.length},id,event));
     return event;
   }
   function acknowledgement(id) {
-    const invocation=journal.operation(id).invocation,digest=invocationDigest(invocation),nativeId=`command-${digest}-0`;
+    const operation=journal.operation(id),invocation=contextRequest(operation,journal.session.eventAt(operation.seq)),
+      digest=invocationDigest(invocation),nativeId=`command-${digest}-0`;
     const message=journal.session.eventAt(journal.operation(id).seq).data.inserted[0];
     messages.set(nativeId,{message_id:nativeId,source:{type:'command',source:{command:invocation.command,request_id:id,
       invocation_sha256:digest,ordinal:0,attribution:invocation.arguments.attribution}},content:message.content});
@@ -66,8 +69,45 @@ async function fixture(t) {
     assert.deepEqual(result.snapshotEvents(),session.snapshotEvents());
     assert.deepEqual(state(result),state());return result;
   }
-  return {session,owner,journal,capture,state,control,accept,acknowledgement,external,remove,cold,messages,controls};
+  return {session,owner,journal,capture,state,control,accept,acknowledgement,external,remove,cold,messages,controls,documents};
 }
+
+test('correlated input storage preserves local coordinates and rejects missing or changed native ownership',enabled,async t=>{
+  const f=await fixture(t),text='native-owned-'.repeat(25_000),accepted=f.accept('owned',user('owned',text));
+  assert.equal(f.journal.encode().split(text).length-1,1,'unobserved acceptance retains dispatch recovery');
+  f.external('before');f.acknowledgement('owned');await f.capture();
+  const saved=f.documents.get('inbox'),state=JSON.parse(saved);
+  assert.equal(saved.includes(text),false);
+  assert.equal(state.events.find(event=>event.seq===accepted.seq).data.inserted,null);
+  assert.equal(accepted.data.start,0);assert.equal(f.owner.source.current.session.eventAt(1).data.start,1);
+  await f.cold();
+  for(const corrupt of [
+    value=>{delete value.operations[0].source;},
+    value=>{value.operations[0].source=0;},
+    value=>{value.sourceDigest='b'.repeat(64);},
+  ]) {
+    const value=structuredClone(state);corrupt(value);const document=JSON.stringify(value);
+    f.documents.set('inbox',document);
+    await assert.rejects(f.cold(),/correlated native acceptance|prefix changed/);
+    assert.equal(f.documents.get('inbox'),document,'failed recovery cannot overwrite the durable evidence');
+  }
+  const previous=structuredClone(state);previous.version=4;
+  delete previous.sourceDigest;previous.sources=previous.sources.map((_,index)=>f.journal.sourceAt(index));
+  previous.eventCount=f.session.seq;delete previous.ownedEventCount;
+  previous.events=previous.events.map(event=>f.session.eventAt(event.seq));
+  f.documents.set('inbox',JSON.stringify(previous));
+  const restored=await f.cold();
+  assert.deepEqual(restored.eventAt(accepted.seq),accepted);
+  assert.equal(f.documents.get('inbox'),saved,'successful reconciliation removes the previous duplicate body');
+});
+
+test('non-waking submission cannot be acknowledged as idle steering',enabled,async t=>{
+  const f=await fixture(t),message=user('held');
+  f.journal.accept('held-native','agent/inbox/spliced',{target:'next-step',start:0,inserted:[message]}, {},1,{kind:'submission',delivery:'next_step'});
+  f.messages.set('held-native',{message_id:'held-native',source:{type:'human',attribution:{id:message.id,source:message.source}},content:message.content});
+  f.control({kind:'accepted',message_id:'held-native',target:'next_turn'});
+  await assert.rejects(f.capture(),/changed its target/);
+});
 
 test('the shared owner translates interleaved queue positions and aliases exact native acknowledgements',enabled,async t=>{
   const f=await fixture(t),first=f.accept('first',user('原始 id'));

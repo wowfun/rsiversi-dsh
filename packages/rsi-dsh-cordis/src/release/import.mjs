@@ -90,7 +90,7 @@ export async function importRelease(base,npmRoot,request,signal) {
     const dependenciesOfSelection=packed.artifacts.map(row=>({name:row.name,digest:row.manifestDigest}));
     await writeFile(join(directory,'package.json'),json({format:2,name,version:base.version,target,
       dependencies:dependenciesOfSelection,requires:[],files:[{path:'profile.rsi',bytes:tree.bytes,digest:tree.digest,executable:false}],
-      exports:{profile:{kind:'payload_tree',path:'profile.rsi'}}}));
+      exports:{profile:{kind:'payload_tree',path:'profile.rsi',index_digest:tree.indexDigest}}}));
     return {format:1,directories:[...packed.artifacts.map(row=>row.name),name]};
   } finally {await rm(work,{recursive:true,force:true});}
 }

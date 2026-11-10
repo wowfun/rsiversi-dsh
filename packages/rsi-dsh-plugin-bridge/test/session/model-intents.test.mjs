@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
+import {readJournalDocument} from '../../src/session/journal-document.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
 import {modelIntents} from '../../src/session/model-intents.mjs';
 import {nativePublication} from '../../src/application/native-publication.mjs';
@@ -58,7 +59,7 @@ test('lost native reply recovers the same invocation from original atomic persis
     await assert.rejects(driver.ready(),/reply lost/);
     assert.equal(host.applied,1);assert.equal(journal.operation(id).receipt,undefined);
     const document=await readFile(file,'utf8');
-    const reopened=new SessionProjectionJournal(ctx,api,{header},{save,document});
+    const reopened=new SessionProjectionJournal(ctx,api,{header},{save,restore:readJournalDocument(document)});
     const recovered=modelIntents(reopened,host.command);
     await recovered.ready();
     assert.equal(host.applied,1);assert.equal(host.invocations.length,2);
@@ -129,7 +130,7 @@ test('unconfirmed choice fails publication and dependent work; a later explicit 
     assert.equal(submitted,false);assert.equal(host.applied,0);
     assert.match(journal.operation(driver.latest().id).failure,/model unavailable/);
     assert.equal(journal.seq,1,'failed publication does not erase the accepted event');
-    const cold=new SessionProjectionJournal(ctx,api,{header},{document:persisted,save:async()=>{}});
+    const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(persisted),save:async()=>{}});
     const recovered=modelIntents(cold,host.command);recovered.accept(selection);await recovered.ready();
     assert.equal(host.applied,1);assert.equal(host.invocations[0].arguments.model.model,'configured');
     assert.equal(cold.seq,2,'later explicit intent supersedes the old retry without rewriting history');
@@ -161,7 +162,7 @@ test('cold driver rejects a persisted receipt or invocation that no longer binds
       row=>{row.receipt.outcome.control_seq++;},
     ]) {
       const value=JSON.parse(journal.encode());mutate(value.operations[0]);
-      const cold=new SessionProjectionJournal(ctx,api,{header},{document:JSON.stringify(value)});
+      const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(value))});
       assert.throws(()=>modelIntents(cold,host.command),/accepted choice|invocation digest|publication boundary/);
     }
   });

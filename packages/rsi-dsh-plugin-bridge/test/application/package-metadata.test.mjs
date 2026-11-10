@@ -81,17 +81,22 @@ test('original package metadata follows its resolved lease; editable, subpath an
   const first=await tree('one','One'),next=await tree('next','Next'),local=await tree('editable','Editable');
   const graph={format:1,plugins:[name],locations:{[location]:{package:'fixture',version:'1.0.0',dependencies:{}}}};
   const resolver=installReleaseResolver(graph,new Map([['fixture',first.base]]));t.after(()=>resolver.close());
-  let reads=0;
+  let reads=0,resolutions=0;
   class CountingPackages extends boot.PluginPackages {
     metaOf(...args){reads++;return super.metaOf(...args);}
   }
-  await ctx.plugin(leasedPluginPackages({...boot,PluginPackages:CountingPackages},resolver));t.after(()=>ctx.fiber.dispose());
+  await ctx.plugin(leasedPluginPackages({...boot,PluginPackages:CountingPackages,
+    resolvePluginResource(...args){resolutions++;return boot.resolvePluginResource(...args);}},resolver));t.after(()=>ctx.fiber.dispose());
   const packages=ctx.pluginPackages;
   const value=packages.metaOf(name,first.parent);
   assert.deepEqual(value,boot.readPluginMeta(name,first.parent));
   assert.equal(packages.metaOf(name,first.parent),value);
   assert.ok(Object.isFrozen(value)&&Object.isFrozen(value.title));
   assert.equal(reads,1);
+  const owned=pathToFileURL(join(first.base,location,'entry.mjs')).href;
+  const resolved=resolutions;
+  assert.equal(packages.metaOf(name,owned),value);
+  assert.equal(resolutions,resolved,'a retained package binding already identifies cached root metadata');
   const release=resolver.add(graph,new Map([['fixture',next.base]]),[name]);
   await writeFile(next.locale,'{');
   assert.match(packages.metaOf(name,next.parent).error,/metadata/i);

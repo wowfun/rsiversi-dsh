@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
+import {historyCapture} from '../fixtures/history-page.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('stored metadata stays pageable beyond the browser response budget',async()=>{
@@ -37,8 +38,10 @@ test('original lineage merges registered Sessions with paged durable metadata wi
     return args.after?{items:[child],next:null}:{items:[parent],next:'page-2'};
   },{attached:()=>[attached],agent:id=>id==='child'?{session:attached}:undefined});
   let count=4;
-  const history=workbenchHistory({storage:{metadata:id=>id==='child'?{header,eventCount:count}:undefined},
-    read:async(id,operation)=>{assert.equal(operation.type,'open');if(id==='missing')return null;
+  const history=workbenchHistory({storage:{metadata:id=>id==='child'?{header,ownedEventCount:count}:undefined},
+    read:async(id,operation)=>{
+      if(operation.type==='capture'){assert.equal(id,'missing');return historyCapture(null,operation);}
+      assert.equal(operation.type,'open');if(id==='missing')return null;
       assert.equal(operation.metadata_only,true);return id==='child'?child:parent;}});
   const persistence=workbenchPersistence(history,await load('dsh-session-persistence'),scope.storedPages);
   ctx.provide('sessions',scope.sessions);ctx.provide('sessionPersistence',persistence);

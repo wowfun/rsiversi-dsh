@@ -10,7 +10,6 @@ const maxBytes=32*1024*1024;
 // Native mailbox prefix (32 MiB), contributions (16 MiB), Tool contexts
 // (16 MiB), preceding preset edits (32 MiB), and 1 MiB of envelopes.
 const maxPreparationBytes=(32+16+16+32+1)*1024*1024;
-const failure=(code,message)=>({value:{code,message},content:[{type:'text',text:message}],is_error:true});
 
 export async function applicationTools(ctx,{load,key,generation,directory,sessions,resolveAgent}){
   const tools=await load('@deepseek-ai/dsh-tools');
@@ -51,8 +50,10 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       for(const [name,definition] of [...row.selection.view(agent)].sort(([a],[b])=>a<b?-1:a>b?1:0)){
         if(row.reserved.has(name)||delegated&&!delegated.has(name)||name==='report_result')continue;
         if(row.reserved.size+rows.length>=64)break;
+        const timeout=definition.timeoutMs??null;
+        if(timeout!==null&&!Number.isFinite(timeout))throw Error('Tool capture timeoutMs must be finite');
         const schema=tools.projectToolSchema(definition,false),registration=randomUUID();
-        rows.push({registration,definition:{name,description:schema.description,input_schema:schema.parameters}});
+        rows.push({registration,timeout_ms:timeout,definition:{name,description:schema.description,input_schema:schema.parameters}});
         row.bindings.set(registration,name);
       }
       row.modelSelection=modelSelection;
@@ -89,14 +90,13 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     }
     return row.stopping;
   }
-  async function run(input,signal){
-    const {name,args,registration,session,identity}=input,view=views.get(input.view);
-    if(!view||view.session.id!==session||view.bindings.get(registration)!==name)
-      return failure('UNKNOWN_TOOL','The captured tool is no longer available');
-    if(!view.selection.view(view.agent).has(name))return failure('UNKNOWN_TOOL','The captured tool registration was withdrawn');
+  async function run(input,signal,view){
+    const {name,args,identity}=input;
     const result=await sessions.withToolAgent(view.agent,()=>execute({agent:view.agent,callId:identity.call_id,name,
       arguments:args,toolSet:view.selection,signal}));
     const contexts=toolContextOutput(result.additionalContexts??[]);
+    // The pipeline detached and froze plugin data; this fresh envelope stays
+    // private until the ledger has published it, so its payloads can be shared.
     return {value:result.value??null,content:result.content,is_error:result.isError===true,metadata:resultMetadata(result),
       ...(result.concludesTurn?{concludes_turn:true}:{}),
       ...(contexts.length?{additional_contexts:contexts}:{})};
@@ -112,7 +112,11 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
         if(input.callback==='stopping'&&row?.stopping)return row.stopping;
         throw Error('Callback outcome unavailable for this view');
       }
-      case '/v1/start':return ledger.start(input,stop=>run(input,stop));
+      case '/v1/start':{
+        const view=views.get(input.view);
+        const admitted=view&&view.session.id===input.session&&view.bindings.get(input.registration)===input.name;
+        return ledger.start(input,admitted?stop=>run(input,stop,view):undefined);
+      }
       case '/v1/outcome':return ledger.outcome(input);
       case '/v1/cancel':return ledger.cancel(input);
       case '/v1/release':release(input.view);return {};
@@ -151,5 +155,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     closeNative();server.close();server.closeAllConnections();await ledger.close();
     for(const id of views.keys())release(id);
   },'close application tool source');
-  return {protocol:14,generation,port:server.address().port};
+  return {protocol:15,generation,port:server.address().port,
+    retireOutcome:(session,effect,identity)=>ledger.retire(session,effect,identity)
+      ?.catch(error=>ctx.logger.warn('Application tool receipt cleanup failed:',error))};
 }

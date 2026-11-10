@@ -16,7 +16,7 @@ function state(selected) {
     branch:()=>state(selected),
     observe(event,session) {
       selected=convert(event.selection);
-      return session.appendObserved('model/selection',selected,event.time);
+      return session.adoptObserved({type:'model/selection',seq:session.seq,time:event.time,data:selected});
     },
     snapshot(session) {
       return {lastUsed:lastUsedModel(session.requestHeader()),next:selected};

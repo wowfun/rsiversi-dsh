@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { Peer, MAX_FRAME_BYTES } from '../../src/runtime/transport.mjs';
+import { MessageChannel } from 'node:worker_threads';
+import { Peer, MAX_FRAME_BYTES, MAX_PENDING } from '../../src/runtime/transport.mjs';
 import { discoverNode, runtimeEnvironment, supportsNode } from '../../src/runtime/node.mjs';
 
 function pair(t, handler) {
@@ -11,6 +12,53 @@ function pair(t, handler) {
   t.after(() => { left.close(); right.close(); a.destroy(); b.destroy(); });
   return { left, right };
 }
+
+function portPair(t, handler) {
+  const {port1,port2} = new MessageChannel();
+  t.after(() => {port1.close();port2.close();});
+  const left = new Peer({port:port1,generation:'test',handler:async (_,value)=>value});
+  const right = new Peer({port:port2,generation:'test',handler});
+  t.after(() => {left.close();right.close();});
+  return {left,right};
+}
+
+test('worker messages detach payloads and preserve callbacks and cancellation', async t => {
+  const {left,right} = portPair(t, async (method,value) => method==='review'?new Promise(()=>{}):value);
+  const payload={text:'字'.repeat(100_000)},expected=structuredClone(payload);
+  const result=left.request('echo',payload);payload.text='changed after sending';
+  assert.deepEqual(await result,expected);
+  assert.deepEqual(await right.request('callback',{receipt:42}),{receipt:42});
+  const stop=new AbortController(),review=left.request('review',null,{signal:stop.signal});
+  stop.abort(new Error('stop'));await assert.rejects(review,/stop/);
+  assert.equal(await left.request('echo',true),true);
+  assert.equal(left.closed,false);
+});
+
+test('worker port closure rejects outstanding work', async t => {
+  const {left,right} = portPair(t, () => new Promise(()=>{}));
+  const pending=left.request('wait',null);
+  right.close();
+  await assert.rejects(pending,/EOF/);
+  assert.equal(left.closed,true);
+});
+
+test('worker ports retain request admission and release settled slots', async t => {
+  const gate=Promise.withResolvers(),{left}=portPair(t,()=>gate.promise);
+  const pending=Array.from({length:MAX_PENDING},()=>left.request('wait',null));
+  await assert.rejects(left.request('overflow',null),/capacity/);
+  gate.resolve(true);assert.deepEqual(await Promise.all(pending),Array(MAX_PENDING).fill(true));
+  assert.equal(await left.request('after',null),true);
+});
+
+test('a stale worker message closes before entering the handler', async t => {
+  const {port1,port2}=new MessageChannel(),closed=Promise.withResolvers();let calls=0;
+  t.after(()=>{port1.close();port2.close();});
+  const peer=new Peer({port:port1,generation:'current',handler:()=>calls++,onClose:closed.resolve});
+  t.after(()=>peer.close());
+  port2.postMessage({generation:'stale',message:{kind:'request',id:1,method:'read',payload:null}});
+  assert.match((await closed.promise).message,/generation mismatch/);
+  assert.equal(calls,0);
+});
 test('a pending review does not serialize commands or reverse callbacks', async t => {
   let answer; const wait = new Promise(resolve => { answer = resolve; });
   const { left, right } = pair(t, async (method, payload) => method === 'review' ? wait : payload);

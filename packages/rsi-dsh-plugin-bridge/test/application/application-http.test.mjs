@@ -6,6 +6,8 @@ import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {test} from 'node:test';
 import {pathToFileURL} from 'node:url';
+import {get} from 'node:http';
+import {gunzipSync} from 'node:zlib';
 import {createApplication} from '../../src/application/application.mjs';
 import {provideHttp} from '../../src/application/http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
@@ -104,4 +106,18 @@ test('released web server admits the native proxy and serves its original compos
   const bundle=await fetch(new URL(renderer.url,origin),{headers});
   assert.equal(bundle.status,200);
   assert.ok((await bundle.arrayBuffer()).byteLength>1000);
+  async function raw(encoding){
+    return new Promise((resolve,reject)=>{
+      get(new URL(renderer.url,origin),{headers:{...headers,'accept-encoding':encoding}},response=>{
+        const chunks=[];response.on('data',chunk=>chunks.push(chunk));response.on('error',reject);
+        response.on('end',()=>resolve({headers:response.headers,body:Buffer.concat(chunks)}));
+      }).on('error',reject);
+    });
+  }
+  const identity=await raw('identity'),compressed=await raw('gzip');
+  assert.equal(compressed.headers['content-encoding'],'gzip');
+  assert.match(compressed.headers.vary,/\bAccept-Encoding\b/i);
+  assert.equal(identity.headers['content-encoding'],undefined);
+  assert.ok(compressed.body.length<identity.body.length);
+  assert.deepEqual(gunzipSync(compressed.body),identity.body);
 });

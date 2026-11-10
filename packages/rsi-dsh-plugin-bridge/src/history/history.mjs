@@ -1,4 +1,4 @@
-import { observeRequest } from './request-history.mjs';
+import { requestObserver } from './request-history.mjs';
 import { observeAttempt } from './model-history.mjs';
 import { observeInput, observeTool } from './conversation-history.mjs';
 import { stepMessageText } from './step-messages.mjs';
@@ -35,71 +35,34 @@ export function restoreMapping(value) {
   return structuredClone(value);
 }
 
-/** Fragments belong to one captured, claim-visible horizon, never the mutable Store tail. */
-export async function readHistory(request, identity, after, horizon, consume, signal) {
-  if (!integer(after) || !integer(horizon) || after > horizon) throw new Error('invalid history horizon');
-  let cursor = after;
-  while (cursor < horizon) {
-    const { through, value: facts } = await readPage(request, 'agent.history.read', { ...identity, through_seq: horizon }, cursor, horizon, signal);
-    if (!Array.isArray(facts) || facts.length > 512 || facts.some((fact, i) => !integer(fact.seq) || fact.seq <= (i ? facts[i - 1].seq : cursor) || fact.seq > through)) {
-      throw new Error('invalid captured Fact page');
-    }
-    for (const fact of facts) await consume(fact);
-    cursor = through;
-  }
-  return cursor;
-}
-
-async function readPage(request, method, identity, after, horizon, signal) {
-  let offset = 0, through, total; const fragments = [];
-  do {
-    signal?.throwIfAborted();
-    const page = await request(method, { ...identity, after_seq: after, offset }, signal);
-    if (!integer(page.through_seq) || page.through_seq <= after || page.through_seq > horizon
-        || !integer(page.total_bytes) || page.total_bytes < 2 || page.total_bytes > 36 * 1024 * 1024 + 2
-        || page.offset !== offset || !integer(page.next_offset) || page.next_offset <= offset
-        || page.next_offset > page.total_bytes || typeof page.json !== 'string'
-        || page.next_offset - offset > 128 * 1024 || Buffer.byteLength(page.json) !== page.next_offset - offset
-        || through !== undefined && (through !== page.through_seq || total !== page.total_bytes)) throw new Error('invalid history fragment');
-    through = page.through_seq; total = page.total_bytes; offset = page.next_offset; fragments.push(page.json);
-  } while (offset < total);
-  return { through, value: JSON.parse(fragments.join('')) };
-}
-export async function readAttempt(request, identity, seq, signal) {
-  if (!integer(seq) || seq === 0) throw new Error('invalid model attempt sequence');
-  const { through, value } = await readPage(request, 'agent.history.attempt.read', identity, seq - 1, seq, signal);
-  if (through !== seq || value.seq !== seq) throw new Error('model attempt projection identity mismatch');
-  return value;
-}
-
-export async function readNativeMessage(call, messageId, seq, signal) {
-  const {through,value}=await readPage((_method,{offset})=>call({type:'message',message_id:messageId,
-    accepted_control_seq:seq,offset}), 'message', {}, seq-1, seq, signal);
-  if(through!==seq||value.message_id!==messageId)throw new Error('Native inbox acceptance identity mismatch');
-  return value;
-}
-
 function closeStep(session, mapping, time) {
   if (mapping.pendingMessages.length) throw new Error('Step closed before its committed messages');
-  if (mapping.stepOpen) session.appendObserved('step/end', { turn: mapping.turn, step: mapping.step }, time);
+  if (mapping.stepOpen) session.adoptObserved({type:'step/end',seq:session.seq,time,
+    data:{turn:mapping.turn,step:mapping.step}});
   mapping.stepOpen = false;
 }
+export function factObserver(session, mapping, readFact, llm) {
+  const observeRequest = requestObserver(readFact);
+  return fact => observeFact(session, mapping, fact, readFact, llm, observeRequest);
+}
+
 /** Only lifecycle Facts affect these counters; provider attempts do not fabricate acceptance. */
-export async function observeFact(session, mapping, fact, readFact, readAttempt, llm) {
+async function observeFact(session, mapping, fact, readFact, llm, observeRequest) {
   if (!integer(fact.timestamp_ms) || fact.timestamp_ms === 0) throw new Error('invalid canonical Fact time');
   if (fact.type === 'model_intent') {
-    await observeRequest(session, fact, readFact, mapping);
+    await observeRequest(session, fact, mapping);
     if (fact.purpose?.kind === 'conversation') mapping.model = { effectId: fact.effect_id, provider: fact.snapshot.deployment_id, model: fact.snapshot.model, startedAt: null };
   } else if (fact.type === 'model_started' && mapping.model?.effectId === fact.effect_id) {
     mapping.model.startedAt = fact.timestamp_ms;
   } else if (fact.type === 'model_attempt_settled') {
-    if (await observeAttempt(session, mapping, fact, readAttempt, llm)) closeStep(session, mapping, fact.timestamp_ms);
+    if (observeAttempt(session, mapping, fact, llm)) closeStep(session, mapping, fact.timestamp_ms);
   } else if (['turn_accepted', 'message_turn_accepted', 'step_started'].includes(fact.type)) {
     if (mapping.turnId !== fact.turn_id) {
       if (mapping.turnId !== null) throw new Error('new Turn precedes canonical terminal');
       if (!Number.isSafeInteger(mapping.turn + 1)) throw new Error('Turn counter exhausted');
       mapping.turnId = fact.turn_id; mapping.turn++; mapping.step = 0;
-      session.appendObserved('turn/start', { turn: mapping.turn, rsi: { session: session.id, fact: fact.seq, turn: fact.turn_id } }, fact.timestamp_ms);
+      session.adoptObserved({type:'turn/start',seq:session.seq,time:fact.timestamp_ms,
+        data:{turn:mapping.turn,rsi:{session:session.id,fact:fact.seq,turn:fact.turn_id}}});
     }
     if (fact.type === 'step_started') mapping.stepId = fact.step_id;
     if (fact.type === 'turn_accepted') claimInput(mapping, fact);
@@ -127,7 +90,8 @@ export async function observeFact(session, mapping, fact, readFact, readAttempt,
     const reason = { completed: { kind: 'completed' }, blocked: { kind: 'blocked' }, cancelled: { kind: 'aborted', reason: { kind: 'legacy' } },
       interrupted: { kind: 'interrupted' }, max_tokens: { kind: 'max-tokens' } }[outcome.status]
       ?? { kind: 'error', error: { code: outcome.code, message: outcome.message } };
-    session.appendObserved('turn/end', { turn: mapping.turn, reason, rsi: { session: session.id, fact: fact.seq, turn: fact.turn_id } }, fact.timestamp_ms);
+    session.adoptObserved({type:'turn/end',seq:session.seq,time:fact.timestamp_ms,
+      data:{turn:mapping.turn,reason,rsi:{session:session.id,fact:fact.seq,turn:fact.turn_id}}});
     mapping.turnId = null; mapping.stepId = null; mapping.model = null;
   }
 }
@@ -136,5 +100,5 @@ export function prepareStep(session, mapping, turnId, stepId, now=Date.now()) {
   if (!Number.isSafeInteger(mapping.step + 1)) throw new Error('Step counter exhausted');
   closeStep(session, mapping, now);
   mapping.step++; mapping.stepOpen = true;
-  session.appendObserved('step/start', { turn: mapping.turn, step: mapping.step }, now);
+  session.adoptObserved({type:'step/start',seq:session.seq,time:now,data:{turn:mapping.turn,step:mapping.step}});
 }

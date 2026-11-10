@@ -12,7 +12,8 @@ export function inboxObservationProjection(journal,events,transitions) {
     const accepted=transition.kind==='accepted'&&inserted.length===1?inserted[0].operation:undefined;
     if(accepted) {
       const original=session.eventAt(accepted.seq);
-      const idleSteer=accepted.invocation?.kind==='submission'&&accepted.invocation.delivery==='steer'&&
+      const idleSteer=accepted.invocation?.kind==='submission'&&
+        accepted.invocation.delivery!=='next_step'&&
         original.data.target==='next-step'&&event.data.target==='next-turn';
       if(original.data.target!==event.data.target&&!idleSteer)throw Error('Native inbox acceptance changed its target');
       correlations.set(event.seq,accepted.id);projections.set(event.seq,original.data);

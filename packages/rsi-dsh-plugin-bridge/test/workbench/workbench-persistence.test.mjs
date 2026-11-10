@@ -6,13 +6,53 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
+import {historyPage,historyCapture} from '../fixtures/history-page.mjs';
+import {journalCatalog} from '../../src/session/session-journal-store.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('stored revisions track owned appends rather than native mirror catch-up',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const baseline={model:{deployment:'native',model:'configured'},reasoning_effort:'high'};
+  const controls=[],documents=new Map();
+  const options={ctx,api,llm:await load('dsh-llm'),storage:{
+    async read(id){return documents.get(id);},
+    async metadata(id){return journalCatalog(documents.get(id));},
+    async save(id,value){documents.set(id,value);},
+  },async read(id,op){
+    const meta={id,created_at:1,inherited:false,through:0,model_baseline:baseline,
+      selection_cursor:{kind:'durable',fact_seq:0,control_seq:controls.length}};
+    if(op.type==='open')return meta;
+    if(op.type==='capture')return historyCapture(meta,op,[],controls);
+    assert.equal(op.type,'controls');
+    return historyPage(controls.slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
+  }};
+  const history=workbenchHistory(options);t.after(()=>history.close());
+  const persistence=workbenchPersistence(history,await load('dsh-session-persistence'));
+  const session=await history.capture('stored',await history.metadata('stored')),journal=history.owner(session).journal;
+  journal.append('session/title',{title:'Local title',source:{kind:'user'},messageSeqs:[]});await journal.flush();
+  controls.push({kind:'model',seq:1,after_fact_seq:0,time:2,selection:baseline});
+  const before=await persistence.stat('stored');
+  const handle=await persistence.open('stored','read');t.after(()=>handle.close());
+  const events=(await handle.read()).events;assert.equal(events.length,2);
+  assert.deepEqual(await persistence.stat('stored'),before,'catch-up must not invalidate a cut already identified by native metadata');
+  journal.append('session/title',{title:'New local title',source:{kind:'user'},messageSeqs:[]});await journal.flush();
+  const changed=await persistence.stat('stored');assert.notEqual(changed.revision,before.revision);
+  const reopened=workbenchHistory(options);t.after(()=>reopened.close());
+  const cold=workbenchPersistence(reopened,await load('dsh-session-persistence'));
+  assert.deepEqual(await cold.stat('stored'),changed,'the persisted revision survives loss of its live mirror');
+  const restored=await cold.open('stored','read');t.after(()=>restored.close());
+  assert.equal((await restored.read()).events.length,3);
+  assert.deepEqual(await cold.stat('stored'),changed);
+});
 test('a delayed capture does not hold other Sessions; point reads stay at the opening cut without copying the log',async()=>{
   const gate=Promise.withResolvers(),entered=Promise.withResolvers(),order=[];
   const events=Array.from({length:4096},(_,seq)=>({type:'retained',seq}));
   let slices=0;
   const history={
+    async stored(id,signal){return {meta:await this.metadata(id,signal)};},
     async metadata(id){
       order.push(id);
       if(id==='slow'){entered.resolve();await gate.promise;}
@@ -38,20 +78,27 @@ test('native read handles refresh control-only history, bind opening authority, 
   const require=createRequire(join(root,'package.json'));
   const errors=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-session-persistence')));
   const scope=new AsyncLocalStorage(),header=Object.freeze({version:4,id:'one',createdAt:1,isSeeded:true,agentPreset:'native',parentSession:'parent'});
-  let control=2,allowed=true,captures=0,reads=0,paused;
+  let control=2,allowed=true,captures=0,reads=0,paused;const metadataOnlyReads=[];
   const events=[Object.freeze({seq:0,type:'session/end-seed',data:Object.freeze({})}),Object.freeze({seq:1,type:'user/message',data:Object.freeze({content:'owned'})})];
-  const service=workbenchPersistence({async metadata(id,signal){
+  const service=workbenchPersistence({async stored(id,signal){return {meta:await this.metadata(id,signal,true)};},async metadata(id,signal,metadataOnly=false){
+    assert.equal(metadataOnly,true,'stored reads must work without a live projection, including cold open');
+    metadataOnlyReads.push(metadataOnly);
     reads++;assert.equal(scope.getStore(),'opening');signal?.throwIfAborted();
     if(paused)await paused.promise;
     if(!allowed)throw Error('Request authority withdrawn');
-    return {id,created_at:1,inherited:true,parent:'parent',preset:'native',selection_cursor:{kind:'durable',control_seq:control,fact_seq:5}};
-  },snapshot:workbenchHistory({}).snapshot,async capture(){
+    return {id,created_at:1,inherited:true,parent:'parent',preset:'native',through:5,
+      model_baseline:{model:{deployment:'test',model:'baseline'}},selection_cursor:{kind:'durable',control_seq:control,fact_seq:5}};
+  },snapshot:workbenchHistory({}).snapshot,async capture(id,meta){
+    assert.equal(meta.through,5,'the projector receives the captured Fact cut');
+    assert.equal(meta.selection_cursor.control_seq,control,'control-only refresh uses its captured cut');
+    assert.equal(meta.model_baseline.model.model,'baseline');
     captures++;const frozen=[...events];
     return {id:'one',header,seq:frozen.length,inheritedEventCount:1,encodedBytes:256,
       requestHeader:()=>undefined,snapshotEvents:(start=0,end)=>frozen.slice(start,end),eventAt:seq=>frozen[seq],lastEvent:type=>frozen.findLast(e=>e.type===type)};
   }},errors);
   const [first,second]=await scope.run('opening',()=>Promise.all([service.open('one','read'),service.open('one','read')]));
   assert.equal(captures,1);assert.equal(first.inheritedEventCount,1);
+  assert.deepEqual(metadataOnlyReads,[true,true],'cold and unchanged durable views avoid live projections');
   const initial=await scope.run('other',()=>first.read());
   assert.equal(initial.eventState,'shared-frozen');assert.ok(Object.isFrozen(initial.events[1].data));
   initial.events.length=0;assert.equal((await first.read()).events.length,2);
@@ -76,9 +123,47 @@ test('native read handles refresh control-only history, bind opening authority, 
 test('draft mirrors stay available to the request while persistence refuses to invent a durable log',{skip:!root},async()=>{
   const require=createRequire(join(root,'package.json'));
   const errors=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-session-persistence')));
-  const service=workbenchPersistence({async metadata(id){return {id,created_at:1,selection_cursor:{kind:'draft',revision:0}};},
+  const service=workbenchPersistence({async stored(){return {meta:null};},async metadata(id){return {id,created_at:1,selection_cursor:{kind:'draft',revision:0}};},
     async capture(id){return {id,header:{id},seq:0,inheritedEventCount:0,encodedBytes:0,requestHeader:()=>undefined,snapshotEvents:()=>[]};}},errors);
   assert.equal((await service.capture('draft')).seq,0);assert.equal(await service.stat('draft'),undefined);
   await assert.rejects(service.open('draft','read'),errors.SessionPersistenceNotFoundError);
-  await assert.rejects(service.open('draft','write'),errors.SessionReadOnlyError);
+  await assert.rejects(service.open('draft','write'),errors.SessionPersistenceNotFoundError);
+});
+
+test('cold persistence reconstructs native controls while live projection reads are unavailable',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const baseline={model:{deployment:'native',model:'configured'},reasoning_effort:'high'};
+  const controls=[{kind:'model',seq:1,after_fact_seq:0,time:1,selection:{...baseline,reasoning_effort:'low'}}];
+  let opens=0;const operations=[];
+  const history=workbenchHistory({ctx,api,llm:await load('dsh-llm'),async read(id,op){
+    operations.push(op.type);
+    if(op.type==='open'||op.type==='capture'){
+      if(op.type==='open'&&!op.metadata_only)throw Error('Live projection unavailable');
+      opens++;
+      const meta={id,created_at:1,inherited:false,through:0,model_baseline:baseline,
+        selection_cursor:{kind:'durable',fact_seq:0,control_seq:controls.length}};
+      return op.type==='capture'?historyCapture(meta,op,[],controls):meta;
+    }
+    assert.equal(op.type,'controls');
+    return historyPage(controls.slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
+  }});
+  t.after(()=>history.close());
+  const persistence=workbenchPersistence(history,await load('dsh-session-persistence'));
+  const stored=await persistence.stat('stored');
+  opens=0;
+  const handle=await persistence.open('stored','read');t.after(()=>handle.close());
+  assert.equal(opens,1);
+  const initial=(await handle.read()).events;
+  assert.equal(initial.length,1);assert.equal(initial[0].data.reasoningEffort,'low');
+  assert.deepEqual(await persistence.stat('stored'),stored,
+    'reconstructing a native-only mirror must not change the persisted revision');
+  controls.push({kind:'model',seq:2,after_fact_seq:0,time:2,selection:baseline});
+  const before=opens,updated=(await handle.read()).events;
+  assert.equal(opens,before+1,'a changed cut requires no second opening request');
+  assert.equal(updated.length,2);assert.equal(updated[1].data.reasoningEffort,'high');
+  assert.equal(updated[0],initial[0],'the shared frozen prefix is reused');
+  assert.equal(operations.filter(type=>type==='controls').length,0,'captured first slices require no second page RPC');
 });

@@ -10,6 +10,19 @@ Agents, workbench history and cold persistence. Native Kernel owns execution.
 The attached Agent's model-selection append and the ordinary workbench model
 selector both use this log and its native command driver.
 
+A native draft can change Agent preset without changing Session identity.
+The application retains its original creation Header and records a changed
+native choice as `agent-preset/selected`, before the events in the same newly
+observed cut. Re-reading a cut adds nothing; an older draft revision cannot
+undo a newer choice. Selection records and native events publish atomically.
+The compact journal keeps those records and the original Header so a cold
+reader reconstructs the same immutable events. Native Session admission remains
+the sole authority for choosing a preset; the record performs no mutation.
+The native owner must advance the cut when changing the preset. Selection times
+record local observation time; event sequence, not wall-clock time, orders the log.
+Preset identifiers in the Header and selection records are nonblank strings of
+at most 256 UTF-16 code units; native admission owns the preset-name grammar.
+
 Plugins read the model-visible messages with `session.deriveMessages()`.
 It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
@@ -23,9 +36,35 @@ scope retain their original sequence. On creation, the listener includes
 events appended after that Session's `firstLiveSeq`, excluding restored
 history. Cancellation or owner disposal removes the listener.
 
+`session.observeProjections` also returns `ready` after registration, including
+for a Session that does not exist yet. It consumes the same committed changes
+as `session.control`. An active transcript, an attached Agent's native
+observer, or a model-selection command supplies the projection source. A
+model command publishes its accepted choice even without a retained Agent.
+Adding subscribers performs no
+history read, baseline calculation or native wait. Opening a source supplies
+the Host-wide baseline; passive per-Session listeners receive subsequent
+event changes. Model choices, inbox entries and native child catalogs retain
+their existing event coordinates.
+
 DSH hook handlers append their log-only `hook/invoked` and `hook/result`
 records to the same Session. Their turn, point and handler ID survive cold
 replay. Neither record changes the model-visible conversation.
+
+The original message-feedback service owns rating validation, version comparison
+and no-op detection. Its `feedback/message-put` and `feedback/message-delete`
+events are log-only application events in this same journal. Live writes use
+the attached Session; cold writes use the persistence write handle. Both flush
+before reporting success and survive cold replay without another feedback store
+or a copy of the native transcript.
+
+The original `/feedback <text>` command and `sessionFeedback.record` Remote
+append `feedback/record` to this same journal. The event is log-only and does not
+enter model context or trigger a Turn. The Remote accepts a live Session and
+acknowledges synchronous acceptance; normal Session publication owns the later
+flush. A missing live Session returns the original `session-not-found` result.
+Command bookkeeping follows the release's `recordInput: false` policy, so the
+remark is stored only in its feedback event.
 
 The DSH job registry appends `job/registered` and `job/settled` to the
 owning Agent's Session. These log-only records preserve the original job ID,
@@ -43,6 +82,9 @@ immediately before the child's tagged `session/end-seed`. They count as
 inherited events for DSH projections and have no native Fact position.
 Cold replay uses the same boundary. A child created before these events
 were recorded has only the metadata present in its log.
+Preceding observation records must be log-only events. They cannot precede the
+initial inherited prefix or its constructor annotations; such a batch is rejected
+before publication so every accepted layout can be restored.
 Already prepared invocation metadata is installed before synchronous observers
 see its event. Readiness walks the journal's event-position index only through
 the boundary captured by the calling mutation, retaining progress across calls.
@@ -54,14 +96,99 @@ delta does not copy the retained source map, enumerate settled mutations or take
 a full event snapshot. Existing immutable events are read by position. Validation
 failure leaves all three logs unchanged. A batch that only acknowledges existing
 local events does not construct a new Session branch or Surface manager.
+The native projector transfers deeply frozen event values under an explicit
+`shared-frozen` ownership contract. An event whose coordinates and references
+remain unchanged retains its native object identity through live merge and cold
+reconstruction. Remapping creates only the changed containers; unchanged message
+bodies remain shared. Native inbox transition
+records refer to that same admitted message. The journal snapshots externally
+owned mutable inputs once; it does not infer safe ownership from a shallow
+`Object.isFrozen` check. Inside the explicit shared-frozen transfer, the bridge's
+final freeze visits only newly owned containers and stops at frozen subtrees.
+Within that transfer, admission can reuse an immutable event's encoded byte
+count and completed event-local validation by the same DSH validator. Weak keys
+follow event lifetime and retain neither encoded JSON nor event bodies. A new
+or remapped event crosses validation again. Every receiving log still checks
+its envelope, contiguous position, surface relations and total size before
+publication. A frozen external object is not evidence of prior admission.
+The canonical request header freezes its new outer wrapper while sharing the
+event's immutable configuration and tool schemas. Request-evidence JSON is
+decoded into privately owned values; its newly constructed request-header event
+transfers those values directly into admission without another schema copy.
+Settled native model projections likewise transfer their privately assembled
+event into admission. The original DSH stream accumulator supplies a detached,
+immutable compact stream; its closed blocks and usage can be shared with the
+assembled message. Admission freezes newly owned containers without copying
+that stream again. Native input records remain independently owned. Completed,
+interrupted and diagnostic-only attempts retain the same validation and history
+semantics.
+The native model translator retains only each open block's content and closes
+that block directly, without assembling every preceding block. Live forwarding
+uses the compact stream accumulator alone. Settlement passes its immutable
+snapshot once to DSH's `assembleAssistantStream`; the original assembler owns
+final block ordering, usage and interruption/truncation rules. Open content is
+released at termination, and no synthetic close is added for an interrupted block.
+Native Turn/Step markers, converted input and Tool messages, inbox splices and
+model choices also transfer their newly constructed event graphs into admission.
+Conversion detaches borrowed provenance, authored-message sources, image
+dimensions and native Tool metadata before transfer; it does not freeze or
+retain mutable children of the original Fact/control records. Already admitted
+Tool-call arguments and inbox messages can remain shared immutable values.
+The producer does not mutate a transferred graph. External callers of
+`appendObserved` still receive snapshot isolation, and every transferred event
+retains the same schema, surface, coordinate and capacity checks.
+Within one native projection, references to the same decoded inline evidence
+reuse its parsed value and its projected tool-definition array. The array and
+its wrapper objects are allocated once per decoded tool section, then frozen
+by event admission and shared across request series. Weak keys follow the
+lifetime of that page's evidence objects, so projection does not retain old
+pages or build a second transcript.
+Each reference still checks its earlier Fact coordinate, section, byte count
+and digest binding. The inline text and digest identify the memoized decode;
+changed input crosses validation again. Shared schema subtrees become immutable
+at their first event admission. A new projection has a new decoder, with no
+cross-Session or durable evidence cache.
+Request-header changes compare JSON structure, not its serialized spelling:
+object key order is irrelevant, while tool order, array order and values remain
+significant. Comparison can stop at shared immutable schema subtrees. A new
+Step with the same header still records a `series` boundary; a changed header
+records `change`. Prepared route settings use the same structural semantics.
+This transfer retains event, surface and size validation and freezes the whole
+owned graph. Externally supplied mutable inputs still cross the snapshot boundary.
+Restored local records cross
+the lossless-JSON boundary before being combined with the frozen native prefix.
+Adoption still validates
+event envelopes, surface relations and the retained-history budget before
+publication. No second durable body or global interning cache is created.
 A caller can catch a synchronous validation failure without failing other
 accepted mutations in that publication. No native intent is created for the
 rejected call, and it triggers no native refresh; already accepted operations
 still settle normally.
 
+Successful event admission computes its byte count and content digest from the
+same temporary JSON encoding. The private admission record retains the count,
+digest and validator identity, not the encoded string or another event body.
+Journal reconciliation reuses that digest only for the admitted immutable
+object; other values are encoded and hashed independently. Cold recovery verifies
+the reconstructed native prefix against the journal's saved source digest.
+
 Each consumed native event retains its source position, content digest and
-application position. Digests verify that the same source prefix has not changed;
-they are not a runtime-version compatibility gate. Surface positions, source
+application position in memory. Persistence stores only the position/correlation
+map and one ordered source-prefix digest. The digest is SHA-256 over the UTF-8
+domain `rsi.dsh.native-source-prefix.v1` followed by a NUL byte and the fixed-width
+lowercase hexadecimal event digests in source order. It detects the same missing,
+reordered or changed source content without storing one digest per event.
+The rolling hash advances only after a whole observation batch passes validation;
+flush copies its state without rescanning history. Cold loading reconstructs the
+transient event digests and verifies the saved prefix before exposing the log.
+Live partial observations retain their per-event checks. These digests are not
+a runtime-version compatibility gate. Coordinate-only remapping of an admitted
+immutable event shares its body and derives its exact encoded size from the
+changed integer widths. The new envelope and reference containers are frozen;
+size evidence does not establish event or surface validity. Receiving admission
+still checks both. Such remaps compute their own digest only if it is requested;
+they do not retain another serialized body. Unadmitted inputs take ordinary full
+encoding and validation. Surface positions, source
 event references, developer header references and command-result references are
 translated into application coordinates. A native event explicitly correlated
 with a local mutation must describe the same event body. Normally it aliases that
@@ -111,12 +238,19 @@ the caller's original ID and source remain presentation attribution. A finite
 publication flushes the prepared invocation before native dispatch and records
 its exact receipt. A later human submission waits for prior input intents.
 
-Waking inputs prepare direct native submission with the complete original
+All new input accepts prepare direct native submission with the complete original
 attribution, ordered content and delivery intent. Recovery retries that exact
 submission when the input is still wanted. A read-only native message-status
 lookup and immutable acceptance read can settle a lost receipt without sending
 again. Only the stable acceptance identity and cursor are retained as completion;
 later claim or discard state is an observation, not a different receipt.
+Injection uses non-waking `next_step` delivery. Its first acceptance publishes
+the native Session and held input, without starting a Turn or resuming a paused
+inbox. Empty drafts remain unpublished. The native Store therefore owns recovery
+of accepted context even before the first question; no command catalog lookup,
+command argument encoding or separate draft-input body is needed. Already
+prepared command operations in older journals retain their original identity
+until settled; they are never reissued as a different submission.
 Idle native steering resolves to next-turn execution. Its acknowledgement aliases
 the original next-step application acceptance; later removal locates that same
 acceptance across the two presentation queues. Native promotion remains a real
@@ -165,8 +299,15 @@ rehash unchanged history. Batch validation shares the already validated immutabl
 prefix and publishes only after the whole new batch is accepted.
 
 Each local mutation retains a unique request identity and its event position.
-Preparation records the complete exact native invocation; completion records its
-receipt. These metadata transitions are immutable once assigned. A driver must
+Preparation fixes the exact native invocation; completion records its receipt.
+Input operations reference the already accepted inbox event for content,
+attribution, delivery and message identity. A submission records its operation
+kind, plus `delivery: 'next_step'` for non-waking input. Previously
+prepared context-input commands retain their command, native revision and
+invocation digest. Its request ID is the operation ID. The wire request is built
+from that immutable event when needed; no second input body is retained in memory
+or in the document. Cold loading verifies the command digest against this request.
+These metadata transitions are immutable once assigned. A driver must
 flush preparation before dispatching, and must recover with the same invocation.
 The journal itself executes no command and owns no scheduler or retry policy.
 
@@ -211,9 +352,55 @@ after the entire batch is projected successfully. Each caller supplies its own
 authorized read function and cancellation signal; a retained projector does not
 retain a browser request. Source positions remain separate from application
 positions, including assistant-start and settlement cursors.
+When both captured streams have unread data, the first Fact and control pages
+load concurrently within the existing two-transfer budget. Projection still
+interleaves controls at their Fact anchors. Both reads settle before the stage
+continues or fails, so a failed stage leaves no unowned page transfer. Each
+decoded page is consumed once; subsequent pages remain demand-driven.
 
-Snapshots contain the Session header, inherited count, events, source map and
-mutation records in one versioned JSON document. The supplied persistence writer
+Native workbench history transfers one retained encoded page through its UTF-8
+fragments. Each Fact, control, exact-message or inherited Fact page uses a unique
+reader identity and releases it on its final fragment. Aborted or failed reads
+explicitly close the reader through the uncancelled release path; native request
+retirement is the lifetime backstop. At most two page transfers run concurrently;
+additional readers wait locally before issuing native RPCs. No queued reader
+holds a native request slot. The Host checks the page's request, Session and
+coordinates and bounds its retained storage; no persistent history copy is added.
+
+Version 7 snapshots contain the Session header, owned and inherited event counts,
+local-owned events at their original positions, the native source map, its
+`sourceDigest` and mutation records in one JSON document. Source-map entries have
+`seq` and optional `operation`; per-event hashes are not persisted.
+Native-only event bodies are reconstructed from the
+captured Store history, including translated inbox splices. They are not copied
+into application storage. A correlated input acceptance keeps its original event
+position, timestamp and splice coordinates, with `inserted: null` in storage.
+The existing operation/source correlation identifies the native acceptance that
+owns its messages. Loading restores those messages before input validation and
+inbox projection. JSON field order is not event identity; all event values and
+array order are preserved. Uncorrelated input keeps its full body for dispatch
+recovery. Log-only events, other local mutations and fork constructor annotations
+remain application-owned.
+The catalog prefix carries the owned-event count for revision checks without
+reading event bodies. The complete log length is derived from the owned-event
+positions and native source map when loading; it is not stored as another count.
+Native projection catch-up cannot change the owned-event count. The decoder
+validates dense ownership and bounded positions before exposing the restored log.
+
+Cold loading validates source content and rebuilds the same dense application log
+before exposing it. Missing or changed native history is an error, never a reason
+to substitute a cached body. Restoration uses the same native read batch as the
+first observation. Older documents are validated and normalized once: version 1
+uses its complete log, and version 1/2 input invocations must agree exactly with
+their accepted event before their duplicate body is removed. Successful native
+reconciliation rewrites them as version 7; failed validation cannot replace the
+document. Version 3/4 input recovery descriptors and version 5 correlated inputs
+retain their existing meaning. Versions 1–6 retain their per-event hash checks
+until successful native reconciliation. Older catalog hints acquire their owned count
+when that existing reconciliation rewrites the document.
+No second durable format or body cache is maintained alongside version 7.
+
+The supplied persistence writer
 must atomically replace that document. Flushes serialize snapshots in acceptance
 order; equal pending flushes join. A failed write leaves accepted memory intact
 and a later flush may retry. Loading validates the complete document through the
@@ -221,14 +408,18 @@ selected DSH event codec and reference rules before exposing it. The existing
 Session event budget applies, and a persisted document is bounded at 128 MiB.
 
 The application profile stores these snapshots in its private selection state,
-using the original DSH atomic writer. Native-only read mirrors need no durable
+using the original DSH atomic writer. That writer owns parent creation and
+replacement; newly created directories request mode `0700` and files `0600`
+(subject to the platform and umask). Native-only read mirrors need no durable
 application file; once a local event exists, its source map and later observations
-are flushed as well. The Host retires its application process before starting a
+are flushed as well. Existing files are rewritten even if their only local data
+is creation metadata. The Host retires its application process before starting a
 replacement. A configured application profile owns one writer. Live readers and
 Agents retain their shared owner; inactive owners may be collected and reopened
 from disk. Unchanged native cuts reuse the retained projector. New cuts project
-only their source delta. Whole-document snapshot encoding remains bounded by the
-Session budget; paged history and incremental persistence remain separate work.
+only their source delta. Encoding visits local events and source/operation metadata,
+not native message bodies. The in-memory dense Session remains bounded by the
+Session budget; lazy in-memory history and incremental persistence remain separate work.
 
 ## Queue replacements in saved journals
 

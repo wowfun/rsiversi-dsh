@@ -1,9 +1,10 @@
 import {captureAgentView} from './agent-view.mjs';
 import {followAssistant,followAgentAssistant} from './assistant.mjs';
-import {projectionFrame,workbenchControl} from './control.mjs';
+import {workbenchControl} from './control.mjs';
 import {inboxReader} from '../session/inbox/inbox-state.mjs';
 import {lastUsedModel} from './model.mjs';
 import {workbenchOwners} from './owner.mjs';
+import {nativeCapture} from '../history/native-pages.mjs';
 
 export function historyHeader(meta) {
   return {version:4,id:meta.id,createdAt:meta.created_at,...(meta.cwd?{cwd:meta.cwd}:{}),
@@ -34,10 +35,10 @@ function pageOf(session,api,end,{max,window}) {
   return {records:session.snapshotEvents(start,end).map(event=>({type:'event',event})),hasMore:start>0};
 }
 
-export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta}) {
-  const owners=workbenchOwners({ctx,api,llm,command,submit,read,inbox,storage,creationMeta});
+export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta,retireToolOutcome}) {
+  const owners=workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome});
   const live=workbenchControl(authorize);
-  async function open(request,signal,captured) {
+  async function open(request,signal,captured,first) {
     const {address}=request;
     const child=address.kind==='subagent';
     if(address.kind!=='session'&&(!child||!address.parentSessionId||!address.childSessionId||address.mode!=='continuable'))
@@ -47,7 +48,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     const release=operation=>releaseRead(id,operation,undefined,child?address.parentSessionId:undefined);
     const meta=captured??await call({type:'open'});
     if(!meta||meta.id!==id)throw new Error('Session history unavailable for this identity');
-    const owner=await owners.open(historyHeader(meta),meta,call,release,signal);
+    const owner=await owners.open(historyHeader(meta),meta,call,release,signal,first);
     const session=owner.journal.session;
     async function projections(){
       const base=ctx.sessionProjections.snapshot(session),{spawned}=owner.source.current;
@@ -85,7 +86,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       get mapping(){return owner.mapping();},
       releaseModel:key=>release({type:'model_close',key}),
       async advance(through,observedEffect,controlThrough) {
-        await owner.apply({...owner.meta,through,selection_cursor:{kind:'durable',fact_seq:through,control_seq:controlThrough}},call,signal);
+        await owner.apply({...owner.meta,through,selection_cursor:{kind:'durable',fact_seq:through,control_seq:controlThrough}},call,release,signal);
         if(view.publish)view.publish(await projections(),intermediate);
         return owner.settled(observedEffect);
       },
@@ -103,11 +104,12 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     return view;
   }
   return {
-    close:owners.close,
+    async close(){live.close();await owners.close();},
     revision:owners.revision,
     async snapshot(meta) {
       const journal=owners.journal(meta.id);
-      const saved=journal?.revision?undefined:await storage?.metadata(meta.id);
+      const local=journal?.hasLocalEvents;
+      const saved=local?undefined:await storage?.metadata(meta.id);
       const hint=saved?.header?.id===meta.id&&saved.header.createdAt===meta.created_at?saved:undefined;
       const header={...historyHeader(meta),...(meta.parent?{parentSession:meta.parent}:{})};
       const declared=journal?.session.header??hint?.header;
@@ -115,16 +117,25 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
         header.origin=declared.origin;
         if(declared.delegationDepth!==undefined)header.delegationDepth=declared.delegationDepth;
       }
-      const count=journal?.revision?journal.seq:hint?.eventCount??0;
+      const count=local?journal.ownedEventCount:hint?.ownedEventCount??0;
       return {header,formatStatus:'current',revision:JSON.stringify([meta.created_at,
         meta.selection_cursor.fact_seq,meta.selection_cursor.control_seq,count])};
     },
     owner:session=>owners.get(session),
     async *observeAgent(id,signal) {
       const view=await open({address:{kind:'session',sessionId:id}},signal);
-      yield* followAgentAssistant(view,llm,signal);
+      const observer=live.open(id,await view.projections(),view.intermediate);
+      view.publish=observer.publish;
+      try{yield* followAgentAssistant(view,llm,signal);}
+      finally{observer.close();}
     },
     metadata:(id,signal,metadataOnly=false)=>read(id,{type:'open',...(metadataOnly?{metadata_only:true}:{})},signal),
+    async stored(id,signal) {
+      const captured=await nativeCapture(operation=>read(id,operation,signal),operation=>releaseRead(id,operation),
+        owners.cursor(id)??{fact_seq:0,control_seq:0},signal);
+      if(captured.meta&&captured.meta.id!==id)throw Error('Session history unavailable for this identity');
+      return captured;
+    },
     async queueItem(id,itemId,signal) {
       const meta=await read(id,{type:'open'},signal);
       if(!meta)return;
@@ -137,11 +148,16 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     async selectModel({sessionId,provider,model,reasoningEffort},signal) {
       const view=await open({address:{kind:'session',sessionId}},signal);
       const selected={provider,model,...(reasoningEffort===undefined?{}:{reasoningEffort})};
-      view.owner.driver.accept(selected);await view.owner.driver.ready(signal);
-      return {selected};
+      const observer=live.open(sessionId,await view.projections(),view.intermediate);
+      try{
+        view.owner.driver.accept(selected);
+        observer.publish(await view.projections(),view.intermediate);
+        await view.owner.driver.ready(signal);
+        return {selected};
+      }finally{observer.close();}
     },
-    async capture(id,meta,signal){
-      const view=await open({address:{kind:'session',sessionId:id}},signal,meta);
+    async capture(id,meta,signal,first){
+      const view=await open({address:{kind:'session',sessionId:id}},signal,meta,first);
       return view.session;
     },
     async imageReference(sessionId,id,signal){
@@ -179,22 +195,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       const view=await open({address:{kind:'session',sessionId}},signal);
       return {kind:'sequenced',...await view.projections()};
     },
-    async *observeProjections({sessionId},signal) {
-      const view=await open({address:{kind:'session',sessionId}},signal);
-      let previous=await view.projections(),cursor={control_seq:view.controlThrough,fact_seq:view.through},after=previous.asOfSeq+1;
-      yield {type:'ready'};
-      while(!signal.aborted){
-        cursor=await view.wait(cursor,after);
-        await view.advance(cursor.fact_seq,undefined,cursor.control_seq);
-        const next=await view.projections();
-        after=next.asOfSeq+1;
-        for(const step of view.intermediate(previous,next)){
-          const frame=projectionFrame(previous,step);previous=step;if(frame)yield frame;
-        }
-        const frame=projectionFrame(previous,next);if(frame)yield frame;
-        previous=next;
-      }
-    },
+    observeProjections:live.observeProjections,
     async page(request,signal) {
       const window=windowOf(request);
       const {session}=await open(request,signal);

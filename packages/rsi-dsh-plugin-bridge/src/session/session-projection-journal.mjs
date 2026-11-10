@@ -1,71 +1,51 @@
 import {isDeepStrictEqual} from 'node:util';
-import {SessionFacade,digest,isJournalEvent} from './session.mjs';
+import {SessionFacade,digest,isJournalEvent,remap} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
+import {restoreJournalEvents,encodeJournalDocument,createSourceDigest} from './journal-document.mjs';
 
-const maximumBytes=128*1024*1024;
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
 const identity=value=>typeof value==='string'&&value.length>0&&value.length<=256;
 const shape=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).every(key=>keys.includes(key));
 const body=({seq,time,...value})=>value;
 
-/** Translate source-log references, never application-local references. */
-function remap(input,seq,sourceAt) {
-  const event={...input,seq};
-  const reference=value=>{
-    if(!integer(value)||value>=input.seq||!sourceAt(value))throw Error('Native event reference is outside its observed prefix');
-    return sourceAt(value).seq;
-  };
-  if(event.surfaceOp&&event.surfaceOp!=='append')event.surfaceOp={
-    ...event.surfaceOp,startSeq:reference(event.surfaceOp.startSeq),endSeq:reference(event.surfaceOp.endSeq),
-  };
-  if(event.sourceEventSeqs)event.sourceEventSeqs=event.sourceEventSeqs.map(reference);
-  if(event.type==='developer/message'&&event.data.headerSeq!==undefined)
-    event.data={...event.data,headerSeq:reference(event.data.headerSeq)};
-  if(event.type==='command/done'&&event.data.sourceEventSeq!==undefined)
-    event.data={...event.data,sourceEventSeq:reference(event.data.sourceEventSeq)};
-  return event;
-}
-
 /** One synchronous application event owner; native commands remain outside this log. */
 export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
-  #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;
-  #save;#notify;#report;#inboxSlotFrom=0;
-  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},document}={}) {
+  #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
+  #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
+  #sourceDigest=createSourceDigest();
+  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions,nativeEventState}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
-    if(document!==undefined) {
-      if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
-      const state=JSON.parse(document);
-      if(!shape(state,['version','header','inheritedEventCount','events','sources','operations','catalogTitle','eventCount','inboxSlotFrom'])||state.version!==1
-        ||!isDeepStrictEqual(state.header,seed.header)||!Array.isArray(state.sources)||!Array.isArray(state.operations)
-        ||!integer(state.inheritedEventCount)||!Array.isArray(state.events)
-        ||state.eventCount!==undefined&&state.eventCount!==state.events.length
-        ||state.sources.length>state.events.length||state.operations.length>state.events.length)
-        throw Error('Invalid application journal');
-      seed={header:state.header,events:state.events,inheritedEventCount:state.inheritedEventCount};
-      this.#session=this.#create(seed);
-      this.#inboxSlotFrom=Object.hasOwn(state,'inboxSlotFrom')?state.inboxSlotFrom:state.sources.length;
-      if(!integer(this.#inboxSlotFrom)||this.#inboxSlotFrom>state.sources.length)throw Error('Invalid saved inbox source boundary');
-      this.#restore(state.sources,state.operations);this.#saved=0;
+    this.#sharedNative=nativeEventState==='shared-frozen';
+    if(restore!==undefined) {
+      if(!isDeepStrictEqual(restore.header,seed.header))throw Error('Invalid application journal identity');
+      restore=this.#snapshot(restore);
+      const sources=restore.version===7?restore.sources.map((source,index)=>{
+        const event=native?.[index];
+        if(event?.seq!==index)throw Error('Native event prefix moved backwards');
+        return Object.freeze({...source,hash:digest(event)});
+      }):restore.sources;
+      for(const source of sources)this.#sourceDigest.update(source.hash);
+      if(restore.version===7&&this.#sourceDigest.copy().digest('hex')!==restore.sourceDigest)
+        throw Error('Native event prefix changed');
+      seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native,transitions)),inheritedEventCount:restore.inheritedEventCount};
+      this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
+      this.#restore(sources,restore.operations);
+      this.#saved=0;this.#rewrite=restore.version<7;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
       this.#session=this.#create(seed);
     }
   }
-  #create(seed) {return new SessionFacade(this.#ctx,this.#api,seed,false);}
+  #create(seed) {return new SessionFacade(this.#ctx,this.#api,{...seed,eventState:'shared-frozen'},false);}
   #snapshot(value) {
     const result=this.#api.snapshotJsonValue(value);
     if(result===undefined)throw Error('Application journal requires lossless JSON');
     return this.#api.deepFreeze(result);
   }
+  #nativeInput(value) {return this.#sharedNative?value:this.#snapshot(value);}
   #restore(sources,operations) {
-    const used=new Set();
-    for(const row of sources) {
-      if(!shape(row,['hash','seq','operation'])||!integer(row.seq)||row.seq>=this.seq||used.has(row.seq)
-        ||typeof row.hash!=='string'||!/^[a-f0-9]{64}$/.test(row.hash)
-        ||row.operation!==undefined&&!identity(row.operation))throw Error('Invalid application source map');
-      used.add(row.seq);
-    }
+    const used=new Set(sources.map(row=>row.seq));
     const positions=new Set();
     for(const operation of operations) {
       if(!shape(operation,['id','seq','invocation','receipt','source','failure'])||!identity(operation.id)
@@ -76,7 +56,7 @@ export class SessionProjectionJournal {
         ||operation.source!==undefined&&(!integer(operation.source)||sources[operation.source]?.operation!==operation.id
           ||!isDeepStrictEqual(body(this.#session.eventAt(sources[operation.source].seq)),
             body(this.#session.eventAt(operation.seq)))))throw Error('Invalid application mutation record');
-      positions.add(operation.seq);this.#operations.set(operation.id,this.#snapshot(operation));
+      positions.add(operation.seq);this.#operations.set(operation.id,operation);
       this.#operationIds[operation.seq]=operation.id;
     }
     for(const [index,row] of sources.entries()) {
@@ -93,12 +73,14 @@ export class SessionProjectionJournal {
     for(let seq=0;seq<this.seq;seq++) {
       if(!used.has(seq)&&!positions.has(seq)&&(seq<cut?seq<annotationStart:!isJournalEvent(this.#session.eventAt(seq).type)))
         throw Error('Application journal contains unowned event positions');
+      if(!used.has(seq)||positions.has(seq))this.#owned.push(this.#session.eventAt(seq));
     }
-    this.#sources=[...this.#snapshot(sources)];
+    this.#sources=[...sources];
   }
   get session(){return this.#session;}
   get seq(){return this.#session.seq;}
   get nativeSeq(){return this.#sources.length;}
+  get ownedEventCount(){return this.#owned.length;}
   get inboxSlotFrom(){return this.#inboxSlotFrom;}
   get revision(){return this.#revision;}
   get hasLocalEvents(){return this.#operations.size>0||this.seq>this.nativeSeq;}
@@ -122,6 +104,24 @@ export class SessionProjectionJournal {
     if(!isJournalEvent(type))throw Error('This Session event requires its owning native command');
     return this.#append(type,data,opts,Date.now());
   }
+  /** Persistence callers supply exact coordinates and times, not new commands. */
+  appendStored(input) {
+    this.#entry();
+    const events=this.#snapshot(input);
+    if(!Array.isArray(events))throw TypeError('Expected an event batch');
+    for(const [index,event] of events.entries()) {
+      if(!isJournalEvent(event?.type))throw Error('This Session event requires its owning native command');
+      if(event.seq!==this.seq+index)throw Error('Stored event batch does not continue the Session');
+    }
+    if(!events.length)return;
+    // The common single-event write needs no copy of the retained prefix.
+    const target=events.length===1?this.#session:this.#session.branch();
+    target.begin();
+    try{for(const event of events)target.adoptObserved(event);}finally{target.end();}
+    if(target!==this.#session)this.#session.adoptBranch(target);
+    for(const event of events)this.#owned.push(event);
+    this.#revision++;this.#publish(events);
+  }
   accept(id,type,data,opts={},time=Date.now(),prepared) {
     if(!identity(id)||this.#operations.has(id))throw Error('Application mutation identity is already used or invalid');
     return this.#append(type,data,opts,time,id,prepared);
@@ -135,7 +135,7 @@ export class SessionProjectionJournal {
       this.#operations.set(id,Object.freeze({id,seq:event.seq,...(invocation===undefined?{}:{invocation})}));
       this.#operationIds[event.seq]=id;
     }
-    this.#revision++;
+    this.#owned.push(event);this.#revision++;
     this.#publish([event]);return event;
   }
   #assign(id,key,value) {
@@ -157,23 +157,27 @@ export class SessionProjectionJournal {
     if(operation.failure===message)return;
     this.#operations.set(id,Object.freeze({...operation,failure:message}));this.#revision++;
   }
-  merge(nativeEvents,correlations=new Map(),inheritedEventCount=0,projections=new Map(),annotations=[]) {
-    return this.#merge(nativeEvents,correlations,inheritedEventCount,0,projections,annotations);
+  merge(nativeEvents,correlations=new Map(),inheritedEventCount=0,projections=new Map(),annotations=[],preceding=[]) {
+    return this.#merge(nativeEvents,correlations,inheritedEventCount,0,projections,annotations,preceding);
   }
-  advance(after,nativeEvents,correlations=new Map(),projections=new Map()) {
+  advance(after,nativeEvents,correlations=new Map(),projections=new Map(),preceding=[]) {
     if(after!==this.#sources.length)throw Error('Native delta does not follow the retained source cursor');
-    return this.#merge(nativeEvents,correlations,this.#session.inheritedEventCount-this.#annotationCount,after,projections,[]);
+    return this.#merge(nativeEvents,correlations,this.#session.inheritedEventCount-this.#annotationCount,after,projections,[],preceding);
   }
-  #merge(nativeEvents,correlations,inheritedEventCount,after,projections,annotations) {
+  #merge(nativeEvents,correlations,inheritedEventCount,after,projections,annotations,preceding) {
     this.#entry();
-    const input=this.#snapshot(nativeEvents);
+    const input=this.#nativeInput(nativeEvents);
     if(!Array.isArray(input)||after+input.length<this.#sources.length||!integer(inheritedEventCount)
       ||inheritedEventCount>after+input.length)throw Error('Native event prefix moved backwards');
     if(annotations.length&&(this.seq||after||!this.#session.header.isSeeded||!isInheritedMarker(input[inheritedEventCount])))
       throw Error('Fork annotations require a fresh inherited boundary');
-    if(!input.length&&after===this.#sources.length)return Object.freeze([]);
+    if(preceding.some(event=>!isJournalEvent(event?.type)))throw Error('Preceding events must be log-only');
+    if(!input.length&&!preceding.length&&after===this.#sources.length) {
+      if(this.#rewrite){this.#revision++;this.#rewrite=false;}
+      return Object.freeze([]);
+    }
     const start=this.seq,sourceStart=this.#sources.length;
-    const sources=[],operations=new Map(),events=[];
+    const sources=[],operations=new Map(),events=preceding.map((event,index)=>this.#snapshot({...event,seq:start+index}));
     const sourceAt=seq=>seq<sourceStart?this.#sources[seq]:sources[seq-sourceStart];
     const eventAt=seq=>seq<start?this.#session.eventAt(seq):events[seq-start];
     const operationAt=id=>operations.get(id)??this.#operations.get(id);
@@ -181,9 +185,9 @@ export class SessionProjectionJournal {
       if(event.seq!==after+index)throw Error('Native event positions are not dense');
       if(event.seq===inheritedEventCount)for(const annotation of annotations) {
         if(!isForkAnnotation(annotation.type))throw Error('Unknown fork annotation');
-        events.push({...annotation,seq:start+events.length});
+        events.push(this.#snapshot({...annotation,seq:start+events.length}));
       }
-      const translated=projections.has(event.seq)?{...event,data:this.#snapshot(projections.get(event.seq))}:event;
+      const translated=projections.has(event.seq)?{...event,data:this.#nativeInput(projections.get(event.seq))}:event;
       const existing=sourceAt(event.seq),correlation=correlations.get(event.seq);
       if(correlation!==undefined&&typeof correlation!=='string'&&
         (!shape(correlation,['id','reconcile'])||!identity(correlation.id)||correlation.reconcile!==true))
@@ -211,35 +215,40 @@ export class SessionProjectionJournal {
     }
     const count=this.#annotationCount+annotations.length;
     const inherited=(inheritedEventCount?sourceAt(inheritedEventCount-1).seq+1:0)+count;
+    if(!sourceStart&&inherited&&(start||preceding.length))throw Error('Local application mutation cannot enter an inherited prefix');
     if(count&&!after&&(sourceAt(inheritedEventCount)?.seq!==inherited||!isInheritedMarker(input[inheritedEventCount])))
       throw Error('Fork annotations moved outside their inherited boundary');
     if(this.#sources.length&&inherited!==this.#session.inheritedEventCount)
       throw Error('Native inherited prefix changed');
-    if(!sourceStart&&inherited&&start)throw Error('Local application mutation cannot enter an inherited prefix');
     if(events.length) {
       const candidate=this.#session.branch();candidate.inheritedEventCount=inherited;
       candidate.begin();
-      try {for(const event of events) {
-        const {type,data,time,seq,...opts}=event;
-        candidate.appendObserved(type,data,time,opts);
-      }}finally{candidate.end();}
+      try {for(const event of events)candidate.adoptObserved(event);}finally{candidate.end();}
       this.#session.adoptBranch(candidate);
     }
+    for(let index=0;index<preceding.length;index++)this.#owned.push(this.#session.eventAt(start+index));
+    for(let index=0;index<annotations.length;index++) {
+      const seq=inherited-annotations.length+index;
+      this.#owned.push(this.#session.eventAt(seq));
+    }
     this.#annotationCount=count;
-    for(const source of sources)this.#sources.push(source);
+    for(const source of sources){this.#sources.push(source);this.#sourceDigest.update(source.hash);}
     for(const [id,operation] of operations)this.#operations.set(id,operation);
-    if(sources.length)this.#revision++;
+    if(sources.length||preceding.length||this.#rewrite)this.#revision++;
+    this.#rewrite=false;
     const appended=this.#session.snapshotEvents(start);this.#publish(appended);return Object.freeze(appended);
   }
   encode() {
-    const event=this.#session.lastEvent('session/title');
-    const prefix=JSON.stringify({header:this.#session.header,eventCount:this.seq,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-    const document=JSON.stringify({version:1,inheritedEventCount:this.#session.inheritedEventCount,inboxSlotFrom:this.#inboxSlotFrom,
-      events:this.#session.snapshotEvents(),sources:this.#sources,operations:this.operations()});
-    const value=prefix.slice(0,-1)+',\n'+document.slice(1);
-    if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
-    return value;
+    const events=this.#owned.map(event=>{
+      const operation=this.operationAt(event.seq);
+      if(event.type==='agent/inbox/spliced'&&event.data.inserted.length===1&&
+        operation?.source!==undefined&&this.#sources[operation.source].seq===event.seq)
+        return {...event,data:{...event.data,inserted:null}};
+      return event;
+    });
+    return encodeJournalDocument(this.#session,events,this.#sources,this.#sourceDigest.copy().digest('hex'),this.operations(),this.#inboxSlotFrom);
   }
+
   flush() {
     if(this.#saved===this.#revision)return Promise.resolve();
     if(this.#queued?.revision===this.#revision)return this.#queued.promise;

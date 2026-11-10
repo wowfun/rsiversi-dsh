@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import {fork} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {once} from 'node:events';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
 import {setTimeout as delay} from 'node:timers/promises';
 
-test('a killed Cordis process leaves settled and orphaned receipts without replaying either body',
+test('a killed Cordis process recovers settled receipts and leaves unrecorded calls unknown without replay',
   {skip:!process.env.RSI_DSH_MARKET_COHORT,timeout:30000},async t=>{
     const directory=await mkdtemp(join(tmpdir(),'rsi-process-receipts-'));
     const key=randomUUID();
@@ -49,6 +49,7 @@ test('a killed Cordis process leaves settled and orphaned receipts without repla
     assert.equal(recovered.result.value,'completed');
     assert.equal(recovered.result.concludes_turn,true);
     assert.equal((await post('outcome',pending)).state,'pending');
+    assert.equal((await readdir(directory)).filter(name=>name.endsWith('.json')).length,1,'only the completed result is durable');
     assert.deepEqual((await bodies()).trim().split('\n').sort(),['completed','unfinished']);
     await kill();await interrupted;
     post=await launch();

@@ -12,6 +12,10 @@ An upgraded socket carries its authorized Session through subsequent data
 events. Its underlying TCP resource predates the HTTP request context.
 The original client connection and module services own their endpoint and
 manifest semantics. RSI owns browser authentication at the outer listener.
+The private HTTP carrier uses the shipped DSH Web preset's gzip policy:
+level 1, with a 1024-byte threshold. The original WebServer owns negotiation,
+streaming and exclusions, including SSE, ranges and already encoded content.
+The native forwarder preserves those response bytes and encoding headers.
 The original Typert session list reads the native visible catalog through
 the active HTTP or mux request. Native pages are collected into the bounded
 DSH list response. An unavailable page or an overflow rejects the read;
@@ -32,6 +36,15 @@ from the selected runtime graph and the enabled packages' public client exports.
 Use the plugin's own routes for lazy resources; an install-only action does not
 mount those routes. The fixed-cohort workbench described below is a separate
 Agent reference document for the Todo and Plan integrations.
+
+The workbench composes the release's message-feedback Host service with its
+published note-size policy alongside the original rating controls. Ratings use
+the shared application Session journal and the original service's version
+semantics; loading or changing a rating does not require a model request.
+The same original UI opens the Session feedback dialog for bare `/feedback`;
+`/feedback <text>` runs the original command handler. The workbench composes
+their Host service and command together. Their acceptance and persistence
+semantics belong to the [Session journal](session-journal.md).
 
 The optional DSH application shares RSI's React object and workbench. Each
 document has one pinned cohort containing react, react/jsx-runtime, react-dom,
