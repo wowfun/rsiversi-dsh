@@ -14,12 +14,12 @@ export function catalogEvidence(facts,{refreshIntervalMs=600_000}={}) {
   assert.ok(prepared.length);
   const bySeq=new Map(facts.map(row=>[row.seq,row])),requests=[],times=[];
   const timeContext={inputs:0,rollbacks:0,intervals:0};
-  let current=[],previousTime,baseline;
+  let current={mode:"append_to_header",sections:[]},previousTime,baseline;
   for(const row of facts){
-    if(row.type==='step_started'||row.type==='step_ended')current=[];
+    if(row.type==='step_started'||row.type==='step_ended')current={mode:"append_to_header",sections:[]};
     if(row.type==='step_prepared'){
-      if(row.instructions!==undefined){assert.notDeepEqual(current,row.instructions,'Do not persist unchanged instructions');current=row.instructions;}
-      assert.equal(current.filter(entry=>entry.producer==='rsi.available-agents').length,1);
+      if(row.prompt!==undefined){assert.notDeepEqual(current,row.prompt,'Do not persist an unchanged prompt');current=row.prompt;}
+      assert.equal(current.sections.filter(entry=>entry.producer==='rsi.available-agents').length,1);
     }
     if(row.type==='input_message_claimed'&&row.source?.contribution_id==='rsi.time-context'){
       assert.equal(row.content.length,1);assert.equal(row.content[0].type,'text');
@@ -45,8 +45,6 @@ export function catalogEvidence(facts,{refreshIntervalMs=600_000}={}) {
   }
   assert.ok(requests.length);assert.ok(timeContext.inputs,'The native fixture must exercise time context');
   return {historicalInputs:historical.length,prepared:prepared.length,
-    instructionUpdates:prepared.filter(row=>row.instructions!==undefined).length,
-    instructionNoops:prepared.filter(row=>row.instructions===undefined).length,
     modelRequests:requests.length,inlineRequests:requests.filter(row=>row.kind==='inline').length,
     inlineBytes:requests.reduce((sum,row)=>sum+row.inlineBytes,0),timeContext,requests};
 }

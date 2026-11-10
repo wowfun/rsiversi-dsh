@@ -7,7 +7,7 @@ const timeText=sample=>'Current time sampled before this model request: '+new Da
 const system=text=>({role:'system',content:[{type:'text',content:{text}}]});
 const context=text=>({role:'developer',content:[{type:'text',content:{text}}]});
 function fixture(samples){
-  const facts=[{type:'step_prepared',instructions:[{producer:'rsi.available-agents',text:'Available subagents: none'}]}];
+  const facts=[{type:'step_prepared',prompt:{mode:'assembled',sections:[{producer:'rsi.available-agents',text:'Available subagents: none'}]}}];
   const visible=[];
   for(const sample of samples){
     const text=timeText(sample);
