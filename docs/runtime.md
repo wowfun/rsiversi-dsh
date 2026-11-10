@@ -1,5 +1,13 @@
 # Runtime contract
 
+Tool capture emits the exact registration's `timeout_ms` as its numeric DSH
+`timeoutMs`, or explicit `null` when absent. Capture rejects non-finite values
+before JSON serialization can turn them into `null`. Native admission checks conversion;
+the bridge does not invent a default deadline. Cancellation still waits for the
+original invocation and retains its settled receipt. The native Tools owner
+preserves non-cancellation settlement evidence; an explicitly selected original
+DSH timeout-policy wrapper retains its own timer-result classification.
+
 Workspace Session account order comes from native Navigation. The controller's
 `insertSessionBefore` moves a published member within its exact Workspace and
 returns the updated projection. Unknown Workspaces produce `workspace/not-found`;

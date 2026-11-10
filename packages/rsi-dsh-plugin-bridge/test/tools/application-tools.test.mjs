@@ -13,6 +13,53 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 const root=process.env.RSI_DSH_MARKET_COHORT;
 const nativeSelection={provider:'native',model:'selected',reasoningEffort:'low'};
 
+test('capture preserves actual optional deadlines and the original timeout wrapper owns its expiry result',
+  {skip:!root,timeout:30000},async t=>{
+    const directory=await mkdtemp(join(tmpdir(),'rsi-tool-deadlines-'));
+    const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+    const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
+    for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
+    await ctx.plugin(tools.default);
+    const sessions=applicationSessions(()=>{throw Error('deadline fixture does not access native Session state');});
+    let calls=0,settled=0;
+    for(const [name,timeoutMs] of [['absent',undefined],['fractional',0.25],['short',5],['long',900001.5]]) {
+      ctx.tools.register(tools.defineTool({name,description:name,parameters:{},timeoutMs,
+        output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
+        async execute(_,exec){calls++;if(name==='short')await new Promise(resolve=>exec.signal.addEventListener('abort',resolve,{once:true}));settled++;return 'settled '+name;}}));
+    }
+    const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+    t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
+    assert.equal(listener.protocol,15);
+    const post=async(path,input,status=200)=>{
+      const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,{method:'POST',headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input)});
+      const value=await response.json();assert.equal(response.status,status,JSON.stringify(value));return value;
+    };
+    const captured=await post('capture',{view:randomUUID(),header:{id:'deadline',cwd:directory},reserved:[],modelSelection:nativeSelection});
+    assert.deepEqual(captured.tools.map(row=>[row.definition.name,row.timeout_ms]),[['absent',null],['fractional',0.25],['long',900001.5],['short',5]]);
+    const mutable=tools.defineTool({name:'mutable',description:'mutable registration',parameters:{},timeoutMs:1,
+      output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},execute(){assert.fail('capture must not execute');}});
+    const dispose=ctx.tools.register(mutable),view=randomUUID();
+    for(const timeoutMs of [Infinity,-Infinity,NaN]) {
+      mutable.timeoutMs=timeoutMs;
+      const failure=await post('capture',{view,header:{id:'deadline',cwd:directory},reserved:[],modelSelection:nativeSelection},400);
+      assert.match(failure.error,/finite/);
+    }
+    mutable.timeoutMs=0.25;
+    const retried=await post('capture',{view,header:{id:'deadline',cwd:directory},reserved:[],modelSelection:nativeSelection});
+    assert.equal(retried.tools.find(row=>row.definition.name==='mutable').timeout_ms,0.25,'failed captures release their view');
+    dispose();
+    await ctx.plugin(await load('@deepseek-ai/dsh-tool-call-timeout-policy'));
+    for(const name of ['absent','long','short']) {
+      const effect=randomUUID(),input={view:captured.view,session:'deadline',effect,name,args:{},registration:captured.tools.find(row=>row.definition.name===name).registration,
+        identity:{owner_id:'deadlines',invocation_id:effect,call_id:effect,request_sha256:'a'.repeat(64)}};
+      const result=await post('start',input);
+      assert.equal(result.state,'settled');assert.equal(result.result.is_error,name==='short');
+      if(name==='short')assert.match(JSON.stringify(result.result.content),/timed out after 5ms/);
+      assert.deepEqual(await post('outcome',input),result);assert.deepEqual(await post('start',input),result);
+    }
+    assert.equal(calls,3);assert.equal(settled,3,'wrapper expiry joins the actual body before publication');
+  });
+
 test('replacement processes only query old effects and cannot restart them through a new captured view', {skip:!root},async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-tool-replacement-'));
   t.after(()=>rm(directory,{recursive:true,force:true}));

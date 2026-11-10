@@ -50,8 +50,10 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       for(const [name,definition] of [...row.selection.view(agent)].sort(([a],[b])=>a<b?-1:a>b?1:0)){
         if(row.reserved.has(name)||delegated&&!delegated.has(name)||name==='report_result')continue;
         if(row.reserved.size+rows.length>=64)break;
+        const timeout=definition.timeoutMs??null;
+        if(timeout!==null&&!Number.isFinite(timeout))throw Error('Tool capture timeoutMs must be finite');
         const schema=tools.projectToolSchema(definition,false),registration=randomUUID();
-        rows.push({registration,definition:{name,description:schema.description,input_schema:schema.parameters}});
+        rows.push({registration,timeout_ms:timeout,definition:{name,description:schema.description,input_schema:schema.parameters}});
         row.bindings.set(registration,name);
       }
       row.modelSelection=modelSelection;
@@ -153,7 +155,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     closeNative();server.close();server.closeAllConnections();await ledger.close();
     for(const id of views.keys())release(id);
   },'close application tool source');
-  return {protocol:14,generation,port:server.address().port,
+  return {protocol:15,generation,port:server.address().port,
     retireOutcome:(session,effect,identity)=>ledger.retire(session,effect,identity)
       ?.catch(error=>ctx.logger.warn('Application tool receipt cleanup failed:',error))};
 }
