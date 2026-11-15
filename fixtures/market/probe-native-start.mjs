@@ -19,7 +19,7 @@ const processDescriptor=json({format:1,cwd:{payload:'runtime',path:''},arguments
   {kind:'path',location:{payload:'runtime',path:'entry.mjs'}},{kind:'generation'}]});
 await writeFile(join(source,'process.json'),processDescriptor);
 const manifest=json({format:2,name:'sample-application',version:'1',target:'portable',
-  dependencies:[],requires:[{name:'rsi.extension.process',version:1}],files:[
+  dependencies:[],requires:[{name:'rsi.extension.process',version:2}],files:[
     {path:'runtime.rsi',bytes:tree.bytes,digest:tree.digest,executable:false},
     {path:'process.json',bytes:processDescriptor.length,digest:digest(processDescriptor),executable:false}],
   exports:{runtime:{kind:'payload_tree',path:'runtime.rsi',index_digest:tree.indexDigest},application:{kind:'process_extension',path:'process.json'}}});

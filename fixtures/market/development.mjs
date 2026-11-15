@@ -34,7 +34,7 @@ const recipe=json({format:1,cwd:{payload:'runtime',path:''},arguments:[{kind:'pa
 await writeFile(join(source,'process.json'),recipe);
 const packageName='local-market-development';
 const manifest=json({format:2,name:packageName,version:'1',target:'portable',dependencies:[],
-  requires:[{name:'rsi.extension.process',version:1}],files:[
+  requires:[{name:'rsi.extension.process',version:2}],files:[
     {path:'runtime.rsi',bytes:tree.bytes,digest:tree.digest,executable:false},
     {path:'process.json',bytes:recipe.length,digest:digest(recipe),executable:false}],
   exports:{runtime:{kind:'payload_tree',path:'runtime.rsi',index_digest:tree.indexDigest},application:{kind:'process_extension',path:'process.json'}}});

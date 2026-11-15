@@ -53,7 +53,7 @@ export async function writeSelection(destination,version,target,plugins,location
   const runtimeDependencies=artifacts.map(row=>({name:row.name,digest:row.manifestDigest}));
   const bytes=json({format:2,name,version,target,
     dependencies:runtimeDependencies,
-    requires:[{name:'rsi.extension.process',version:1}],
+    requires:[{name:'rsi.extension.process',version:2}],
     files:[{path:'profile.rsi',bytes:data.bytes,digest:data.digest,executable:false},
       {path:'application.json',bytes:descriptor.length,digest:sha(descriptor),executable:false}],
     exports:{profile:{kind:'payload_tree',path:'profile.rsi',index_digest:data.indexDigest},application:{kind:'process_extension',path:'application.json'}}});
@@ -70,7 +70,7 @@ export async function writeSelection(destination,version,target,plugins,location
         {kind:'path',location:{package:toolchain.name,payload:'runtime',path:'node_modules/npm'}}]});
     await writeFile(join(importerDir,'import.json'),launch);
     const manifest=json({format:2,name:importerName,version,target,dependencies:[selection,...runtimeDependencies,toolchain],
-      requires:[{name:'rsi.extension.process',version:1},{name:'rsi.packages.importer',version:1}],
+      requires:[{name:'rsi.extension.process',version:2},{name:'rsi.packages.importer',version:1}],
       files:[{path:'import.json',bytes:launch.length,digest:sha(launch),executable:false}],
       exports:{import:{kind:'package_importer',path:'import.json'}}});
     await writeFile(join(importerDir,'package.json'),manifest);

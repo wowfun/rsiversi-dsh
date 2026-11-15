@@ -22,7 +22,7 @@ test('only the importer leases npm at launch and declares both native interfaces
   assert.deepEqual(app.dependencies,[{name:runtime.name,digest:runtime.manifestDigest}]);
   const importer=await read(receipt.importer.name,'package.json');
   assert.deepEqual(importer.dependencies,[receipt.selection,...app.dependencies,toolchain]);
-  assert.deepEqual(importer.requires,[{name:'rsi.extension.process',version:1},{name:'rsi.packages.importer',version:1}]);
+  assert.deepEqual(importer.requires,[{name:'rsi.extension.process',version:2},{name:'rsi.packages.importer',version:1}]);
   const launch=await read(receipt.importer.name,'import.json');
   assert.equal(launch.arguments.at(-1).location.package,toolchain.name);
   assert.equal(launch.arguments.at(-1).location.path,'node_modules/npm');
@@ -45,5 +45,5 @@ test('only the importer leases npm at launch and declares both native interfaces
   assert.equal(offset,payload.length);
   const load=name=>import(pathToFileURL(join(extracted,'rsi-dsh-plugin-bridge/src',name)));
   assert.equal(typeof (await load('tools/application-tools.mjs')).applicationTools,'function');
-  assert.equal(typeof (await load('history/history.mjs')).observeFact,'function');
+  assert.equal(typeof (await load('history/history.mjs')).factObserver,'function');
 });
