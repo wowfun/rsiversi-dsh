@@ -20,6 +20,8 @@ export async function workbenchProfile(modules,boot,state) {
     const parts=entry.name.split('/');
     const name=parts.slice(0,entry.name.startsWith('@')?2:1).join('/');
     if(name!==entry.name) continue;
+    // Its DSH journal setters cannot change the native Turn's permissions.
+    if(name==='@deepseek-ai/dsh-client-ui-permission-presets') continue;
     const manifest=JSON.parse(await readFile(join(modules.directory(name),'package.json'),'utf8'));
     const client=manifest.dsh?.client?.platform==='web';
     if(!client && !hostServices.has(name)) continue;
