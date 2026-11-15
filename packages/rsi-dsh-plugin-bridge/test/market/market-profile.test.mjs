@@ -1,16 +1,36 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {AsyncResource} from 'node:async_hooks';
 import {chmod,link,lstat,mkdir,mkdtemp,readFile,realpath,unlink,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {createMarketProfile} from '../../src/market/market-profile.mjs';
-import {linkProfilePackage} from '../../src/market/profile-files.mjs';
+import {captureProfileFiles,captureRecovery,readSelections,saveSelections,linkProfilePackage} from '../../src/market/profile-files.mjs';
 import {createApplication} from '../../src/application/application.mjs';
+import {requestBoundary} from '../../src/application/request-boundary.mjs';
+import {packageCommand} from '../../src/market/package-command.mjs';
 import {rootSet,stage} from '../fixtures/fixture-roots.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+
+test('invalid staged candidates keep their validation error when lease cleanup also fails',async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-invalid-stage-'));
+  t.after(()=>rm(profile,{recursive:true,force:true}));
+  let released=0;
+  const market=await createMarketProfile({profile,state:join(profile,'state'),call:async method=>{
+    if(method==='application.roots')return {};
+    if(method==='application.stage')return {stage:'candidate',packages:{}};
+    assert.equal(method,'application.stage.release');released++;throw Error('stage lease unavailable');
+  }});
+  await assert.rejects(market.prepare('fixture',new AbortController().signal,undefined,{write(){}}),error=>{
+    assert(error instanceof AggregateError);
+    assert.match(error.message,/Importer did not publish a DSH selection.*stage lease unavailable/);
+    assert.equal(error.errors.length,2);return true;
+  });
+  assert.equal(released,1);
+});
 test('restored bundle layers follow current platform, version exemptions and package boundaries',{skip:!root},async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-bundle-'));
   t.after(()=>rm(profile,{recursive:true,force:true}));
@@ -69,6 +89,214 @@ test('market startup leaves shared and read-only npm configuration alone',async 
   try {await createMarketProfile(options);assert.equal(await readFile(file,'utf8'),setting);}
   finally {await chmod(file,0o600);}
 });
+
+test('transaction reservation excludes another caller before recovery files are read',async t=>{
+  const base=await mkdtemp(join(tmpdir(),'rsi-market-reservation-'));
+  t.after(()=>rm(base,{recursive:true,force:true}));
+  const profile=join(base,'profile');await mkdir(profile);
+  const market=await createMarketProfile({profile,state:join(base,'state'),call:async()=>({})});
+  await market.hmr.runExclusive(async()=>{
+    const release=Promise.withResolvers();
+    const first=market.transaction(async()=>{await release.promise;return {application:'applied',changed:false};});
+    try {
+      await assert.rejects(market.transaction(async()=>({application:'applied',changed:false})),/already owns/);
+    } finally {release.resolve();await first;}
+  });
+});
+
+test('independent raw imports wait for the managed transaction to settle',async t=>{
+  const base=await mkdtemp(join(tmpdir(),'rsi-market-lanes-'));
+  t.after(()=>rm(base,{recursive:true,force:true}));
+  const profile=join(base,'profile');await mkdir(profile);
+  const boundary=requestBoundary();t.after(()=>boundary.close());
+  const entered=Promise.withResolvers(),release=Promise.withResolvers(),events=[];
+  const market=await createMarketProfile({profile,state:join(base,'state'),boundary,modules:{},
+    call:async(method)=>{
+      if(method==='application.stage.release')return null;
+      if(method==='application.roots')return {};
+      assert.equal(method,'application.stage');events.push('raw import');throw Error('import probe');
+    }});
+  const managed=boundary.run(()=>market.transaction(async()=>{
+    entered.resolve();await release.promise;events.push('managed settled');
+    return {application:'applied',changed:false};
+  }));
+  await entered.promise;
+  const raw=market.packageRunner.runPlugin(['add','probe@1.0.0'],profile);
+  try {await new Promise(resolve=>setTimeout(resolve,50));}
+  finally {release.resolve();await managed;}
+  assert.equal((await raw.done).exitCode,1);
+  assert.deepEqual(events,['managed settled','raw import']);
+});
+
+test('failed recovery capture releases admission and subprocess identity expires with its transaction',async t=>{
+  const base=await mkdtemp(join(tmpdir(),'rsi-market-admission-'));
+  t.after(()=>rm(base,{recursive:true,force:true}));
+  const profile=join(base,'profile');await mkdir(profile);
+  const market=await createMarketProfile({profile,state:join(base,'state'),modules:{},reconcile:()=>[],call:async(method)=>{
+    if(method==='application.stage.release')return null;
+      if(method==='application.roots')return {};
+    assert.equal(method,'application.stage');throw Error('child reached importer');
+  }});
+  const patch=join(profile,'cordis.patch.yml');await writeFile(patch,'a'.repeat(1024*1024+1));
+  await assert.rejects(market.transaction(()=>assert.fail('capture was not admitted')),/cordis.patch.yml exceeds profile capacity/);
+  await unlink(patch);
+  let identity;
+  const result=await market.transaction(async()=>{
+    identity=market.packageRunner.transactionId();assert.equal(typeof identity,'string');
+    const child=market.packageRunner.runPlugin(['add','child@1.0.0'],profile,undefined,identity);
+    assert.equal((await child.done).exitCode,1);
+    assert.match(Buffer.concat(await Array.fromAsync(child.stderr)).toString(),/child reached importer/);
+    const retry=market.packageRunner.runPlugin(['install'],profile,undefined,identity);
+    assert.equal((await retry.done).exitCode,0);
+    return {application:'applied',changed:false};
+  });
+  assert.equal(result.application,'applied');
+  assert.equal(market.packageRunner.transactionId(),undefined);
+  const stale=market.packageRunner.runPlugin(['add','stale@1.0.0'],profile,undefined,identity);
+  assert.equal((await stale.done).exitCode,1);
+  assert.match(Buffer.concat(await Array.fromAsync(stale.stderr)).toString(),/transaction is no longer active/);
+  assert.deepEqual(await Array.fromAsync(stale.stdout),[]);
+});
+
+test('accepted package children drain before a returned manager can commit or compensate',async t=>{
+  const base=await mkdtemp(join(tmpdir(),'rsi-market-child-'));
+  t.after(()=>rm(base,{recursive:true,force:true}));
+  const profile=join(base,'profile');await mkdir(profile);
+  const entered=Promise.withResolvers(),returned=Promise.withResolvers(),release=Promise.withResolvers(),imports=[];
+  const market=await createMarketProfile({profile,state:join(base,'state'),modules:{},reconcile:()=>[],call:async(method,args)=>{
+    if(method==='application.stage.release')return null;
+      if(method==='application.roots')return {};
+    assert.equal(method,'application.stage');imports.push(args.specifications[0]);
+    entered.resolve();await release.promise;throw Error('import probe');
+  }});
+  let first,queued,identity,settled=false;
+  const changing=market.transaction(async()=>{
+    identity=market.packageRunner.transactionId();
+    first=market.packageRunner.runPlugin(['add','first@1.0.0'],profile,undefined,identity);
+    await entered.promise;
+    queued=market.packageRunner.runPlugin(['add','queued@1.0.0'],profile,undefined,identity);
+    returned.resolve();
+    return {application:'applied',changed:false};
+  }).then(result=>{settled=true;return result;});
+  try {
+    await returned.promise;
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(settled,false,'the owner must retain accepted children');
+    const stale=market.packageRunner.runPlugin(['add','stale@1.0.0'],profile,undefined,identity);
+    assert.equal((await stale.done).exitCode,1);
+    assert.match(Buffer.concat(await Array.fromAsync(stale.stderr)).toString(),/transaction is no longer active/);
+    assert.deepEqual(await Array.fromAsync(stale.stdout),[]);
+  } finally {release.resolve();}
+  const result=await changing;
+  assert.equal(result.application,'failed');
+  assert.equal(result.restored,true);
+  assert.match(result.error.diagnostic,/import probe/);
+  assert.equal((await first.done).exitCode,1);
+  assert.equal((await queued.done).exitCode,1);
+  assert.deepEqual(imports,['first@1.0.0','queued@1.0.0']);
+});
+
+test('a successful child returned without joining cannot commit an unreconciled selection',async t=>{
+  const base=await mkdtemp(join(tmpdir(),'rsi-unjoined-success-'));
+  t.after(()=>rm(base,{recursive:true,force:true}));
+  const profile=join(base,'profile'),held=join(base,'held');await mkdir(profile);await mkdir(held);
+  await writeFile(join(held,'layout.json'),JSON.stringify({plugins:['fixture'],locations:{'node_modules/fixture':{version:'1.0.0'}}}));
+  const roots=rootSet(),entered=Promise.withResolvers(),release=Promise.withResolvers();
+  const market=await createMarketProfile({profile,state:join(base,'state'),modules:{add(){},prepare(){return {directory:()=>held,publish(){}};},directory:()=>held},reconcile:()=>[],
+    boot:{readProfileVersionExemptions:()=>({}),getDshRuntimeVersion:()=>'',readProfileManifest:()=>({dsh:{bundle:{}}}),assertBundlePlatform(){},evaluatePluginCompatibility(){},bundlePatchPaths:()=>[]},
+    call:async(method,args)=>{
+      if(method==='application.stage.release')return null;
+      if(method==='application.roots')return roots(args);
+      if(method==='application.stage'){entered.resolve();await release.promise;return stage(roots,args,{'rsi-dsh-selection-fixture':'a'.repeat(64)});}
+      if(method==='application.payloads')return {profile:held,roots:{}};
+      assert.equal(method,'application.release');
+    }});
+  let child;
+  const work=market.transaction(async()=>{
+    child=market.packageRunner.runPlugin(['add','fixture@1.0.0'],profile,undefined,market.packageRunner.transactionId());
+    await entered.promise;return {application:'applied',changed:true};
+  });
+  await entered.promise;await new Promise(resolve=>setImmediate(resolve));release.resolve();
+  const result=await work;
+  assert.equal((await child.done).exitCode,0);
+  assert.equal(result.application,'failed');assert.equal(result.restored,true);
+  assert.match(result.error.diagnostic,/before.*subprocess.*settled/);
+  assert.deepEqual(JSON.parse(await readFile(join(profile,'package.json'))).dependencies,{});
+  assert.deepEqual(roots({}),{});
+});
+
+test('failed compensation retains recovery intent and blocks further writes until reopening',async t=>{
+  const base=await mkdtemp(join(tmpdir(),'rsi-market-recovery-'));
+  t.after(()=>rm(base,{recursive:true,force:true}));
+  const profile=join(base,'profile'),state=join(base,'state');await mkdir(profile);
+  const manifest=join(profile,'package.json'),patch=join(profile,'cordis.patch.yml');
+  const roots=rootSet();
+  const options={profile,state,modules:{},call:async(method,args)=>{
+    assert.equal(method,'application.roots');return roots(args);
+  },reconcile:()=>{throw Error('old plugin failed to reactivate');}};
+  const market=await createMarketProfile(options);
+  const before=await captureProfileFiles(profile);
+  await assert.rejects(market.transaction(async()=>{
+    await writeFile(manifest,'broken candidate manifest');
+    await writeFile(patch,'candidate patch');
+    return {application:'failed',changed:true};
+  }),/recovery is incomplete/);
+  const journal=join(state,'selections.json');
+  assert.deepEqual((await readSelections(journal)).rollback.files,
+    Object.fromEntries(Object.entries(before).map(([name,value])=>[name,value===null?null:Buffer.from(value,'base64')])));
+  assert.deepEqual(await captureProfileFiles(profile),before);
+  await assert.rejects(market.transaction(()=>{throw Error('must not run');}),/recovery requires restarting the application with the same profile/);
+  await assert.rejects(market.hmr.runExclusive(async()=>assert.fail('must not mutate a fenced profile')),/recovery requires restarting the application with the same profile/);
+  const raw=market.packageRunner.runPlugin(['add','fixture@1.0.0'],profile);
+  assert.equal((await raw.done).exitCode,1);
+  assert.match(Buffer.concat(await Array.fromAsync(raw.stderr)).toString(),/recovery requires restarting the application with the same profile/);
+  const reopened=await createMarketProfile({...options,reconcile:()=>[]});
+  assert.equal(JSON.parse(await readFile(journal)).rollback,null);
+  assert.deepEqual(await captureProfileFiles(profile),before);
+  assert.deepEqual(await reopened.activate(),{ok:true});
+});
+
+test('late subprocess environments retain their expired transaction instead of escaping as raw work',async t=>{
+  const base=await mkdtemp(join(tmpdir(),'rsi-market-late-'));t.after(()=>rm(base,{recursive:true,force:true}));
+  const profile=join(base,'profile');await mkdir(profile);
+  const entered=Promise.withResolvers(),release=Promise.withResolvers(),late=Promise.withResolvers(),after=Promise.withResolvers();
+  const market=await createMarketProfile({profile,state:join(base,'state'),modules:{},reconcile:()=>[],call:async method=>{
+    if(method==='application.stage.release')return null;
+      if(method==='application.roots')return {};
+    assert.equal(method,'application.stage');entered.resolve();await release.promise;throw Error('fixture import');
+  }});
+  const command=await packageCommand(profile,market.packageRunner);t.after(()=>command.close());
+  let identity,duringDrain,afterCommit;
+  const changing=market.transaction(async()=>{
+    identity=market.packageRunner.transactionId();
+    duringDrain=late.promise.then(()=>command.invocation.env);
+    afterCommit=after.promise.then(()=>command.invocation.env);
+    market.packageRunner.runPlugin(['add','first@1'],profile,undefined,identity);
+    await entered.promise;return {application:'applied',changed:false};
+  });
+  try {
+    await entered.promise;await new Promise(resolve=>setImmediate(resolve));
+    late.resolve();const env=await duringDrain;
+    assert.equal(env.RSI_DSH_PACKAGE_TRANSACTION,identity,'expired ownership must not disappear');
+    const child=market.packageRunner.runPlugin(['install'],profile,undefined,env.RSI_DSH_PACKAGE_TRANSACTION);
+    assert.equal((await child.done).exitCode,1);
+    assert.match(Buffer.concat(await Array.fromAsync(child.stderr)).toString(),/transaction is no longer active/);
+  } finally {release.resolve();await changing;after.resolve();}
+  assert.equal((await afterCommit).RSI_DSH_PACKAGE_TRANSACTION,identity);
+  assert.equal(command.invocation.env.RSI_DSH_PACKAGE_TRANSACTION,undefined);
+  await market.transaction(async()=>{
+    assert.notEqual(command.invocation.env.RSI_DSH_PACKAGE_TRANSACTION,identity);
+    return {application:'applied',changed:false};
+  });
+});
+
+test('manifest publication cannot write more bytes than its next recovery capture accepts',async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-manifest-cap-'));t.after(()=>rm(profile,{recursive:true,force:true}));
+  const path=join(profile,'package.json'),before=JSON.stringify({padding:'a'.repeat(1024*1024-16)});
+  assert.ok(Buffer.byteLength(before)<1024*1024);await writeFile(path,before);
+  await assert.rejects(createMarketProfile({profile,state:join(profile,'state'),call:async()=>({})}),/package.json exceeds profile capacity/);
+  assert.equal(await readFile(path,'utf8'),before);
+});
 test('the profile follows the leased package after replacement or collection and preserves ordinary directories',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'rsi-package-view-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const name='@deepseek-ai/cordis',link=join(dir,'node_modules',name),first=join(dir,'old'),next=join(dir,'new');
@@ -101,46 +329,7 @@ test('Cordis keeps the exact imported payload until its entry retires',{skip:!ro
   assert.equal(app.usesPayload([payload]),true);assert.equal(app.usesPayload([profile]),false);
   await app.reconcile([]);assert.equal(app.usesPayload([payload]),false);
 });
-test('an external market replacement keeps the old graph alive through its serving Fiber',async t=>{
-  const profile=await mkdtemp(join(tmpdir(),'rsi-market-update-'));
-  t.after(()=>rm(profile,{recursive:true,force:true}));
-  const name='test-market',selection='rsi-dsh-selection-test',roots=rootSet(),releases=[];
-  const generations=new Map();let current,oldServing=true;
-  for(const [version,id] of [['1.0.0','a'],['2.0.0','b']]) {
-    const dir=join(profile,id),digest=id.repeat(64);await mkdir(dir);
-    await writeFile(join(dir,'layout.json'),JSON.stringify({format:1,plugins:[name],locations:{
-      ['node_modules/'+name]:{version}}}));
-    await writeFile(join(dir,'package.json'),JSON.stringify({name,version,dsh:{bundle:{patch:'patch.yml'}}}));
-    generations.set(version,{dir,digest});
-  }
-  const market=await createMarketProfile({profile,state:join(profile,'state'),
-    modules:{add(layout){current=generations.get(layout.locations['node_modules/'+name].version);},directory:()=>current.dir},
-    boot:{loadOverlayPatches:(_,path)=>path},async reconcile(){},
-    manager:()=>{throw new Error('an installed package cannot use installBundle');},
-    inUse:graph=>oldServing&&graph.layout.locations['node_modules/'+name].version==='1.0.0',
-    async call(method,args) {
-      if(method==='application.roots')return roots(args);
-      if(method==='application.release'){releases.push(args.digest);return;}
-      if(method==='application.import'){
-        const version=args.specifications[0].slice(name.length+1);
-        const selected=generations.get(version);if(!selected)throw Error('unpublished candidate');
-        return stage(roots,args,{[selection]:selected.digest});
-      }
-      assert.equal(method,'application.payloads');
-      return {profile:[...generations.values()].find(item=>item.digest===args.digest).dir,roots:{}};
-    }});
-  const run=(runner,version)=>runner.runPlugin(['add',name+'@'+version],profile).done;
-  assert.equal((await run(market.packageRunner,'1.0.0')).exitCode,0);
-  assert.equal((await run(market.desktopPnpm,'9.0.0')).exitCode,1);
-  assert.deepEqual(roots({}),{['a'.repeat(64)]:selection});
-  assert.equal((await run(market.desktopPnpm,'2.0.0')).exitCode,0);
-  assert.deepEqual(roots({}),{['b'.repeat(64)]:selection});
-  assert.equal(JSON.parse(await readFile(join(profile,'node_modules',name,'package.json'))).version,'2.0.0');
-  assert.deepEqual(await market.activate(),{ok:true});assert.deepEqual(releases,[]);
-  oldServing=false;assert.deepEqual(await market.activate(),{ok:true});
-  assert.deepEqual(releases,['a'.repeat(64)]);
-});
-test('published dshmarket managed runtime installs once, reconciles, restores and removes its profile view',
+test('published dshmarket raw runtime resolves explicit installs, restores and removes its profile view',
   {skip:!root},async t=>{
     const profile=await mkdtemp(join(tmpdir(),'rsi-managed-market-'));
     const held=await mkdtemp(join(tmpdir(),'rsi-managed-lease-'));
@@ -155,10 +344,12 @@ test('published dshmarket managed runtime installs once, reconciles, restores an
     const state=join(held,'state'),journal=join(state,'selections.json'),roots=rootSet();
     const require=createRequire(join(root,'package.json'));
     const boot=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')));
-    const options={profile,state,modules:{add(){},directory:()=>entry,installationDependency(){}},boot:{...boot,loadOverlayPatches:(_,path)=>path},
+    const boundary=requestBoundary();t.after(()=>boundary.close());
+    const options={profile,state,boundary,modules:{add(){},prepare(){return {directory:()=>entry,publish(){}};},directory:()=>entry,installationDependency(){}},boot:{...boot,loadOverlayPatches:(_,path)=>path},
       async call(method,request) {
-        if(method==='application.roots') return roots(request);
-        if (method==='application.import') {imports++;assert.deepEqual(request.specifications,[spec]);
+        if(method==='application.stage.release')return null;
+      if(method==='application.roots') return roots(request);
+        if (method==='application.stage') {imports++;assert.deepEqual(request.specifications,[spec]);
           return stage(roots,request,{[selection]:digest});}
         if(method==='application.release') {assert.equal(request.digest,digest);releases++;return null;}
         assert.equal(method,'application.payloads');admissions++;assert.equal(request.package,selection);
@@ -174,13 +365,31 @@ test('published dshmarket managed runtime installs once, reconciles, restores an
     const failed=await run(['add',spec]);
     assert.equal(failed.exitCode,1);
     assert.match(failed.stderr,/collides/);
-    await assert.rejects(readFile(journal),{code:'ENOENT'});
+    assert.deepEqual(JSON.parse(await readFile(journal)),{format:3,installed:{},rollback:null});
     await rm(collision,{recursive:true});
     for(const _ of [1,2]) {
       const result=await run(['add',spec]);
       assert.equal(result.exitCode,0,result.stderr);
     }
-    assert.equal(imports,2);assert.equal(admissions,2);assert.equal(releases,1);
+    assert.equal(imports,3);assert.equal(admissions,2);assert.equal(releases,1);
+    await unlink(collision);
+    const restoredView=await run(['install']);
+    assert.equal(restoredView.exitCode,0,restoredView.stderr);
+    assert.equal(imports,3,'manifest restoration reuses the exact already held selection');
+    assert.equal(await realpath(collision),await realpath(entry),'restoration repairs a missing profile link');
+    // A package subprocess arrives outside the parent's async-local context.
+    const external=new AsyncResource('package-subprocess');t.after(()=>external.emitDestroy());
+    await unlink(collision);
+    const repaired=await service.transaction(async()=>{
+      const identity=service.packageRunner.transactionId();
+      const child=external.runInAsyncScope(()=>service.packageRunner.runPlugin(['install'],profile,AbortSignal.timeout(2000),identity));
+      const result=await child.done;
+      assert.equal(result.exitCode,0,Buffer.concat(await Array.fromAsync(child.stderr)).toString());
+      assert.deepEqual(await service.activate(),{ok:true});
+      return {application:'applied',changed:false};
+    });
+    assert.equal(repaired.application,'applied',JSON.stringify(repaired));
+    assert.equal(await realpath(collision),await realpath(entry));
     const path=join(profile,'package.json');
     const manifest=JSON.parse(await readFile(path));assert.equal(manifest.dependencies[name],version);
     assert.deepEqual(manifest.dsh.profile.bundles,[]);
@@ -191,16 +400,17 @@ test('published dshmarket managed runtime installs once, reconciles, restores an
     // it published a new Store selection. The Host recovers the committed one.
     const committed=JSON.parse(await readFile(journal));
     assert.equal(committed.installed[name].digest,digest);
-    await writeFile(journal,JSON.stringify({...committed,preparing:[name]}));
+    const rollback=await captureRecovery(journal,profile);rollback.touched.push(name);
+    await saveSelections(journal,committed.installed,rollback);
     const retained=roots({});
     roots({expected:retained,next:{...retained,['d'.repeat(64)]:'rsi-dsh-selection-abandoned'}});
     manifest.dependencies[name]='broken';await writeFile(path,JSON.stringify(manifest));
     const restarted=await createMarketProfile(options);
     assert.equal(JSON.parse(await readFile(path)).dependencies[name],version);
-    assert.deepEqual(JSON.parse(await readFile(journal)).preparing,[]);
+    assert.equal(JSON.parse(await readFile(journal)).rollback,null);
     assert.deepEqual(roots({}),{[digest]:selection});
     assert.equal(admissions,3);
-    assert.deepEqual(await restarted.activate(),{ok:true});assert.equal(activations,2);
+    assert.deepEqual(await restarted.activate(),{ok:true});assert.equal(activations,3);
     const unavailableName='missing-selection';
     await writeFile(journal,JSON.stringify({...committed,installed:{...committed.installed,
       [unavailableName]:{package:'rsi-dsh-selection-missing',digest:'c'.repeat(64),version:'1.0.0'}}}));
@@ -223,9 +433,10 @@ test('published dshmarket managed runtime installs once, reconciles, restores an
       const targetDigest='b'.repeat(64),targetState=join(held,'target-'+(opts?'selected':'full')),targetRoots=rootSet();
       const restored=await createMarketProfile({...options,profile:target,state:targetState,
         async call(method,args) {
-          if(method==='application.roots')return targetRoots(args);
-          if(method==='application.import') {
-            assert.deepEqual(args.specifications,[spec]);assert.equal(args.options.source,'registry');
+          if(method==='application.stage.release')return null;
+      if(method==='application.roots')return targetRoots(args);
+          if(method==='application.stage') {
+            assert.deepEqual(args.specifications,[spec]);
             assert.equal(args.options.registry,'https://example.invalid/');
             return stage(targetRoots,args,{[selection]:targetDigest});
           }
@@ -259,7 +470,7 @@ test('published dshmarket managed runtime installs once, reconciles, restores an
       } finally {runtime.dispose();}
     }
     const removed=await run(['remove',name]);assert.equal(removed.exitCode,0,removed.stderr);
-    assert.equal(releases,1);
+    assert.equal(releases,2);
     const retired=JSON.parse(await readFile(path));
     retired.dsh.profile.bundles=[];await writeFile(path,JSON.stringify(retired));
     assert.deepEqual(await service.activate(),{ok:true});assert.equal(releases,2);

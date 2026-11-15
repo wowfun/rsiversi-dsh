@@ -10,6 +10,9 @@ import {createMarketProfile} from '../../src/market/market-profile.mjs';
 import {packageCommand} from '../../src/market/package-command.mjs';
 import {rootSet,stage} from '../fixtures/fixture-roots.mjs';
 import {replayableInstalls} from '../../src/market/install-receipts.mjs';
+import {managedBoundary} from '../../src/market/management.mjs';
+import {managedPackages} from '../../src/market/managed-packages.mjs';
+import {requestBoundary} from '../../src/application/request-boundary.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('released Discover manager runs its configured package command and can install without enabling', {skip:!root},async t=>{
@@ -23,28 +26,35 @@ test('released Discover manager runs its configured package command and can inst
   await writeFile(join(profile,'cordis.yml'),document);
   const require=createRequire(join(root,'package.json'));
   const shipped='@deepseek-ai/dsh-experimental-cot-translation-bundle';
-  const modules={entry:name=>require.resolve(name),directory:name=>join(root,'node_modules',name),add(){},
+  const modules={entry:name=>require.resolve(name),directory:name=>join(root,'node_modules',name),add(){},prepare(_layout,_roots,[name]){return {directory:()=>join(root,'node_modules',name),publish(){}};},
     installationDependency:name=>name===shipped?join(root,'node_modules',name):undefined};
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   let imports=0;
   const roots=rootSet();
   let managed;
   const baseRows=[{id:'config-editor',name:'@deepseek-ai/dsh-config-editor'},
-    {id:'settings',name:'@deepseek-ai/dsh-settings'}, {id:'plugin-manager',name:'@deepseek-ai/dsh-plugin-manager'},
+    {id:'settings',name:'@deepseek-ai/dsh-settings'}, {id:'plugin-manager',name:'@deepseek-ai/dsh-plugin-manager',
+      config:{registry:'https://mirror.example/',fallbackRegistries:['https://fallback.example/']}},
     {id:'plugin-market',name:'@deepseek-ai/dsh-plugin-market'}];
-  const hostModules=new Map();
-  const app=await createApplication({modules,profile,baseRows,hostModules,provide:async(ctx,load)=>{
+  const hostModules=new Map(),boundary=requestBoundary();
+  const app=await createApplication({modules,profile,baseRows,hostModules,boundary,provide:async(ctx,load)=>{
     const manager='@deepseek-ai/dsh-plugin-manager';
-    hostModules.set(manager,await replayableInstalls((await load(manager)).default,join(held,'state'),await load('@deepseek-ai/dsh-atomic-write')));
-    managed=await createMarketProfile({modules,profile,state:join(held,'state'),boot,reconcile:layers=>app.reconcile(layers),
+    const managerModule=await load(manager);
+    hostModules.set(manager,await replayableInstalls(managedPackages(managedBoundary(managerModule.default,()=>managed),()=>managed,managerModule),join(held,'state'),await load('@deepseek-ai/dsh-atomic-write')));
+    managed=await createMarketProfile({modules,profile,state:join(held,'state'),boot,boundary,reconcile:layers=>app.reconcile(layers),
       manager:()=>ctx.get('pluginManager'),active:id=>[...ctx.loader.entries()].some(entry=>entry.options.id===id && entry.fiber?.state===ctx.fiber.state),
       view:async candidate=>{assert.equal(candidate,spec);return {name,version:'0.28.2',description:'sidebar',dsh:{bundle:{patch:'cordis.patch.yml'}}};},
       call:async(method,args)=>{
-        if(method==='application.roots')return roots(args);
-        if(method==='application.import') {imports++;assert.deepEqual(args.specifications,[spec]);
+        if(method==='application.stage.release')return null;
+      if(method==='application.roots')return roots(args);
+        if(method==='application.stage') {imports++;assert.deepEqual(args.specifications,[spec]);
           assert.equal(args.options.builds['build-second'],false);
           if(!args.options.builds['build-first']) throw new Error('Ignored build scripts: build-first');
-          if(imports===2) assert.equal(args.options.registry,'https://mirror.example/');
+          if(imports===2) {
+            assert.equal(args.options.registry,'https://mirror.example/');
+            throw new Error('ERR_PNPM_META_FETCH_FAIL GET https://mirror.example/: getaddrinfo EAI_AGAIN mirror.example');
+          }
+          if(imports===3)assert.equal(args.options.registry,'https://fallback.example/');
           return stage(roots,args,{'rsi-dsh-selection-proof':'a'.repeat(64)});}
         if(method==='application.release') {assert.equal(args.digest,'a'.repeat(64));return null;}
         assert.equal(method,'application.payloads');return {profile:held,roots:{}};
@@ -96,8 +106,12 @@ test('released Discover manager runs its configured package command and can inst
   assert.equal(result.packageResult.exitCode,0,JSON.stringify(result));
   assert.equal(result.enabled,false);
   assert.equal(result.application,'applied',JSON.stringify(result));
+  assert.deepEqual(result.registries,['https://mirror.example/','https://fallback.example/']);
   assert.deepEqual(await app.ctx.pluginManager.installBundle(spec,{requestId:'discover-retry',enabled:false,approvedBuilds:['build-first'],registry:'https://mirror.example/'}),result);
-  assert.equal(imports,2);
+  assert.equal(imports,3);
+  const replacementPreview=await app.ctx.pluginManager.inspect(spec,{registry:'https://private.example/npm'});
+  assert.equal(replacementPreview.status,'accepted');
+  assert.equal(replacementPreview.registry,'https://private.example/npm/');
   assert.equal(JSON.parse(await readFile(join(profile,'package.json'))).dependencies[name],'0.28.2');
   assert.ok(![...app.ctx.loader.entries()].some(entry=>entry.options.id==='better-sidebar' && entry.fiber));
   const market=await import(pathToFileURL(join(modules.directory('dshmarket'),'lib/dsh-cli.js')));
@@ -105,7 +119,7 @@ test('released Discover manager runs its configured package command and can inst
   t.after(()=>runtime.dispose());
   const added=await runtime.runPlugin(basename(profile),['add',spec]);
   assert.equal(added.exitCode,0,added.stderr);
-  assert.equal(imports,2);
+  assert.equal(imports,4);
   assert.ok(JSON.parse(await readFile(join(profile,'package.json'))).dsh.profile.bundles.includes(name));
   assert.ok([...app.ctx.loader.entries()].some(entry=>entry.options.id==='better-sidebar' && entry.fiber?.state===app.ctx.fiber.state));
   const removed=await app.ctx.pluginManager.removeBundle(name);
@@ -113,6 +127,11 @@ test('released Discover manager runs its configured package command and can inst
   assert.ok(!(await listed(name))?.installed);
   const fresh=await runtime.runPlugin(basename(profile),['add',spec]);
   assert.equal(fresh.exitCode,0,fresh.stderr);
-  assert.equal(imports,3);
+  assert.equal(imports,5);
   assert.ok([...app.ctx.loader.entries()].some(entry=>entry.options.id==='better-sidebar' && entry.fiber?.state===app.ctx.fiber.state));
+  const replaced=await app.ctx.pluginManager.installBundle(spec,{requestId:'same-version-replacement',enabled:true});
+  assert.equal(replaced.application,'applied',JSON.stringify(replaced));
+  assert.equal(imports,6,'an explicit install must resolve content even when the version is unchanged');
+  assert.deepEqual(await app.ctx.pluginManager.installBundle(spec,{requestId:'same-version-replacement',enabled:true}),replaced);
+  assert.equal(imports,6,'a repeated operation identity must not remove or reinstall');
 });

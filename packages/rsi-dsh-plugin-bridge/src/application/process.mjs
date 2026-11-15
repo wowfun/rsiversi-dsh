@@ -5,6 +5,8 @@ import {workerData} from 'node:worker_threads';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 import {installReleaseResolver} from '../../../rsi-dsh-cordis/src/release/resolver.mjs';
 import {createApplication} from './application.mjs';
+import {requestBoundary} from './request-boundary.mjs';
+import {drainsOnCancel} from './entry.mjs';
 import {leasedPluginPackages} from './package-metadata.mjs';
 import {provideHttp} from './http.mjs';
 import {importRelease} from '../../../rsi-dsh-cordis/src/release/import.mjs';
@@ -19,6 +21,8 @@ import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
 import {moveRegistryCache,profileState,registryCache,viewNpm} from '../../../rsi-dsh-cordis/src/registry/npm-install.mjs';
 import {replayableInstalls} from '../market/install-receipts.mjs';
+import {managedBoundary,managementTools} from '../market/management.mjs';
+import {managedPackages} from '../market/managed-packages.mjs';
 import {workbenchHistory} from '../workbench/history.mjs';
 import {sessionJournalStore} from '../session/session-journal-store.mjs';
 import {workbenchPersistence} from '../workbench/persistence.mjs';
@@ -39,7 +43,7 @@ const layout = JSON.parse(await readFile(layoutFile,'utf8'));
 let modules, app, opening, nativeSessions;
 async function open({protocol,profile,key,owner,importer,timings=false,tools=false}) {
   const start=performance.now();
-  if (protocol !== 12 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
+  if (protocol !== 13 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
   modules=installReleaseResolver(layout,roots,profile);
   const boot = await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   // DSH's own metadata and Typert loaders also use Node lookup from the
@@ -75,7 +79,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
   const hostModules=new Map([['@deepseek-ai/dsh-client-connection',{inject:['connection'],apply(){}}]]);
   const setup=performance.now();
   let toolListener,retireToolOutcome,sessionScope;
-  const candidate = await createApplication({modules:applicationModules,profile,hostModules,clientOnly,baseRows:base[0].insert,provide:async (ctx,load) => {
+  const boundary=requestBoundary();
+  const candidate = await createApplication({modules:applicationModules,profile,hostModules,clientOnly,baseRows:base[0].insert,boundary,provide:async (ctx,load) => {
     const call=(method,args,signal)=>peer.request(method,args,{signal});
     let persistence,agents,history;
     const storage=sessionJournalStore(join(profileState(profile),'sessions'),await load('@deepseek-ai/dsh-atomic-write'),()=>ctx.emit('rsi/catalog-projection'));
@@ -114,8 +119,14 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       const state=profileState(profile);
       await moveRegistryCache(profile);
       const managerName='@deepseek-ai/dsh-plugin-manager';
-      hostModules.set(managerName,await replayableInstalls((await load(managerName)).default,state,await load('@deepseek-ai/dsh-atomic-write')));
-      market=await createMarketProfile({modules,profile,boot,state,
+      const managerModule=await load(managerName);
+      hostModules.set(managerName,await replayableInstalls(
+        managedPackages(managedBoundary(managerModule.default,()=>market),()=>market,managerModule),state,await load('@deepseek-ai/dsh-atomic-write')));
+      if(tools){
+        hostModules.set(managerName+'/tools',managementTools(await load('@deepseek-ai/dsh-tools'),boundary));
+        base[0].insert.push({id:'plugin-manager-tools',name:managerName+'/tools'});
+      }
+      market=await createMarketProfile({modules,profile,boot,state,boundary,
         inUse:graph=>candidate.usesPayload([...graph.roots].filter(([name])=>!roots.has(name)).map(([,dir])=>dir)),
         manager:()=>ctx.get('pluginManager'),
         view:async(spec,fields,registry,signal)=>{
@@ -152,7 +163,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     if(tools){
       base[0].insert.push({id:'tool-schedule',name:'@deepseek-ai/dsh-tool-schedule'});
       await (await ctx.plugin((await load('@deepseek-ai/dsh-user-approval')).default,{})).await();
-      const {retireOutcome,...listener}=await applicationTools(ctx,{load,key,generation,directory:tools.outcomeDirectory,sessions:sessionScope,
+      const {retireOutcome,...listener}=await applicationTools(ctx,{load,key,generation,directory:tools.outcomeDirectory,sessions:sessionScope,boundary,
         resolveAgent:(id,signal)=>sessionScope.runOwned(()=>agents.ensure(id,signal),signal)});
       toolListener=listener;retireToolOutcome=retireOutcome;
     }
@@ -181,7 +192,7 @@ function close() {
     }
   })();
 }
-const peer = new Peer({port:workerData,generation,handler:async (method,args,signal) => {
+const peer = new Peer({port:workerData,generation,drainOnCancel:drainsOnCancel,handler:async (method,args,signal) => {
   if (method==='extension.close') {await close();return null;}
   if (method==='package.import' && npmRoot && !opening && !closing) {
     opening=importRelease(layout,npmRoot,args,signal);

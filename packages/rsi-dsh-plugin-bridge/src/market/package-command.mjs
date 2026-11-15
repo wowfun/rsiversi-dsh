@@ -16,9 +16,9 @@ export async function packageCommand(profile,runtime) {
   const server=createServer(socket=>{
     sockets.add(socket);socket.once('close',()=>sockets.delete(socket));
     const peer=new Peer({input:socket,output:socket,generation,onClose:()=>socket.destroy(),
-      handler:async(method,{cwd,args},signal)=>{
+      handler:async(method,{cwd,args,transaction},signal)=>{
         if(method!=='package.run' || resolve(cwd)!==resolve(profile) || !Array.isArray(args)) throw new Error('Invalid managed package command');
-        const handle=runtime.runPlugin(args,cwd,signal);
+        const handle=runtime.runPlugin(args,cwd,signal,transaction);
         async function forward(stream,name) {
           for await(const chunk of stream) {
             const bytes=Buffer.from(chunk);
@@ -33,7 +33,10 @@ export async function packageCommand(profile,runtime) {
   try {server.listen(endpoint);await once(server,'listening');}
   catch(error){server.close();await rm(dir,{recursive:true,force:true});throw error;}
   return {invocation:{command:process.execPath,args:[fileURLToPath(import.meta.url),endpoint],
-    env:{RSI_DSH_PACKAGE_GENERATION:generation}},
+    get env(){
+      const transaction=runtime.transactionId?.();
+      return {RSI_DSH_PACKAGE_GENERATION:generation,...(transaction===undefined?{}:{RSI_DSH_PACKAGE_TRANSACTION:transaction})};
+    }},
     async close(){for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true,force:true});}};
 }
 if(import.meta.main) {
@@ -47,7 +50,7 @@ if(import.meta.main) {
       return null;
     }});
   try {
-    const result=await peer.request('package.run',{cwd:process.cwd(),args});
+    const result=await peer.request('package.run',{cwd:process.cwd(),args,transaction:process.env.RSI_DSH_PACKAGE_TRANSACTION});
     process.exitCode=result.exitCode;
   } finally {peer.close();socket.destroy();}
 }

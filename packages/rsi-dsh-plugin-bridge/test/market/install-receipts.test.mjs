@@ -6,8 +6,36 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {replayableInstalls} from '../../src/market/install-receipts.mjs';
+import {managedPackages} from '../../src/market/managed-packages.mjs';
+import {managedBoundary} from '../../src/market/management.mjs';
+import {requestBoundary} from '../../src/application/request-boundary.mjs';
 
 const cohort=process.env.RSI_DSH_MARKET_COHORT;
+test('queued installs join their receipt, expose wait and cancel before the active view returns',{skip:!cohort},async t=>{
+  const state=await mkdtemp(join(tmpdir(),'rsi-queued-install-'));
+  t.after(()=>rm(state,{recursive:true,force:true}));
+  const atomic=await import(pathToFileURL(createRequire(join(cohort,'package.json')).resolve('@deepseek-ai/dsh-atomic-write')));
+  const boundary=requestBoundary(),view=await boundary.capture(new AbortController().signal,()=>{});
+  let calls=0;
+  class Original {
+    listBundles(){return [];}
+    installBundle(){calls++;return {application:'applied'};}
+    cancelInstall(){return {status:'not-running'};}
+    waitForInstall(){return null;}
+  }
+  const market={exclusive:(operation,signal)=>boundary.run(operation,signal)};
+  const manager=new (await replayableInstalls(managedPackages(managedBoundary(Original,()=>market),()=>market,
+    {parseInstallSpec:()=>({kind:'registry',name:'fixture'})}),state,atomic))({effect(){},emit(){},parallel:async()=>{}},{});
+  const options={requestId:'queued'},first=manager.installBundle('fixture',options);
+  try {
+    assert.equal(manager.installBundle('fixture',options),first);
+    assert.equal(manager.waitForInstall('queued'),first);
+    assert.deepEqual(await manager.cancelInstall('queued'),{status:'cancelled'});
+    assert.equal((await first).application,'cancelled');
+    assert.equal(calls,0);
+  } finally {view.release();await first;await boundary.close();}
+  assert.equal((await manager.installBundle('fixture',options)).application,'cancelled');
+});
 test('lost replies, concurrent retries and interrupted installs preserve their original request identity',{skip:!cohort},async t=>{
   const state=await mkdtemp(join(tmpdir(),'rsi-install-receipts-'));
   t.after(()=>rm(state,{recursive:true,force:true}));

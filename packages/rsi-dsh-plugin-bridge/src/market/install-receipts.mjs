@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {createReadStream} from 'node:fs';
+import {boundedText} from './profile-files.mjs';
 import {mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 
@@ -12,21 +12,15 @@ function canonical(value) {
 }
 
 async function readRows(path) {
-  const chunks=[];let length=0;
-  try {
-    for await(const part of createReadStream(path)) {
-      length+=part.length;
-      if(length>maximum) throw new Error('Install receipts exceed profile capacity');
-      chunks.push(part);
-    }
-  } catch(error) {if(error.code==='ENOENT')return [];throw error;}
-  const rows=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  const text=await boundedText(path,maximum);
+  if(text===undefined)return [];
+  const rows=JSON.parse(text);
   if(!Array.isArray(rows)||rows.length>128||rows.some(row=>!row||!['key','intent'].every(key=>/^[a-f0-9]{64}$/.test(row[key]))))
     throw new Error('Invalid install receipts');
   return rows;
 }
 
-/** The original Plugin Manager owns approval, cancellation and activation. */
+/** The managed installer owns approval, cancellation and activation. */
 export async function replayableInstalls(Manager,directory,{withFileLock,writeFileAtomic}) {
   await mkdir(directory,{recursive:true});
   const path=join(directory,'install-receipts.json'),active=new Map();
@@ -45,10 +39,13 @@ export async function replayableInstalls(Manager,directory,{withFileLock,writeFi
     return outcome;
   });
   return class extends Manager {
+    waitForInstall(id) {return (typeof id==='string'&&active.get(hash(id)))?.work??super.waitForInstall(id);}
     async cancelInstall(id) {
       const pending=typeof id==='string'&&active.get(hash(id));
       if(pending && !await pending.started) return {status:'not-running'};
-      return super.cancelInstall(id);
+      const result=await super.cancelInstall(id);
+      if(result.status==='cancelled'&&pending)await pending.work;
+      return result;
     }
     installBundle(spec,options) {
       const id=options?.requestId;

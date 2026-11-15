@@ -12,7 +12,5 @@ export function rootSet() {
 }
 
 export function stage(roots,args,packages) {
-  const next={...args.expected_roots,...Object.fromEntries(Object.entries(packages).map(([name,digest])=>[digest,name]))};
-  roots({expected:args.expected_roots,next});
-  return {packages,roots:next};
+  return {packages,stage:crypto.randomUUID()};
 }
