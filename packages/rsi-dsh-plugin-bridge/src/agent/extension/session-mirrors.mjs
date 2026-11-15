@@ -77,13 +77,13 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
   function get(id) { const record = records.get(id); if (signal.aborted || !record) throw new Error('Session unavailable'); return record; }
   const protocol = {
     forks,
-    beginAgentLoad({ session_id, created_at, local_cwd, revision, count }) {
-      if (signal.aborted || !Number.isSafeInteger(revision) || revision < 0 || !Number.isSafeInteger(count) || count < 0 || count > 100_000) throw new Error('invalid load boundary');
+    beginAgentLoad({ session_id, created_at, local_cwd, revision, count, reload }) {
+      if (signal.aborted || typeof reload !== 'boolean' || !Number.isSafeInteger(revision) || revision < 0 || !Number.isSafeInteger(count) || count < 0 || count > 100_000) throw new Error('invalid load boundary');
       validateHeader({ version: 4, id: session_id, createdAt: created_at, isSeeded: false,
         ...(local_cwd==null?{}:{cwd:local_cwd}) });
       const record = records.get(session_id);
       if (record?.staged || record?.active) throw new Error('pending transaction');
-      if (revision > 0 && record?.canonical.revision === revision && record.committedCount === count
+      if (!reload && revision > 0 && record?.canonical.revision === revision && record.committedCount === count
         && record.canonical.header.createdAt === created_at && record.canonical.header.cwd === (local_cwd ?? undefined)
         && !record.executing.size && !record.parked && !loading.has(session_id)) {
         record.settled = false;

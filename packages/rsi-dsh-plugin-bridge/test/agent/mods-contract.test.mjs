@@ -81,10 +81,10 @@ test('a published Mods fiber activates in the Agent bridge with the canonical lo
   const bridge=await createBridge({cohortRoot:root,cohortLoader:async()=>cohort,
     configuration:{format:1,plugins:[name,probe]}});
   t.after(()=>bridge.close());
-  bridge.beginAgentLoad({session_id:'mods-local',created_at:1,local_cwd:root,revision:0,count:0});
+  bridge.beginAgentLoad({ reload: false, session_id:'mods-local',created_at:1,local_cwd:root,revision:0,count:0});
   await bridge.finishAgentLoad({session_id:'mods-local',checkpoint:null});
   assert.equal(bridge.canonical('mods-local').header.cwd,root);
-  bridge.beginAgentLoad({session_id:'mods-remote',created_at:1,local_cwd:null,revision:0,count:0});
+  bridge.beginAgentLoad({ reload: false, session_id:'mods-remote',created_at:1,local_cwd:null,revision:0,count:0});
   await bridge.finishAgentLoad({session_id:'mods-remote',checkpoint:null});
   assert.equal(bridge.canonical('mods-remote').header.cwd,undefined);
   for(const id of ['mods-local','mods-remote']) {

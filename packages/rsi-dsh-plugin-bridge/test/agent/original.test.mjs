@@ -162,7 +162,7 @@ integration('catalog declares human interaction and paged recovery publishes onl
   const bridge = await setup(t);
   assert.deepEqual(bridge.catalog().tools.map(tool => [tool.definition.name, tool.interaction.kind]), [['todo_write', 'execution'], ['exit_plan_mode', 'human']]);
   const event = { seq: 0, time: 1, type: 'todo/write', data: { todos: [{ content: 'paged', status: 'pending' }] } };
-  const boundary = { session_id: 'session-one', created_at: 0, revision: 1, count: 1 };
+  const boundary = { session_id: 'session-one', created_at: 0, revision: 1, count: 1, reload: false };
   assert.equal(bridge.beginAgentLoad(boundary), 'transfer');
   await assert.rejects(bridge.finishAgentLoad({ session_id: 'session-one', checkpoint: null }), /incomplete/);
   assert.equal(bridge.project('session-one').values.todos, null);
@@ -173,6 +173,12 @@ integration('catalog declares human interaction and paged recovery publishes onl
   await bridge.finishAgentLoad({ session_id: 'session-one', checkpoint: null });
   assert.equal(bridge.project('session-one').values.todos[0].content, 'paged');
   assert.equal(bridge.beginAgentLoad(boundary), 'current');
+  assert.throws(() => bridge.beginAgentLoad({...boundary, reload: undefined}), /load boundary/);
+  assert.equal(bridge.beginAgentLoad({...boundary, reload: true}), 'transfer');
+  bridge.appendAgentLoad({ session_id: 'session-one', offset: 0, events: [event] });
+  await bridge.finishAgentLoad({ session_id: 'session-one', checkpoint: null });
+  assert.equal(bridge.project('session-one').values.todos[0].content, 'mutated caller');
+  assert.equal(bridge.beginAgentLoad(boundary), 'current');
   const advanced = { ...boundary, revision: 2 };
   assert.equal(bridge.beginAgentLoad(advanced), 'transfer');
   bridge.appendAgentLoad({ session_id: 'session-one', offset: 0, events: [event] });
@@ -180,9 +186,9 @@ integration('catalog declares human interaction and paged recovery publishes onl
   bridge.abortAgentLoad(advanced);
   assert.equal(bridge.canonical('session-one').revision, 1);
   assert.equal(bridge.beginAgentLoad(boundary), 'current');
-  assert.equal(bridge.beginAgentLoad({...boundary, created_at: 1}), 'transfer');
+  assert.equal(bridge.beginAgentLoad({ ...boundary, created_at: 1}), 'transfer');
   bridge.abortAgentLoad(boundary);
-  assert.equal(bridge.beginAgentLoad({...boundary, revision: 0}), 'transfer');
+  assert.equal(bridge.beginAgentLoad({ ...boundary, revision: 0}), 'transfer');
   bridge.abortAgentLoad(boundary);
 });
 integration('Agent BeforeStep preserves foreign Tool names and separates current instructions', async t => {
@@ -336,13 +342,13 @@ integration('settled mirrors recycle beyond lifetime capacity and unknown outcom
 
 integration('unfinished loads pin capacity until explicitly aborted', async t => {
   const bridge = await setup(t);
-  for (let index = 0; index < 255; index++) bridge.beginAgentLoad({
+  for (let index = 0; index < 255; index++) bridge.beginAgentLoad({ reload: false,
     session_id: `loading-${index}`, created_at: 0, revision: 0, count: 1,
   });
-  assert.equal(bridge.beginAgentLoad({ session_id: 'session-one', created_at: 0, revision: 0, count: 1 }), 'transfer');
-  assert.throws(() => bridge.beginAgentLoad({ session_id: 'overflow', created_at: 0, revision: 0, count: 0 }), /capacity/);
+  assert.equal(bridge.beginAgentLoad({ reload: false, session_id: 'session-one', created_at: 0, revision: 0, count: 1 }), 'transfer');
+  assert.throws(() => bridge.beginAgentLoad({ reload: false, session_id: 'overflow', created_at: 0, revision: 0, count: 0 }), /capacity/);
   bridge.abortAgentLoad({ session_id: 'loading-0' });
-  bridge.beginAgentLoad({ session_id: 'after-abort', created_at: 0, revision: 0, count: 0 });
+  bridge.beginAgentLoad({ reload: false, session_id: 'after-abort', created_at: 0, revision: 0, count: 0 });
   await bridge.finishAgentLoad({ session_id: 'after-abort', checkpoint: null });
   assert.equal(bridge.canonical('after-abort').events.length, 0);
 });

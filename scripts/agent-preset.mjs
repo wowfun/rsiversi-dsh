@@ -31,7 +31,6 @@ ${vars}
 kind = "plugin"
 id = "adapter"
 plugin = "rsi.extension.agent"
-config = { artifact_sha256 = "${digest}" }
 `;
 }
 if (import.meta.main) {
