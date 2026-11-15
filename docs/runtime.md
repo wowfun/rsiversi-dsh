@@ -1,5 +1,21 @@
 # Runtime contract
 
+The process transport uses protocol 2: each direction reserves 64 business slots,
+one ping and one close. Normal request promises settle only after their outbound
+slot is reusable. One FIFO retains request order; outbound slots remain
+owned until replies and writes settle, inbound slots until reply dequeue. The
+queue holds at most 198 frames plus its active write. Cancelled requests retain
+their slots and share one earliest-deadline timer, cleared as replies arrive.
+Admitting a close request starts terminal draining. A frame rejected before
+sending does not begin remote teardown. Cancellation or an error reply does
+not prove that the peer can resume business callbacks. A close retry can enter
+only after the previous close's reply and outbound writes have both settled;
+until then its reserved slot still reports capacity. An ordinary cancelled request
+that does not settle within five seconds closes the transport. Cooperative drain
+requests keep their slot and wait for the cleanup reply or connection closure;
+the ordinary cancellation acknowledgement deadline does not bound their cleanup.
+The application carrier and worker share the staging cancellation policy.
+
 Tool capture emits the exact registration's `timeout_ms` as its numeric DSH
 `timeoutMs`, or explicit `null` when absent. Capture rejects non-finite values
 before JSON serialization can turn them into `null`. Native admission checks conversion;
@@ -221,7 +237,7 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 12. The native Host supplies an opaque `owner`
+Application opening uses protocol 13. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -629,6 +645,12 @@ coordinates, positive journal revision and event count before restoring history.
 A quiescent matching mirror keeps its original Session object. A missing mirror,
 changed revision or revision-zero draft receives the native CAS event pages
 and then the checkpoint.
+The required `reload` boolean forces transfer when preparing a replacement,
+including when a discarded candidate used the same proposed revision. The new
+process validates the complete journal before Kernel publishes selection; a
+failure leaves the previous pin and journal unchanged. Once committed, ordinary
+loads use `reload: false` and reuse the prepared mirror. Code identity lives in the
+generation recipe, independently of the journal's version-2 data envelope.
 The native history records the originating Session, effect and message ordinal.
 Forks project the outcomes in their selected history interval. A failed publication leaves the messages pending for the next claim. A committed hook rejection consumes the claim.
 The workbench expands a native multi-message entry into one DSH user event
@@ -689,7 +711,8 @@ controls in an EpochHeader; these fail explicitly instead of publishing a partia
 header. Each model-attempt Fact carries `attempt: {retain_context, events}` from
 RSI's canonical decoder in the same captured page. Encoded attempt chunks and a
 second attempt-read callback are absent. Agent extensions require native
-`rsi.extension.agent` version 8 for this history view. Their elapsed offsets remain unchanged and are anchored
+`rsi.extension.agent` version 9 for this history view and explicit candidate reload.
+Their elapsed offsets remain unchanged and are anchored
 to the canonical ModelStarted timestamp. Original DSH stream accumulation and
 block assembly produce assistant messages and failed-attempt records. RSI's
 inclusive input-token total is converted to DSH's disjoint uncached/cache counters.
@@ -825,6 +848,8 @@ disk. The application process's resolver only serves its own process.
 Registry metadata and npm staging use the Host's HTTP(S) proxy and bypass
 settings. The generated application profile and npm subprocess omit proxy
 URLs with user information and keep their private package configuration.
+Windows executable lookup reads environment names case-insensitively, including
+inside Node workers where `process.env` itself uses case-sensitive lookup.
 
 Release imports use the npm executable from an exact toolchain lease. The
 importer resolves the requested package in a private staging directory with
@@ -870,7 +895,7 @@ Before installing, Discover inspects a candidate through the same registry
 and npm toolchain as its install. Metadata goes to stdout, diagnostics to
 stderr. An inspection does not publish a package or enable code.
 The release and installed plugins share a generated `node_modules` view in the
-DSH profile. Opening the application or preparing a plugin points its managed
+DSH profile. Opening the application or committing a plugin points its managed
 directory link at the currently leased package, including when the previous
 link is stale or dangling. A regular file or directory at that location is a
 collision and is preserved.
@@ -886,12 +911,47 @@ at startup is evaluated again on reconciliation, so correcting the profile
 can activate it without restarting the Host.
 
 The application keeps its Store selections in per-profile Host state outside
-the portable DSH profile. Package view changes record the previous selections
-before modifying links or the manifest. Cancellation, failure and interruption
-restore the prior package view. Only a successfully prepared view advances
-this journal. DSH retains ownership of bundle enablement and its activation
-result. Restoring a backup re-resolves the portable manifest against the
-target Home's Store.
+the portable DSH profile. Its selection journal owns package-change recovery:
+before changing links or Profile files it saves exact old Store digests and a
+recovery snapshot. Managed changes capture package.json, cordis.yml,
+cordis.patch.yml and pnpm-lock.yaml. Independent raw package changes only write
+package.json and capture that file. Managed installation commits only after DSH
+reports successful activation. Cancellation,
+activation failure and interrupted work restore those exact selections and files;
+recovery never reimports a mutable local path or registry version. Explicit build
+approvals remain operator policy even when installation fails, as in DSH.
+File recovery restores presence and bytes. Application-written replacements use
+private permissions (`0600`, subject to umask), as in the original DSH writer;
+the journal does not preserve previous permission bits, ownership or ACLs.
+On Windows, these POSIX mode bits do not establish an owner-only ACL.
+The format-3 selections.json holds at most 1 MiB of selection and recovery
+metadata. Its recovery identity refers to the single selections.json.recovery
+snapshot, written once before publishing recovery intent. The snapshot admits
+1 MiB each for package.json, cordis.yml and cordis.patch.yml, and 16 MiB for
+pnpm-lock.yaml; its bound includes their base64 encoding plus 1 MiB of framing.
+Profile manifest reads enforce the same 1 MiB limit before JSON parsing. Snapshot
+recovery validates durable base64 once and retains the decoded bytes for restoration.
+Touched-name updates rewrite only metadata. Commit removes the recovery intent
+before deleting the snapshot. An orphan snapshot is ignored and can be removed
+at startup; a pending intent requires a matching, valid snapshot. A healthy
+startup does not read the snapshot bytes. Oversized owned files are identified
+before mutation begins.
+Manifest writes use the same 1 MiB bound as recovery capture, so this writer
+cannot commit a manifest that its next transaction cannot snapshot.
+The read and write boundaries both admit at most 128 installed selections and
+128 touched recovery names. Older journal formats are refused explicitly and
+left intact; this pre-release bridge does not infer missing rollback bytes or
+migrate interrupted transactions. Use a new profile when its previous journal
+format is unsupported.
+Raw package operations only prepare the package view; their caller owns subsequent
+bundle enablement and activation. Restoring a backup re-resolves the portable
+manifest against the target Home's Store. Outside a managed parent transaction,
+successful dependencies commit individually. Failure cleanup preserves those
+selections, removes unavailable new bundles, and owns a separate manifest recovery
+transaction. Interruption during cleanup restores its pre-cleanup bytes without
+discarding prior successes. Within a managed transaction, cleanup shares its
+parent's recovery snapshot and already-held capture boundary, including when a
+package subprocess enters through a separate IPC callback.
 Before changing the portable view, the market retains both the committed
 and candidate Store roots for this Host profile. Once the journal commits,
 it narrows the roots to the chosen selections. Opening the profile repairs
@@ -908,19 +968,114 @@ installed bundle is unavailable. The Host reports the affected package or
 Fiber. The workbench's required Host entries must start. Subsequent changes
 use DSH's reconciliation contract, which distinguishes an unchanged inactive
 entry from a new or changed activation failure.
-Discover's package subprocess performs a raw package operation. The external
-market's recoverable install seat performs a DSH plugin add, including bundle
-selection and activation through the original Plugin Manager. These two entry
-points have different enable semantics.
-An external market add for an already installed registry package can replace
-its package view. The calling market owns its update verdict, rollback and
-restart UX. Staging a replacement leaves the running Fiber serving its
-request. Reconciliation retains retired graphs while a loader entry still
-uses a module imported from their payload. Restart resolves the committed
-selection through a fresh Cordis tree.
+Raw package subprocesses publish the package view without selecting or activating
+a bundle. Discover and the external market's recoverable install seat use managed
+candidate preparation and commit, preserving their explicit enable option.
+Registry inspection still uses the configured package command.
+Replacement inspection preserves the requested registry (or the configured first
+registry), so accepting an already-installed bundle cannot redirect its install.
+An executable replacement imports its new content-addressed module before
+retiring the old entry. The application drains admitted plugin work before
+disposal, then re-initializes the entry against the selected module. A failed
+candidate restores the previous composition and module namespaces, including
+removed siblings and removal of candidate-only entries; configuration-only
+reconciliation retains partial successes. Replacement completion requires the
+new entry to be active, not merely a saved package view. Retired payloads stay
+leased through admitted work and Fiber cleanup. The bridge prepares candidates independently and applies them with exact Store compensation. It accepts explicit
+replacement of an installed profile-owned package, including an unchanged
+version or absolute local directory. Manifest restoration reuses an available,
+already leased selection when its exact version matches, repairing its profile
+link without downloading it again. Every explicit install resolves its current
+content; a repeated operation ID returns its original receipt. Installation-owned
+runtime packages retain their existing protection. Application recovery owns the
+affected running entries, and the selection journal restores package state and
+Profile files. Neither treats a successful subprocess as proof of runtime application.
+Each application request view retains its registrations through provider retries,
+the entire response's Tool batch and stopping callbacks. Reconciliation blocks
+new captures and waits for those views and their admitted callbacks to release;
+release RPCs remain available while captures wait, and cancellation has its own
+HTTP admission capacity independent of running work. Cancelling a callback does not
+prove it has returned. Shutdown cancels views and joins callbacks before disposing
+their plugin tree. The native executor releases its settled view before requesting
+another, so that capture can wait for a pending replacement without self-waiting.
+Install request IDs are registered before boundary admission: duplicate calls join
+the same receipt, waiters observe queued work, and cancellation can remove a queued
+install without waiting for existing views. Once admitted, cancellation waits for
+importer and build cleanup while preparation or boundary admission is cancelled.
+Once commit starts, cancellation returns `too-late`; commit or compensation owns
+completion. Management operations first acquire the
+reentrant profile writer lane. Downloads, approved builds, Store admission and
+candidate validation run outside the request boundary, leaving the old plugin
+view available to new Agent steps. Only a ready candidate requests capture
+exclusion and waits for existing views. Queued management operations cannot
+close captures ahead of the current writer. Queries and cancellation do not
+acquire the writer lane. Direct management mutations from an admitted view callback
+fail before entering the writer queue: that callback cannot await its own view's
+release. The management Tool explicitly schedules accepted background work outside
+the callback context and returns its operation receipt.
+
+Application protocol 13 uses `application.stage` and `application.stage.release`. A candidate holds a process-bound Store lease,
+not persistent profile roots. Preparing it publishes no profile links, module
+resolver bindings or plugin JavaScript. Candidate payloads and immutable resolver
+maps are prepared once and published at commit. Cancellation drains preparation;
+a waiting commit is cancellable, but a started commit returns `too-late` and
+settles through application or exact compensation. Staging RPC cancellation remains attached through the worker carrier and waits
+for the Host cleanup reply. A disconnect or cleanup
+failure is not confirmed cancellation. Stage handles are released
+on every settled path and process retirement; interrupted work is not resumed.
+
+The profile lane orders managed operations, raw commands and HMR changes before
+the request boundary owns tree lifetime and capture exclusion.
+A transaction reserves its recovery owner before
+any file read. Only its own package subprocess may reenter with its live operation
+identity; unrelated raw commands wait outside that lane. The subprocess identity
+comes from the spawning mutation's context. When the manager returns, new child
+admission closes and accepted children drain before commit or compensation.
+Detached work retains its originating transaction identity after admission closes
+and is rejected as expired; it cannot become an independent raw operation or
+borrow a later transaction's identity.
+The manager owns settled subprocess outcomes, including registry retries. Returning
+with an unfinished child is a failed transaction: its work drains before compensation,
+and even a successful late child cannot commit a selection the manager never activated.
+The package queue orders raw child commands within the owner, so a
+manager can await its subprocess without waiting on itself.
+The FIFO tail includes every accepted child. Request-ID controls retain each
+pending replacement through its own
+compensation, so overlapping callers cannot clear another install's cancellation
+or completion handle. Application reconciliation uses the request boundary when
+supplied, and its local queue only
+for standalone use. Failed compensation fences subsequent mutations. Address
+the reported recovery failure, then restart the application with the same
+profile and its existing Host state. Startup retries the retained recovery
+intent; creating a new profile is not required for a supported journal format.
+Tool listener protocol 16 declares `requires_full_access` for each captured
+registration. The mutating `plugin_manager` Tool requires it; the read-only
+`plugin_inspect` Tool lists plugins, bundles and operation status without it.
+The native executor admits full-access
+Turns directly and otherwise obtains per-call approval, retaining any independent
+approval policy. The application process's operator authority is not a substitute
+for the caller's Turn mode. No separate creator grant is required.
+The workbench does not publish DSH's permission selector or default-permission
+settings. Its DSH journal setters do not change native Turn authority, and this
+application has no native permission-selection command. Native Session settings
+and per-call approval remain authoritative; changing a DSH shell policy is not
+a way to grant native Full access.
+The management Tool queues its authorized mutation and returns an operation ID
+with `application: pending`. Its own response batch must release before mutation
+can run. `plugin_inspect`'s `operation_status` returns the resulting Plugin Manager receipt; omitting
+the ID lists recent operations with their initiating Session and call. Missing
+receipts report unknown and never replay an operation. Pending work and a bounded
+set of recent status summaries belong to the live application, while package
+selection and install recovery retain their existing durable owners. Installs use
+the operation ID as their durable request ID. `plugin_manager`'s `cancel_install`
+accepts that ID; cancelling the originating Turn does not revoke an accepted
+background mutation. A process
+loss can therefore leave an accepted operation unconfirmed. Inspect the selected
+and active plugins before issuing a new operation. Human management calls await
+actual completion through the same request boundary.
 The root Include reads the managed profile's cordis.yml. Original plugins and
 the configuration editor can change this file and the profile's patch layers.
-The managed registry importer can install a newly published npm version
+The managed importer can install a local package or a newly published npm version
 immediately. Its profile advertises that default with
 `minimum-release-age=0` in the local `.npmrc`. Operator release-age
 settings in that file, the workspace policy, or the application environment

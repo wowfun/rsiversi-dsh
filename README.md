@@ -20,6 +20,30 @@ semantics. The [browser contract](docs/browser.md) owns document composition.
 Implementation and acceptance evidence are separate. Passing the standalone
 adapter tests does not establish installation into a released RSI executable.
 
+### Market integration verification
+
+`npm run test:market` exercises the transport, request boundary, real DSH Plugin
+Manager and package subprocess, Tool capture, replacement and rollback. Set
+`RSI_DSH_MARKET_COHORT` to the absolute path of a complete installed DSH cohort
+containing the original manager, `dshmarket` and
+`@deepseek-ai/dsh-experimental-claude-code-mods` (PowerShell):
+
+```powershell
+$env:RSI_DSH_MARKET_COHORT='D:/path/to/installed-cohort'
+npm run test:market
+```
+
+The command requires that cohort and uses temporary profiles. It does not
+download dependencies or read model credentials. A missing cohort fails before
+tests start; an invalid or incomplete cohort fails the integration tests.
+Acceptance requires every selected test to execute and pass. The ordinary
+`npm test` command permits cohort-dependent tests to skip when the environment
+variable is absent; those skips are not integration acceptance.
+The acceptance runner fails on skipped, todo, failed or empty test results.
+It discovers the market test directory and includes transport, application
+replacement, Tool listener and workbench settings tests. Explicit test file
+arguments select a narrower run under the same no-skip rule.
+
 ### Market workbench
 
 The market workbench runs the release's web shell and Plugin Manager. In
@@ -64,7 +88,8 @@ rsi plugin install --importer rsi-dsh-plugin-bridge/import --program $node ./my-
 
 The last command prints the ordinary package resolution. Select the generated
 `dsh-import-…` name, its exact digest and its `process` export in the Agent
-preset; bind `rsi.extension.agent` to the same digest. Run
+preset; add `rsi.extension.agent` with null configuration. The selected process
+generation owns code identity, while the journal retains its committed data. Run
 `node scripts/agent-preset.mjs PACKAGE DIGEST` to print that profile with the
 locally discovered Node executable (or supply its absolute path as the last
 argument). Save it as the chosen preset's `agent.profile.toml`. The
