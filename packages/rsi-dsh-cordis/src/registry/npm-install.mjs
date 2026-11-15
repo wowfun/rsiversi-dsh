@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {basename,dirname,join,delimiter} from 'node:path';
 import {createRequire} from 'node:module';
-import {runtimeEnvironment} from '../runtime/node.mjs';
+import {environmentValue,runtimeEnvironment} from '../runtime/node.mjs';
 
 export const profileState=profile=>join(dirname(profile),'.selections',basename(profile));
 export const registryCache=profile=>join(profileState(profile),'npm');
@@ -89,7 +89,7 @@ export async function rebuildApproved(npmRoot,root,work,builds,policy,signal,cac
 
 async function runNpm(npmRoot,root,work,args,signal,cache=join(work,'cache')) {
   const env = { ...runtimeEnvironment(), ...registryEnvironment(), HOME:join(work,'home'), USERPROFILE:join(work,'home'),
-    PATH:[dirname(process.execPath),process.env.PATH].filter(Boolean).join(delimiter),
+    PATH:[dirname(process.execPath),environmentValue(process.env,'PATH')].filter(Boolean).join(delimiter),
     npm_config_userconfig:join(work,'npmrc'), npm_config_globalconfig:join(work,'global-npmrc'), npm_config_cache:cache };
   await new Promise((accept, reject) => {
     const child = spawn(process.execPath, [join(npmRoot,'bin/npm-cli.js'),...args],

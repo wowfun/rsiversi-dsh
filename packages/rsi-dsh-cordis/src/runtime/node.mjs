@@ -3,13 +3,21 @@ import { access, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, extname, isAbsolute, join } from 'node:path';
 
+/** Match Windows lookup even in a worker's case-sensitive environment copy. */
+export function environmentValue(source, name) {
+  const exact = source[name];
+  if (exact !== undefined || process.platform !== 'win32') return exact;
+  const normalized = name.toUpperCase();
+  return Object.entries(source).find(([key]) => key.toUpperCase() === normalized)?.[1];
+}
+
 /** Only OS essentials cross the launch boundary; Node/npm configuration never does. */
 export function runtimeEnvironment(source = process.env) {
   const allowed = process.platform === 'win32' ? ['SystemRoot', 'WINDIR', 'TEMP', 'TMP'] : ['TMPDIR', 'LANG'];
   const result = {};
   for (const key of allowed) {
-    const actual = Object.keys(source).find(name => name.toLowerCase() === key.toLowerCase());
-    if (actual !== undefined) result[key] = source[actual];
+    const value = environmentValue(source, key);
+    if (value !== undefined) result[key] = value;
   }
   return result;
 }
@@ -37,7 +45,7 @@ async function probe(program) {
   });
 }
 /** Resolve once per generation, then use this absolute executable for every spawn. */
-export async function discoverNode({ executable, path = process.env.PATH ?? '' } = {}) {
+export async function discoverNode({ executable, path = environmentValue(process.env, 'PATH') ?? '' } = {}) {
   const candidates = executable ? [executable] : path.split(delimiter).filter(Boolean).map(dir => join(dir, process.platform === 'win32' ? 'node.exe' : 'node'));
   for (const candidate of candidates) {
     try {

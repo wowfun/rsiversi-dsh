@@ -5,6 +5,9 @@ import {join} from 'node:path';
 import {test} from 'node:test';
 import {installNpm,rebuildApproved} from '../../src/registry/npm-install.mjs';
 import {releaseLayout} from '../../src/release/layout.mjs';
+import {Worker} from 'node:worker_threads';
+import {once} from 'node:events';
+import {runtimeEnvironment} from '../../src/runtime/node.mjs';
 
 const npm=process.env.RSI_DSH_NPM_ROOT;
 test('real npm stages both scripts inert and runs only the approved resolved instance', {skip:!npm},async t=>{
@@ -29,4 +32,16 @@ test('real npm stages both scripts inert and runs only the approved resolved ins
   assert.equal(await readFile(marker('build-first'),'utf8'),'built\n');
   await assert.rejects(readFile(marker('build-second')),{code:'ENOENT'});
   assert.ok(groups.get('build-first')[0].files.some(file=>file.path.endsWith('/receipt')));
+  if(process.platform==='win32'){
+    const worker=new Worker(new URL('data:text/javascript,'+encodeURIComponent(`
+      import {workerData} from 'node:worker_threads';
+      const {rebuildApproved}=await import(workerData.module);
+      await rebuildApproved(...workerData.args,new AbortController().signal);
+    `)),{env:{...runtimeEnvironment(),Path:process.env.PATH},workerData:{
+      module:new URL('../../src/registry/npm-install.mjs',import.meta.url).href,
+      args:[npm,root,work,[{name:'build-second',location:'node_modules/build-second'}],{'build-second':true}],
+    }});
+    assert.equal((await once(worker,'exit'))[0],0);
+    assert.equal(await readFile(marker('build-second'),'utf8'),'built\n');
+  }
 });
