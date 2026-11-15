@@ -29,7 +29,7 @@ export function installReleaseResolver(layout, roots, profile) {
     const row=layout.locations[location];
     if(row && row.version===version && runtimeShard.test(row.package)) return release.get(location);
   }
-  function add(graph,paths,names) {
+  function prepare(graph,paths,names) {
     const externalPeers=release!==undefined && graph?.format===2;
     if ((!externalPeers && graph?.format!==1) || !graph.locations || Object.keys(graph.locations).length>32768 ||
       (externalPeers && !graph.hostPeers))
@@ -72,22 +72,26 @@ export function installReleaseResolver(layout, roots, profile) {
       const semver=createRequire(entry('@deepseek-ai/dsh-app-boot'))('semver');
       for(const [,row] of entries) checkRequirements(JSON.parse(readFileSync(join(row.directory,'package.json'),'utf8')),layout.version,semver);
     }
-    for(const row of owned) {
-      if(!byDirectory.has(row.directory)) byDirectory.set(row.directory,new Set());
-      byDirectory.get(row.directory).add(row);
-    }
-    for(const [name,row] of entries) rootsByName.set(name,row);
-    lastParent=lastOwner=undefined;
-    release??=local;
-    return () => {
-      lastParent=lastOwner=undefined;
-      for(const [name,row] of entries) if(rootsByName.get(name)===row) rootsByName.delete(name);
+    return {directory:name=>local.get('node_modules/'+name)?.directory,publish() {
       for(const row of owned) {
-        const owners=byDirectory.get(row.directory);
-        if(owners?.delete(row) && !owners.size) byDirectory.delete(row.directory);
+        if(!byDirectory.has(row.directory)) byDirectory.set(row.directory,new Set());
+        byDirectory.get(row.directory).add(row);
       }
-    };
+      for(const [name,row] of entries) rootsByName.set(name,row);
+      lastParent=lastOwner=undefined;
+      release??=local;
+      return () => {
+        lastParent=lastOwner=undefined;
+        for(const [name,row] of entries) if(rootsByName.get(name)===row) rootsByName.delete(name);
+        for(const row of owned) {
+          const owners=byDirectory.get(row.directory);
+          if(owners?.delete(row) && !owners.size) byDirectory.delete(row.directory);
+        }
+      };
+    }};
   }
+  const add=(graph,paths,names)=>prepare(graph,paths,names).publish();
+
   add(layout,roots);
   const installation=release.get('node_modules/'+layout.runtime);
   function installationDependency(name) {
@@ -180,5 +184,5 @@ export function installReleaseResolver(layout, roots, profile) {
     if (!target) throw new Error('Not a profile package: '+name);
     return createRequire(target.parent).resolve(specifier);
   }
-  return {entry,directory,installationDependency,bindingFor,packageAt,setProfileLink,add,close:()=>hook.deregister()};
+  return {entry,directory,installationDependency,bindingFor,packageAt,setProfileLink,prepare,add,close:()=>hook.deregister()};
 }

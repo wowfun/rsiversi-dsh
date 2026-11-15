@@ -20,8 +20,6 @@ export async function importRelease(base,npmRoot,request,signal) {
   const specs=specifications.map(value=>{
     if (typeof value!=='string' || !value || value.startsWith('-')) throw new Error('Invalid package specification');
     const parsed=npa(value,workspace);
-    if(request.options?.source==='registry' && !['version','range','tag'].includes(parsed.type))
-      throw new Error('This market installs named npm registry packages only');
     if (!['version','range','tag','file','directory'].includes(parsed.type)) throw new Error('Unsupported package specification');
     return parsed;
   });
@@ -35,8 +33,8 @@ export async function importRelease(base,npmRoot,request,signal) {
     }));
     if (!runtime['@deepseek-ai/dsh']) throw new Error('Missing release runtime');
     if (specs.some(spec=>Object.hasOwn(runtime,spec.name))) throw new Error('Cannot replace active runtime package');
-    const cache=request.options?.source==='registry'?registryCache(workspace):undefined;
-    const manifests=await Promise.all(specs.map(spec=>npmManifest(npmRoot,spec,request.options?.registry,cache??join(work,'metadata-cache'),signal)));
+    const cache=request.options?.cache===true?registryCache(workspace):join(work,'cache');
+    const manifests=await Promise.all(specs.map(spec=>npmManifest(npmRoot,spec,request.options?.registry,cache,signal)));
     const pins={};
     for(const manifest of manifests) {
       if(Object.hasOwn(runtime,manifest.name))throw new Error('Cannot replace active runtime package');

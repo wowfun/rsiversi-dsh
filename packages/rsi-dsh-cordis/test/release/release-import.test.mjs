@@ -38,7 +38,7 @@ test('an app-boot compatible prerelease peer binds to the host without leasing a
   assert.deepEqual(stored.dependencies.map(row=>row.name),[layout.locations['node_modules/peer-plugin'].package]);
 });
 
-test('importing a plugin with no runtime edges does not fetch the DSH host or an unrelated runtime package',{skip:!npmRoot},async t=>{
+test('local same-version imports snapshot new bytes without fetching the DSH host or unrelated packages',{skip:!npmRoot},async t=>{
   const root=await mkdtemp(join(tmpdir(),'rsi-actual-plugin-edges-'));
   t.after(()=>rm(root,{recursive:true,force:true}));
   const staging=join(root,'staging'),plugin=join(root,'tiny-plugin');
@@ -53,11 +53,35 @@ test('importing a plugin with no runtime edges does not fetch the DSH host or an
   t.after(()=>new Promise(resolve=>server.close(resolve)));
   const active={package:'rsi-runtime',version:'0.2.1-rc.5',dependencies:{}};
   const base={version:'0.2.1-rc.5',plugins:[],locations:{'node_modules/@deepseek-ai/dsh':active,'node_modules/@deepseek-ai/unrelated':active}};
-  const result=await importRelease(base,npmRoot,{format:1,workspace:root,staging,target:'fixture',
-    specifications:[plugin],importer:{dependencies:[]},options:{registry:'http://127.0.0.1:'+server.address().port}},
+  const workspace=join(root,'profile');await mkdir(workspace);
+  const result=await importRelease(base,npmRoot,{format:1,workspace,staging,target:'fixture',
+    specifications:[plugin],importer:{dependencies:[]},options:{cache:true,registry:'http://127.0.0.1:'+server.address().port}},
     new AbortController().signal);
   const name=result.directories.find(n=>n.startsWith('rsi-dsh-selection-'));
   assert.ok(name);const declared=JSON.parse(await readFile(join(staging,name,'package.json'),'utf8'));
   assert.equal(declared.dependencies.length,1);
+  const original=await payloadEntry(staging,declared.dependencies[0].name,'node_modules/tiny-plugin/index.js');
+  assert.equal(original,'module.exports=()=>{};');
+  await writeFile(join(plugin,'index.js'),'module.exports="replacement";');
+  const next=join(root,'next');await mkdir(next);
+  const replaced=await importRelease(base,npmRoot,{format:1,workspace,staging:next,
+    specifications:[plugin],options:{cache:true,registry:'http://127.0.0.1:'+server.address().port}},new AbortController().signal);
+  const replacement=JSON.parse(await readFile(join(next,replaced.directories.at(-1),'package.json'),'utf8'));
+  assert.notEqual(replacement.dependencies[0].digest,declared.dependencies[0].digest);
+  assert.equal(await payloadEntry(next,replacement.dependencies[0].name,'node_modules/tiny-plugin/index.js'),'module.exports="replacement";');
+  assert.equal(await payloadEntry(staging,declared.dependencies[0].name,'node_modules/tiny-plugin/index.js'),original);
   assert.deepEqual(requests,[]);
 });
+
+async function payloadEntry(staging,name,path) {
+  const directory=join(staging,name),manifest=JSON.parse(await readFile(join(directory,'package.json')));
+  const payload=await readFile(join(directory,manifest.exports.runtime.path));
+  assert.equal(payload.subarray(0,8).toString(),'RSITREE1');
+  const size=payload.readUInt32LE(8),tree=JSON.parse(payload.subarray(12,12+size));
+  let offset=12+size;
+  for(const file of tree.files) {
+    if(file.path===path)return payload.subarray(offset,offset+file.bytes).toString();
+    offset+=file.bytes;
+  }
+  assert.fail('Missing payload entry '+path);
+}
