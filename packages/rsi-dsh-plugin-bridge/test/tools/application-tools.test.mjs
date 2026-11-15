@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomUUID} from 'node:crypto';
+import {request} from 'node:http';
 import {mkdir,mkdtemp,rm,readdir,rename} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -12,6 +13,42 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 const nativeSelection={provider:'native',model:'selected',reasoningEffort:'low'};
+
+test('HTTP cancellation remains admitted when work and slow bodies saturate the work lane',{skip:!root,timeout:15000},async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-tool-cancel-lane-'));
+  const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+  const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
+  for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
+  await ctx.plugin(tools.default);
+  const sessions=applicationSessions(()=>{throw Error('unexpected native request');});
+  const entered=Promise.withResolvers(),release=Promise.withResolvers(),aborted=Promise.withResolvers();
+  ctx.tools.register(tools.defineTool({name:'hold',description:'held tool',parameters:{},
+    output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
+    async execute(_,exec){entered.resolve();exec.signal.addEventListener('abort',()=>{aborted.resolve();release.resolve();},{once:true});await release.promise;return 'done';}}));
+  const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+  t.after(async()=>{release.resolve();await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
+  const post=(path,input)=>fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,
+    {method:'POST',headers:{authorization:key},body:JSON.stringify(input)});
+  const view=await (await post('capture',{view:randomUUID(),header:{id:'saturated',cwd:directory},reserved:[],modelSelection:nativeSelection})).json();
+  const effect=randomUUID(),input={view:view.view,session:'saturated',effect,name:'hold',args:{},registration:view.tools[0].registration,
+    identity:{owner_id:'owner',invocation_id:effect,call_id:effect,request_sha256:'a'.repeat(64)}};
+  const work=post('start',input);
+  await entered.promise;
+  const requests=Array.from({length:23},()=>{
+    const req=request('http://127.0.0.1:'+listener.port+'/v1/start',{method:'POST',headers:{authorization:key}});
+    req.on('error',()=>{});req.write('{');return req;
+  });
+  try {
+    let saturated=false;
+    for(let i=0;i<100&&!saturated;i++){
+      const probe=await post('outcome',input);saturated=probe.status===503;await probe.text();
+      if(!saturated)await new Promise(resolve=>setImmediate(resolve));
+    }
+    assert.equal(saturated,true);
+    const cancel=await post('cancel',input);assert.equal(cancel.status,200);
+    assert.deepEqual(await cancel.json(),{accepted:true});await aborted.promise;
+  } finally {for(const req of requests)req.destroy();release.resolve();const response=await work;assert.equal(response.status,200);await response.json();}
+});
 
 test('capture preserves actual optional deadlines and the original timeout wrapper owns its expiry result',
   {skip:!root,timeout:30000},async t=>{
@@ -29,7 +66,7 @@ test('capture preserves actual optional deadlines and the original timeout wrapp
     }
     const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
     t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
-    assert.equal(listener.protocol,15);
+    assert.equal(listener.protocol,16);
     const post=async(path,input,status=200)=>{
       const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,{method:'POST',headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input)});
       const value=await response.json();assert.equal(response.status,status,JSON.stringify(value));return value;

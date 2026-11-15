@@ -5,13 +5,14 @@ import {toolLedger} from './application-tool-ledger.mjs';
 import {toolContextOutput} from '../history/step-messages.mjs';
 import {prepareRequestInputs,runtimeContextProjection} from '../agent/request-input.mjs';
 import {serveNativeTools} from './native-tool.mjs';
+import {requestBoundary} from '../application/request-boundary.mjs';
 
 const maxBytes=32*1024*1024;
 // Native mailbox prefix (32 MiB), contributions (16 MiB), Tool contexts
 // (16 MiB), preceding preset edits (32 MiB), and 1 MiB of envelopes.
 const maxPreparationBytes=(32+16+16+32+1)*1024*1024;
 
-export async function applicationTools(ctx,{load,key,generation,directory,sessions,resolveAgent}){
+export async function applicationTools(ctx,{load,key,generation,directory,sessions,resolveAgent,boundary=requestBoundary()}){
   const tools=await load('@deepseek-ai/dsh-tools');
   const prompt=await load('@deepseek-ai/dsh-system-prompt');
   const {renderPrompt}=prompt;
@@ -20,13 +21,12 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   const execute=toolPipeline(ctx,await load('@deepseek-ai/dsh-tools/pipeline'),tools);
   const views=new Map(),secret=Buffer.from(key);
   const ledger=await toolLedger(directory,(await load('@deepseek-ai/dsh-atomic-write')).writeFileAtomic);
-  let admitted=0;
+  const lanes={capture:{active:0,limit:24},release:{active:0,limit:64},cancel:{active:0,limit:24},work:{active:0,limit:24}};
   function release(id) {
     const row=views.get(id);
     if (!row) return;
     views.delete(id);
-    row.controller.abort();
-    row.selection?.dispose();
+    row.lease.release();
   }
   async function capture({view,header,reserved,allowed,modelSelection},signal){
     if(!modelSelection||typeof modelSelection.provider!=='string'||!modelSelection.provider
@@ -34,10 +34,13 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       ||modelSelection.reasoningEffort!==undefined&&(typeof modelSelection.reasoningEffort!=='string'||!modelSelection.reasoningEffort))
       throw Error('Tool capture requires the native request model selection');
     if(views.has(view)||views.size>=64)throw Error('Tool capture capacity');
-    const row={session:{id:header.id,header},controller:new AbortController(),bindings:new Map(),reserved:new Set(reserved)};
+    const row={session:{id:header.id,header},bindings:new Map(),reserved:new Set(reserved)};
+    row.lease=await boundary.capture(signal,()=>row.selection?.dispose());
+    // Capacity and identity can change while reconciliation blocks capture.
+    if(views.has(view)||views.size>=64){row.lease.release();throw Error('Tool capture capacity');}
     views.set(view,row);
-    const stop=AbortSignal.any([signal,row.controller.signal]);
-    try{
+    const stop=AbortSignal.any([signal,row.lease.signal]);
+    return row.lease.run(async()=>{try{
       const agent=row.agent=await resolveAgent?.(header.id,stop)??{id:header.id,ctx,session:row.session};
       stop.throwIfAborted();row.session=agent.session;
       row.selection=await sessions.withToolAgent(agent,()=>ctx.tools.resolve({agent,modelSelection,signal:stop}));
@@ -53,7 +56,8 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
         const timeout=definition.timeoutMs??null;
         if(timeout!==null&&!Number.isFinite(timeout))throw Error('Tool capture timeoutMs must be finite');
         const schema=tools.projectToolSchema(definition,false),registration=randomUUID();
-        rows.push({registration,timeout_ms:timeout,definition:{name,description:schema.description,input_schema:schema.parameters}});
+        rows.push({registration,timeout_ms:timeout,requires_full_access:definition.requiresFullAccess===true,
+          definition:{name,description:schema.description,input_schema:schema.parameters}});
         row.bindings.set(registration,name);
       }
       row.modelSelection=modelSelection;
@@ -62,15 +66,15 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       }));
       stop.throwIfAborted();
       return {generation,view,tools:rows,instructions:renderPrompt(assembly)};
-    }catch(error){if(views.get(view)===row)release(view);throw error;}
+    }catch(error){if(views.get(view)===row)release(view);throw error;}});
   }
   async function prepare({view,session,input},signal) {
     const row=views.get(view);
     if(!row||row.session.id!==session)throw Error('Input preparation lost its captured Agent');
     if(!row.preparation) {
-      const stop=AbortSignal.any([signal,row.controller.signal]);
-      row.preparation=sessions.withToolAgent(row.agent,()=>prepareRequestInputs({ctx,agent:row.agent,input,
-        modelSelection:row.modelSelection,assembly:row.assembly,signal:stop},{agentEvents,runtimeContext}));
+      const stop=AbortSignal.any([signal,row.lease.signal]);
+      row.preparation=row.lease.run(()=>sessions.withToolAgent(row.agent,()=>prepareRequestInputs({ctx,agent:row.agent,input,
+        modelSelection:row.modelSelection,assembly:row.assembly,signal:stop},{agentEvents,runtimeContext})));
     }
     return row.preparation;
   }
@@ -78,15 +82,15 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     const row=views.get(view);
     if(!row)throw Error('Stopping lost its captured Agent');
     if(!row.stopping){
-      const stop=AbortSignal.any([signal,row.controller.signal]);
-      row.stopping=sessions.withToolAgent(row.agent,async()=>{
+      const stop=AbortSignal.any([signal,row.lease.signal]);
+      row.stopping=row.lease.run(()=>sessions.withToolAgent(row.agent,async()=>{
         // Snapshot the published model/tool result before a listener reads the Session.
         if(resolveAgent&&await resolveAgent(row.agent.id,stop)!==row.agent)throw Error('Stopping Agent has retired');
         const turn=row.agent.session.lastEvent('turn/start').data.turn;
         await agentEvents(ctx,row.agent).serial('agent/turn-stopping',{turn,signal:stop});
         stop.throwIfAborted();
         return null;
-      },stop);
+      },stop));
     }
     return row.stopping;
   }
@@ -115,7 +119,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       case '/v1/start':{
         const view=views.get(input.view);
         const admitted=view&&view.session.id===input.session&&view.bindings.get(input.registration)===input.name;
-        return ledger.start(input,admitted?stop=>run(input,stop,view):undefined);
+        return ledger.start(input,admitted?stop=>view.lease.run(()=>run(input,AbortSignal.any([stop,view.lease.signal]),view)):undefined);
       }
       case '/v1/outcome':return ledger.outcome(input);
       case '/v1/cancel':return ledger.cancel(input);
@@ -129,11 +133,13 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   }
   const server=createServer(async(req,res)=>{
     if(req.method!=='POST'||!authenticated(req)){res.writeHead(403).end();return;}
-    if(admitted>=24){res.writeHead(503).end();return;}
-    admitted++;
+    // Waiting captures cannot starve old callbacks or their final releases.
+    const lane=req.url==='/v1/capture'?lanes.capture:req.url==='/v1/release'?lanes.release:req.url==='/v1/cancel'?lanes.cancel:lanes.work;
+    if(lane.active>=lane.limit){res.writeHead(503).end();return;}
+    lane.active++;
     const abort=new AbortController();res.on('close',()=>abort.abort());
     try{
-      const limit=req.url==='/v1/prepare'?maxPreparationBytes:maxBytes;
+      const limit=req.url==='/v1/release'?1024:req.url==='/v1/prepare'?maxPreparationBytes:maxBytes;
       const chunks=[];let size=0;
       for await(const chunk of req){size+=chunk.length;if(size>limit)throw Error('Tool request exceeds capacity');chunks.push(chunk);}
       const value=await dispatch(req.url,JSON.parse(Buffer.concat(chunks).toString()),abort.signal);
@@ -146,7 +152,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       const cause=error instanceof AggregateError&&!error.message?error.errors[0]:error;
       res.writeHead(400,{'content-type':'application/json'}).end(JSON.stringify({error:String(cause?.message||cause).slice(0,512)}));
     }
-    finally{admitted--;}
+    finally{lane.active--;}
   });
   const {WebSocketServer}= (await load('ws')).default;
   const closeNative=serveNativeTools(server,WebSocketServer,authenticated,views,sessions,execute);
@@ -154,8 +160,9 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   ctx.effect(()=>async()=>{
     closeNative();server.close();server.closeAllConnections();await ledger.close();
     for(const id of views.keys())release(id);
+    await boundary.close();
   },'close application tool source');
-  return {protocol:15,generation,port:server.address().port,
+  return {protocol:16,generation,port:server.address().port,
     retireOutcome:(session,effect,identity)=>ledger.retire(session,effect,identity)
       ?.catch(error=>ctx.logger.warn('Application tool receipt cleanup failed:',error))};
 }

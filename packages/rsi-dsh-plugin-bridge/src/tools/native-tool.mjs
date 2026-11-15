@@ -66,7 +66,7 @@ export function serveNativeTools(server,WebSocketServer,authenticated,views,sess
       const run=async()=>{
         const input=await read(lifetime.signal),row=views.get(input.view);
         if(!row||row.session.id!==input.session||!row.reserved.has(input.name))throw Error('Native Tool outside its request capture');
-        const signal=AbortSignal.any([lifetime.signal,row.controller.signal]);
+        const signal=AbortSignal.any([lifetime.signal,row.lease.signal]);
         let reviewOpen=true;
         const next=async bodySignal=>{
           reviewOpen=false;
@@ -81,7 +81,7 @@ export function serveNativeTools(server,WebSocketServer,authenticated,views,sess
           socket.send(JSON.stringify({state:'ask',reason:request.reason||request.displayReason?.en||('Allow '+input.name+'?')}));
           return (await reply).allow===true?'allowed-once':'rejected';
         };
-        const outcome=await sessions.withToolAgent(row.agent,()=>invoke(row,input,execute,next,ask,signal));
+        const outcome=await row.lease.run(()=>sessions.withToolAgent(row.agent,()=>invoke(row,input,execute,next,ask,signal)));
         socket.send(JSON.stringify(outcome),()=>socket.close());
       };
       void run().catch(()=>socket.terminate());
