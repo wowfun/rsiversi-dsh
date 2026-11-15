@@ -5,7 +5,7 @@ import {factPageReader} from '../history/pages.mjs';
 import {nativeFactPages} from '../history/native-pages.mjs';
 import {SessionFacade} from '../session/session.mjs';
 
-export async function projectFacts(session,mapping,fetch,through,signal,llm,observed){
+async function projectFacts(session,mapping,fetch,through,signal,llm,observed){
   return factProjector(session,mapping,fetch,through,signal,llm,observed)(through);
 }
 

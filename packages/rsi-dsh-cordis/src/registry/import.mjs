@@ -8,11 +8,9 @@ import { walkFiles } from '../archive/tree.mjs';
 import { loadCohort } from '../runtime/cohort.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-export {npmImportFlags} from './npm-install.mjs';
 const packageName = value => typeof value === 'string' && /^(?:@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/.test(value) && value.length <= 214;
 
 import {checkRequirements,prereleasePeerOverrides} from './requirements.mjs';
-export {checkRequirements} from './requirements.mjs';
 
 /** npm is a pinned implementation detail, never an ambient user command/config. */
 export async function importCohort({ cohortRoot, workspace, work, specifications, signal }) {

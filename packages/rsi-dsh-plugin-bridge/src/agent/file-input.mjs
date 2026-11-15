@@ -3,7 +3,7 @@ function digest(attachment) {
   if (!attachment.attachmentId.startsWith('sha256:')) throw Error('Expected a sha256 attachment reference');
   return attachment.attachmentId.slice(7);
 }
-export const nativeFile = attachment => ({id:digest(attachment),name:attachment.name,bytes:attachment.bytes});
+const nativeFile = attachment => ({id:digest(attachment),name:attachment.name,bytes:attachment.bytes});
 export const dshFile = file => ({attachmentId:'sha256:'+file.id,name:file.name,bytes:file.bytes});
 
 export function nativeMedia(attachment) {

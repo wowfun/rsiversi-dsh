@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { npmImportFlags } from '../../src/registry/import.mjs';
+import { npmImportFlags } from '../../src/registry/npm-install.mjs';
 import { runtimeEnvironment } from '../../src/runtime/node.mjs';
 
 test('npm admits an explicit built directory but refuses its transitive local directory', {skip:process.env.RSI_DSH_IMPORT !== '1'}, async t => {

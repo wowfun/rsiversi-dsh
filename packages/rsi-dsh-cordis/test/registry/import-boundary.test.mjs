@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, truncate } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkRequirements } from '../../src/registry/import.mjs';
+import { checkRequirements } from '../../src/registry/requirements.mjs';
 import { walkFiles, readDigest } from '../../src/archive/tree.mjs';
 
 test('DSH engine overrides peers; supported workspace peers bind the exact prerelease', () => {

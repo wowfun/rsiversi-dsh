@@ -9,7 +9,7 @@ export function inputNativeId(operation) {
 }
 
 /** Bind native acceptances to local operations without using a reusable presentation ID. */
-export function inputIdentities(journal) {
+function inputIdentities(journal) {
   const observed=new Map(journal.operations().filter(row=>['observed-input','submission'].includes(row.invocation?.kind))
     .map(row=>[inputNativeId(row),row])),cache=new Map();
   return row=>{
