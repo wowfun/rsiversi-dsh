@@ -7,6 +7,7 @@
   "devDependencies": {"esbuild": "0.28.1"},
   "scripts": {
     "test": "node --test packages/*/test/**/*.test.mjs",
+    "test:market": "node scripts/test-market.mjs",
     "build:upstream": "node scripts/build-upstream.mjs"
   }
 }
