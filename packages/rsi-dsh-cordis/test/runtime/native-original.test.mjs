@@ -19,7 +19,7 @@ async function host(t, handler = async () => { throw new Error('no callback auth
     try { if (!peer.closed) await peer.request('extension.close', null, { signal: AbortSignal.timeout(2000) }); } catch {}
     peer.close(new Error('fixture retirement')); child.kill(); await exit;
   });
-  assert.deepEqual(await peer.request('extension.hello', { protocol: 1 }, { signal: AbortSignal.timeout(10_000) }).catch(error => { throw new Error(`${error.message}: ${diagnostic}`); }), { protocol: 1 });
+  assert.deepEqual(await peer.request('extension.hello', { protocol: 2 }, { signal: AbortSignal.timeout(10_000) }).catch(error => { throw new Error(`${error.message}: ${diagnostic}`); }), { protocol: 2 });
   return { peer, child, exit };
 }
 const canonical = () => ({ header: { version: 4, id: 'native-session', createdAt: 1, isSeeded: false }, revision: 0, events: [] });

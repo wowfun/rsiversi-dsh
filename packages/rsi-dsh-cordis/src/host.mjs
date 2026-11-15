@@ -27,8 +27,8 @@ peer = new Peer({ input: process.stdin, output: process.stdout, generation, onCl
   await extension.close(); process.stdin.destroy(); process.exitCode = 0;
 }, handler: async (method, args, signal) => {
   if (method === 'extension.hello') {
-    if (args?.protocol !== 1) throw new Error('unsupported extension protocol');
-    return { protocol: 1 };
+    if (args?.protocol !== 2) throw new Error('unsupported extension protocol');
+    return { protocol: 2 };
   }
   if (method === 'extension.close') { await extension.close(); return null; }
   if (method === 'extension.ping') return null;

@@ -1,6 +1,8 @@
 import {MessageChannel,Worker} from 'node:worker_threads';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 
+export const drainsOnCancel = method => method === 'application.stage';
+
 // The worker owns the Cordis tree, including its sockets. Synchronous module
 // loads and bundle compilation must not block the process protocol's pumps.
 export function serveApplication(input,output,generation,arguments_,entry) {
@@ -9,8 +11,8 @@ export function serveApplication(input,output,generation,arguments_,entry) {
     backend?.close(new Error('Application carrier closed'));
     await worker?.terminate();
   });
-  const carrier=new Peer({input,output,generation,handler:async(method,payload,signal)=>{
-    if(method==='extension.hello' && payload?.protocol===1) return {protocol:1};
+  const carrier=new Peer({input,output,generation,drainOnCancel:drainsOnCancel,handler:async(method,payload,signal)=>{
+    if(method==='extension.hello' && payload?.protocol===2) return {protocol:2};
     if(method==='extension.ping') return null;
     if(method==='extension.close') {
       if(backend) await backend.request(method,payload,{signal});
@@ -25,6 +27,7 @@ export function serveApplication(input,output,generation,arguments_,entry) {
       worker.stdout.pipe(process.stderr,{end:false});
       worker.stderr.pipe(process.stderr,{end:false});
       backend=new Peer({port:port1,generation,
+        drainOnCancel:drainsOnCancel,
         handler:(name,args,cancel)=>carrier.request(name,args,{signal:cancel}),
         onClose:error=>{if(!closing) carrier.close(error);}});
       worker.once('error',error=>carrier.close(error));
