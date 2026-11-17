@@ -20,6 +20,13 @@ semantics. The [browser contract](docs/browser.md) owns document composition.
 Implementation and acceptance evidence are separate. Passing the standalone
 adapter tests does not establish installation into a released RSI executable.
 
+`node fixtures/market/probe-native-start.mjs RSI_BINARY NEW_HOME WEB_ASSETS`
+installs an isolated Application process using the real application Session
+adapter and a deterministic local provider. It verifies startup, paged submission
+of 1 MiB escaped native-valid text, exact durable acceptance readback, and
+idempotent same-message submission. The new Home retains hashes and results;
+the fixture stops its Host and provider and does not read model credentials.
+
 ### Market integration verification
 
 `npm run test:market` exercises the transport, request boundary, real DSH Plugin
