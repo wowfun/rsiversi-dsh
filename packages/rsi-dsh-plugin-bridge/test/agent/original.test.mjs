@@ -141,7 +141,7 @@ integration('original Todo stages atomically, hides uncommitted views and restor
   assert.equal(staged.payload.result.value.counts.inProgress, 1);
   assert.equal(bridge.project('session-one').values.todos, null);
   staged.payload.checkpoint.views.values.todos[0].content = 'Changed in caller';
-  staged.payload.suffix[0].data.todos[0].content = 'Changed in caller';
+  assert.throws(()=>{staged.payload.suffix[0].data.todos[0].content = 'Changed in caller';},TypeError);
   assert.deepEqual(bridge.canonical('session-one').events, []);
   await assert.rejects(bridge.flush('session-one', 0), /tentative/);
   await assert.rejects(bridge.receipt('session-one', 'wrong', staged.token, 'committed', 1), /identity/);
@@ -275,9 +275,9 @@ integration('original Todo argument errors settle with a receipt and no Todo mut
   const invalid = await bridge.agentTool({session_id:'session-one', operation_id:'invalid', name:'todo_write',
     arguments:{kind:'inline',value:{todos:[{content:'x',status:'pending',hidden:true}]}}});
   assert.equal(invalid.kind,'staged',invalid.diagnostic);
-  assert.equal(invalid.result.is_error,true);
-  assert.equal(invalid.result.metadata.dsh.error.code,'INVALID_ARGS');
-  assert.match(invalid.result.content[0].text,/invalid arguments:.*hidden/);
+  assert.equal(invalid.result.value.is_error,true);
+  assert.equal(invalid.result.value.metadata.dsh.error.code,'INVALID_ARGS');
+  assert.match(invalid.result.value.content[0].text,/invalid arguments:.*hidden/);
   assert.deepEqual(invalid.events,[]);
   await bridge.receipt('session-one','invalid',invalid.token,'committed',1);
   assert.equal(bridge.canonical('session-one').events.length, 0);

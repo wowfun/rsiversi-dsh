@@ -91,7 +91,7 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   assert.equal(page.next_offset, result.count);
   assert.ok(JSON.stringify(page.events).includes('Captured suffix'));
   assert.ok(!JSON.stringify(page.events).includes('EXCLUDED_PRIVATE_CONVERSATION'));
-  await restarted.loadAgent({ session_id: 'transferred', created_at: 20, revision: 0, events: page.events, checkpoint: result.checkpoint });
+  await restarted.loadAgent({ session_id: 'transferred', created_at: 20, revision: 0, events: page.events.value, checkpoint: result.checkpoint });
   assert.equal(restarted.project('transferred').values.todos, null, 'canonical Turn start resets Todo even with no attached event observers');
   assert.deepEqual(bridge.canonical('parent'), original, 'fork synchronization must not replace the live parent');
   bridge.forks.release('transfer'); bridge.forks.release('transfer');

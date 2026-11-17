@@ -93,7 +93,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
   const api = { ...session, ...surface, ...values };
   const mirrors = sessionMirrors({ctx, api, llm, surface, request, records, intents, signal: lifetime.signal});
   const {get, restore} = mirrors;
-  const mutations = stagedMutations({records, get, restore, intents, ctx, lifetime: lifetime.signal});
+  const mutations = stagedMutations({records, get, restore, intents, ctx, lifetime: lifetime.signal,reserveOutput:mirrors.reserveOutput});
   const {stage} = mutations;
 
   function agent(record) {
@@ -142,6 +142,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
     async tool(id, operationId, name, args, signal, factHorizon) {
       return stage(id, operationId, async (record, operation) => {
         if (factHorizon !== undefined) await syncHistory(record, operation, factHorizon);
+        mutations.reserveToolOutput(record,operation);
         const callId = record.mapping.calls.find(call => call.effect === operationId)?.id ?? operationId;
         operation.observedThrough = record.session.seq; operation.callId = callId;
         const owner = agent(record);

@@ -45,6 +45,7 @@ export async function createExtension({ cohortRoot, cohortLoader, configuration,
     if (method === 'agent.load.abort') { bridge.abortAgentLoad(args); return null; }
     if (method === 'agent.load.finish') { await bridge.finishAgentLoad(args); return null; }
     if (method === 'agent.tool') return bridge.agentTool(args, signal);
+    if (method === 'agent.operation-body.read') return bridge.readOperationBody(args);
     if (method === 'agent.command') return bridge.agentCommand(args, signal);
     if (method === 'agent.step-decision.read') return bridge.readStepDecision(args);
     if (method === 'agent.before-step') return bridge.agentBeforeStep(args, signal);

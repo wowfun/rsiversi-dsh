@@ -17,8 +17,9 @@ class Lane {
 
 export function sessionMirrors({ctx, api, llm, surface, request, records, intents, signal}) {
   const loading = new Map();
+  let outputBytes=0;
   function residentBytes(exceptId) {
-    let bytes=0;
+    let bytes=outputBytes;
     for(const [id,record] of records)if(id!==exceptId)bytes+=record.session.encodedBytes;
     for(const [id,entry] of loading)if(id!==exceptId)bytes+=entry.bytes;
     return bytes;
@@ -48,8 +49,7 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
     const metadata = structuredClone(canonical);
     const lineage = validateLineage(canonical.lineage, events.length);
     if ((canonical.inheritedEventCount ?? 0) !== (lineage?.inheritedEventCount ?? 0)) throw new Error('fork inherited count mismatch');
-    let mirrored = forks.encodedBytes;
-    for (const item of records.values()) if (item !== record) mirrored += item.session.encodedBytes;
+    const mirrored = forks.encodedBytes + residentBytes(canonical.header.id);
     if (mirrored + Buffer.byteLength(JSON.stringify(events)) > 256 * 1024 * 1024) throw new Error('generation mirror capacity');
     const replacement = new SessionFacade(ctx, api, { ...canonical, events }, false);
     validateSeed(canonical.seed, lineage, ctx.sessionProjections, canonical.header);
@@ -156,6 +156,16 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
 
   return {
     protocol, get, restore,
+    reserveOutput() {
+      let reserved=0;
+      return {
+        resize(bytes) {
+          if(bytes-reserved+forks.encodedBytes+residentBytes()>256*1024*1024)throw Error('generation output capacity');
+          outputBytes+=bytes-reserved;reserved=bytes;
+        },
+        release() {outputBytes-=reserved;reserved=0;},
+      };
+    },
     retire() {
       forks.close();
       for (const record of records.values()) record.session.retire();
@@ -163,6 +173,7 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
     clear() {
       records.clear();
       loading.clear();
+      outputBytes=0;
     },
   };
 }

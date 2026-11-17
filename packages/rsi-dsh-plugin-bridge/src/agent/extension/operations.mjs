@@ -1,4 +1,5 @@
 import {resolveBody} from '../../request-body.mjs';
+import {eventReply} from './settlement.mjs';
 
 export function agentOperations({get,registry,request}) {
   let argumentBodies=0;
@@ -17,11 +18,12 @@ export function agentOperations({get,registry,request}) {
         const { payload, token } = await this.tool(session_id, operation_id, name, args, signal, fact_horizon);
         signal?.throwIfAborted();
         if (payload.inputs.length) throw new Error('Tool returned inputs requiring atomic input admission');
-        return { kind: 'staged', operation_id, expected_revision: payload.expectedRevision, token, events: payload.suffix,
+        const result = { value: payload.result.value, content: payload.result.content, is_error: payload.result.isError, enforcement: [],
+          ...(payload.result.metadata === undefined ? {} : {metadata: payload.result.metadata}),
+          ...(payload.result.contexts.length ? {additional_contexts:payload.result.contexts} : {}) };
+        return { kind: 'staged', operation_id, expected_revision: payload.expectedRevision, token, events: eventReply(payload.suffix),
           checkpoint: payload.checkpoint, conclude_turn: payload.result.concludeTurn,
-          result: { value: payload.result.value, content: payload.result.content, is_error: payload.result.isError, enforcement: [],
-            ...(payload.result.metadata === undefined ? {} : {metadata: payload.result.metadata}),
-            ...(payload.result.contexts.length ? {additional_contexts:payload.result.contexts} : {}) } };
+          result: this.retainToolResult(session_id,operation_id,token,result) };
       } catch (error) {
         await this.abandon(session_id, operation_id);
         return { kind: 'rejected', diagnostic: String(error?.message ?? error).slice(0, 1000) || 'Tool rejected' };
@@ -39,7 +41,7 @@ export function agentOperations({get,registry,request}) {
           return { delivery: kind, text: message.content[0].text };
         });
         return { kind: 'staged', operation_id, expected_revision: payload.expectedRevision, token,
-          events: payload.suffix, checkpoint: payload.checkpoint, inputs };
+          events: eventReply(payload.suffix), checkpoint: payload.checkpoint, inputs };
       } catch (error) {
         await this.abandon(session_id, operation_id);
         return { kind: 'rejected', diagnostic: String(error?.message ?? error).slice(0, 1000) || 'Command rejected' };
@@ -79,7 +81,7 @@ export function agentOperations({get,registry,request}) {
         const owned = new Set(registry.definitions().map(definition => definition.name));
         const selected = new Set(payload.result.tools);
         return { kind: 'staged', operation_id, expected_revision: payload.expectedRevision, token,
-          events: payload.suffix, checkpoint: payload.checkpoint, instructions: payload.result.instructions,
+          events: eventReply(payload.suffix), checkpoint: payload.checkpoint, instructions: payload.result.instructions,
           decision: payload.result.decision, tools: offered.filter(name => !owned.has(name) || selected.has(name)) };
       } catch (error) {
         await this.abandon(session_id, operation_id);

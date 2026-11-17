@@ -1,7 +1,14 @@
-import {createHash} from 'node:crypto';
+import {randomBytes} from 'node:crypto';
+import {encodedPart,eventPage,eventPageCapacity,readPart,TOOL_RESULT_BYTES} from './settlement.mjs';
 
-export function stagedMutations({records, get, restore, intents, ctx, lifetime}) {
+export function stagedMutations({records, get, restore, intents, ctx, lifetime, reserveOutput}) {
   const operations = new Set();
+  function reserveToolOutput(record,operation) {
+    const events=record.session.snapshotEvents(operation.start);
+    if(events.length>4096)throw Error('settlement event capacity');
+    const bytes=Math.max(TOOL_RESULT_BYTES,eventPageCapacity(events));
+    operation.output.resize(bytes);operation.toolOutput=true;
+  }
   async function runStage(id, operationId, invoke, signal) {
     if (typeof operationId !== 'string' || !operationId || operationId.length > 256) throw new Error('invalid operation identity');
     const record = get(id); let release = await record.lane.acquire();
@@ -11,7 +18,7 @@ export function stagedMutations({records, get, restore, intents, ctx, lifetime})
       catch (error) { release(); throw error; }
       record.parked = undefined;
     }
-    const operation = { id: operationId, session: record.session, start: record.session.seq, inputs: [], signal, release };
+    const operation = { id: operationId, session: record.session, start: record.session.seq, inputs: [], signal, release, output:reserveOutput() };
     try {
       if (record.staged) throw new Error('canonical receipt required before another mutation');
       signal.throwIfAborted();
@@ -26,23 +33,25 @@ export function stagedMutations({records, get, restore, intents, ctx, lifetime})
         suffix: record.session.snapshotEvents(operation.start), pendingIntent: selected, inputs: operation.inputs, result,
         checkpoint: { pendingIntent: selected, seed: record.canonical.seed ?? null, lineage: record.canonical.lineage ?? null,
           views: ctx.sessionProjections.snapshot(record.session), mapping: structuredClone(record.mapping) } };
-      const encoded = JSON.stringify(payload);
-      let decisionBytes;
-      if (Buffer.byteLength(encoded) > 256 * 1024) {
-        if (!result?.decision) throw new Error('settlement payload capacity');
-        decisionBytes = Buffer.from(JSON.stringify(result.decision));
-        if (decisionBytes.length > 32 * 1024 * 1024 + 64) throw new Error('Step decision capacity');
-        payload.result = {...result, decision:{bytes:decisionBytes.length}};
-        if (Buffer.byteLength(JSON.stringify(payload)) > 256 * 1024) throw new Error('settlement payload capacity');
-      }
-      const token = createHash('sha256').update(encoded).digest('hex');
-      const reply = structuredClone(payload);
-      record.staged = { operationId, token, decisionBytes, pendingIntent: selected, mapping: payload.checkpoint.mapping, views: payload.checkpoint.views };
-      return { payload: reply, token };
+      const decision=result?.decision?JSON.stringify(result.decision):undefined;
+      const decisionLength=decision?Buffer.byteLength(decision):0;
+      if(decisionLength>32*1024*1024+64)throw Error('Step decision capacity');
+      if(payload.suffix.length>4096||Buffer.byteLength(JSON.stringify(payload.checkpoint))>64*1024)throw Error('settlement metadata capacity');
+      const token = randomBytes(32).toString('hex');
+      const pageCapacity=eventPageCapacity(payload.suffix);
+      const outputBytes=Math.max(pageCapacity,operation.toolOutput?TOOL_RESULT_BYTES:0)
+        +(decisionLength>256*1024?decisionLength:0);
+      operation.output.resize(outputBytes);
+      const decisionBytes=decisionLength>256*1024?Buffer.from(decision):undefined;
+      if(decisionBytes)payload.result={...result,decision:{bytes:decisionLength}};
+      record.staged = { operationId, token, output:operation.output, pageCapacity, decisionBytes, events:payload.suffix,
+        pendingIntent: selected, mapping: structuredClone(payload.checkpoint.mapping), views: structuredClone(payload.checkpoint.views) };
+      return { payload, token };
     } catch (error) {
       if (record.active === operation) { restore(record); record.settled = true; }
       throw error;
     } finally {
+      if(record.staged?.output!==operation.output)operation.output.release();
       if (record.active === operation) record.active = null;
       operation.session.end(); operation.release();
     }
@@ -58,6 +67,33 @@ export function stagedMutations({records, get, restore, intents, ctx, lifetime})
     return pending;
   }
   const receipts = {
+    retainToolResult(id,operationId,token,result) {
+      const staged=get(id).staged;
+      if(staged?.operationId!==operationId||staged.token!==token)throw Error('operation identity mismatch');
+      const data=encodedPart(result,TOOL_RESULT_BYTES,token);
+      staged.output.resize(Math.max(staged.pageCapacity,data.size)+(staged.decisionBytes?.length??0));
+      staged.result={value:result,body:data.body};
+      staged.cache={part:'result',offset:0,data};
+      return data.body;
+    },
+    readOperationBody({session_id,operation_id,token,part,offset=0,body_offset}) {
+      const staged=get(session_id).staged;
+      if(staged?.operationId!==operation_id||staged.token!==token)throw Error('operation identity mismatch');
+      if(part==='result') {
+        if(offset!==0||!staged.result)throw Error('operation result unavailable');
+        if(staged.cache?.part!=='result') {
+          staged.cache=null;
+          staged.cache={part,offset,data:encodedPart(staged.result.value,TOOL_RESULT_BYTES,token)};
+        }
+        return readPart(staged.cache.data,body_offset);
+      }
+      if(part!=='events')throw Error('unknown operation body');
+      if(staged.cache?.part!=='events'||staged.cache.offset!==offset) {
+        staged.cache=null;
+        staged.cache={part,offset,data:eventPage(staged.events,offset,token)};
+      }
+      return readPart(staged.cache.data,body_offset);
+    },
     async abandon(id, operationId) {
       if (!records.has(id) && !lifetime.aborted) return;
       const record = get(id), release = await record.lane.acquire();
@@ -66,7 +102,7 @@ export function stagedMutations({records, get, restore, intents, ctx, lifetime})
         if (['committed', 'draft_committed'].includes(record.receipts.get(operationId)?.outcome)) throw new Error('cannot abandon an acknowledged mutation');
         if (record.staged) {
           if (record.staged.operationId !== operationId) throw new Error('abandon identity mismatch');
-          restore(record); record.staged = null; record.settled = true;
+          restore(record); record.staged.output.release(); record.staged = null; record.settled = true;
         }
       } finally { release(); }
     },
@@ -90,11 +126,11 @@ export function stagedMutations({records, get, restore, intents, ctx, lifetime})
           record.canonical.mapping = staged.mapping;
           record.canonical.revision = revision; record.views = staged.views; record.epoch++;
         } else restore(record);
-        record.staged = null; record.settled = true;
+        staged.output.release(); record.staged = null; record.settled = true;
         record.receipts.set(operationId, { token, outcome, revision });
         if (record.receipts.size > 64) record.receipts.delete(record.receipts.keys().next().value);
       } finally { release(); }
     },
   };
-  return {stage, receipts, drain: () => Promise.allSettled(operations)};
+  return {stage, reserveToolOutput, receipts, drain: () => Promise.allSettled(operations)};
 }

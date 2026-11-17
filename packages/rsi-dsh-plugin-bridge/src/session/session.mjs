@@ -68,6 +68,10 @@ export function validateHeader(header) {
   return Object.freeze(structuredClone(header));
 }
 const encodedDigest = encoded => createHash('sha256').update(encoded).digest('hex');
+/** Byte evidence follows the already admitted immutable event identity. */
+export function encodedEventBytes(event) {
+  return admitted.get(event)?.bytes ?? Buffer.byteLength(JSON.stringify(event));
+}
 export function digest(value) {
   const known=admitted.get(value);
   if(known?.hash!==undefined)return known.hash;

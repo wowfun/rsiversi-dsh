@@ -36,7 +36,7 @@ test('the original tool and pre-step hooks share one native message without re-e
     assert.equal(bridge.canonical('parent').revision,0);
     const call=await tool('effect');
     assert.equal(call.kind,'staged',call.diagnostic);
-    assert.deepEqual(call.result.additional_contexts,[{id:guidance.id,source:guidance.source,text:['first block','second block']}]);
+    assert.deepEqual(call.result.value.additional_contexts,[{id:guidance.id,source:guidance.source,text:['first block','second block']}]);
     assert.ok(!Object.hasOwn(call.checkpoint,'pendingContexts'));
     await bridge.receipt('parent','effect',call.token,'committed',1);
     await bridge.close();bridge=await open();
@@ -51,7 +51,7 @@ test('the original tool and pre-step hooks share one native message without re-e
       await bridge.receipt('parent',id,step.token,outcome,revision);
     };
     add('step_started',{step_id:'one'});
-    const [message]=call.result.additional_contexts;
+    const [message]=call.result.value.additional_contexts;
     add('input_message_claimed',{step_id:'one',source:{type:'plugin_context',contribution_id:'rsi.tools.context',
       tool:{session:'parent',effect:'effect',ordinal:0,message_id:message.id,source:message.source}},
       content:message.text.map(text=>({type:'text',text}))});
