@@ -1,3 +1,4 @@
+import {nativeSubmission} from '../fixtures/native-submission.mjs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
@@ -265,7 +266,7 @@ test('original attached Agent returns its synchronous event and publishes depend
     const f=await fixture(t);await f.ctx.plugin((await f.load('dsh-agent')).AgentRegistry);
     const submitted=[];
     const scope=applicationSessions(async(method,args)=>{
-      assert.equal(method,'application.submit');assert.equal(args.request,'owner');submitted.push(args);
+      assert.equal(method,'application.submit');args=await nativeSubmission(args,scope);assert.equal(args.request,'owner');submitted.push(args);
       return {session_id:'one',message_id:args.message_id,accepted_control_seq:3};
     },{owner:'owner'});
     f.hooks.submit=scope.submit;

@@ -1,4 +1,5 @@
 import {createBridge} from './agent/extension/bridge.mjs';
+import {resolveBody} from './request-body.mjs';
 
 export {createBridge};
 
@@ -36,7 +37,11 @@ export async function createExtension({ cohortRoot, cohortLoader, configuration,
   return { close: () => bridge.close(), async handle(method, args, signal) {
     if (method === 'agent.catalog') return bridge.catalog();
     if (method === 'agent.load.begin') return bridge.beginAgentLoad(args);
-    if (method === 'agent.load.events') { bridge.appendAgentLoad(args); return null; }
+    if (method === 'agent.load.events') {
+      const events=await resolveBody(args.events,64*1024*1024,(token,offset)=>request('agent.request-body.read',
+        {session_id:args.session_id,operation_id:'load',token,offset},signal));
+      bridge.appendAgentLoad({...args,events}); return null;
+    }
     if (method === 'agent.load.abort') { bridge.abortAgentLoad(args); return null; }
     if (method === 'agent.load.finish') { await bridge.finishAgentLoad(args); return null; }
     if (method === 'agent.tool') return bridge.agentTool(args, signal);
@@ -44,7 +49,11 @@ export async function createExtension({ cohortRoot, cohortLoader, configuration,
     if (method === 'agent.step-decision.read') return bridge.readStepDecision(args);
     if (method === 'agent.before-step') return bridge.agentBeforeStep(args, signal);
     if (method === 'agent.fork.begin') { bridge.forks.begin(args); return null; }
-    if (method === 'agent.fork.events') { bridge.forks.append(args); return null; }
+    if (method === 'agent.fork.events') {
+      const events=await resolveBody(args.events,64*1024*1024,(token,offset)=>request('agent.request-body.read',
+        {session_id:args.session_id,operation_id:args.operation_id,token,offset},signal));
+      bridge.forks.append({...args,events}); return null;
+    }
     if (method === 'agent.fork.finish') return bridge.forks.finish(args, signal);
     if (method === 'agent.fork.read') return bridge.forks.read(args);
     if (method === 'agent.fork.release') { bridge.forks.release(args.operation_id); return null; }

@@ -1,3 +1,4 @@
+import {nativeSubmission} from '../fixtures/native-submission.mjs';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {join} from 'node:path';
@@ -68,6 +69,7 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
       assert.fail('injection must not execute a native command');
     }
     if(method==='application.submit'){
+      args=await nativeSubmission(args,scope);
       if(args.delivery==='next_step') {
         assert.notEqual(args.message_id,'boundary');
         assert.deepEqual(args.attribution,{id:'boundary',source:{kind:'plugin:sidechat',tag:{n:1}}});

@@ -1,3 +1,4 @@
+import {nativeSubmission} from '../fixtures/native-submission.mjs';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {mkdir,mkdtemp,rm,symlink} from 'node:fs/promises';
@@ -167,6 +168,7 @@ test('base workbench serves authorized cold pages through published Typert witho
       return {session_id:'one',receipt:{accepted:true,already_terminal:false}};
     }
     if(method==='application.submit') {
+      args=await nativeSubmission(args,scope);
       sent.push(args);
       return {session_id:args.session_id,message_id:args.message_id,accepted_control_seq:3};
     }

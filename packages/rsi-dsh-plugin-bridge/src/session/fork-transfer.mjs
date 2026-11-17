@@ -24,16 +24,16 @@ export class ForkTransfers {
     if (this.otherBytes() + this.encodedBytes + size > 256 * 1024 * 1024) throw new Error('generation mirror capacity');
     const controller = new AbortController();
     const timer = setTimeout(() => this.release(operation_id), 35_000); timer.unref();
-    this.#entries.set(operation_id, { ...structuredClone(args), events: [], bytes: size, controller, timer, result: null, running: false });
+    this.#entries.set(operation_id, { ...structuredClone(args), events: [], bytes: size, eventBytes:0, controller, timer, result: null, running: false });
   }
   append({ operation_id, offset, events }) {
     const entry = this.#get(operation_id);
     if (entry.running || entry.result || offset !== entry.events.length || !Array.isArray(events) || !events.length
       || events.length > 4096 || events.length > entry.count - offset) throw new Error('invalid fork input page');
     const size = bytes(events);
-    if (size > 256 * 1024 || entry.bytes + size > 64 * 1024 * 1024
+    if (size > 64 * 1024 * 1024 || entry.eventBytes + size > 64 * 1024 * 1024
       || this.otherBytes() + this.encodedBytes + size > 256 * 1024 * 1024) throw new Error('fork input capacity');
-    entry.events.push(...structuredClone(events)); entry.bytes += size;
+    entry.events.push(...events); entry.bytes += size; entry.eventBytes += size;
   }
   async finish({ operation_id }, signal) {
     const entry = this.#get(operation_id);

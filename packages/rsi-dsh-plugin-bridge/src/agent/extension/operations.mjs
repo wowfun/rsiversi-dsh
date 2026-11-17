@@ -1,6 +1,18 @@
+import {resolveBody} from '../../request-body.mjs';
+
 export function agentOperations({get,registry,request}) {
+  let argumentBodies=0;
   return {
     async agentTool({ session_id, operation_id, name, arguments: args, fact_horizon }, signal) {
+      const paged=args?.kind==='paged';
+      if(paged&&argumentBodies>=2)return {kind:'rejected',diagnostic:'Tool argument capacity exhausted'};
+      if(paged)argumentBodies++;
+      try {
+        args=await resolveBody(args,4*1024*1024,(token,offset)=>request('agent.request-body.read',{session_id,operation_id,token,offset},signal));
+        signal?.throwIfAborted();
+      } catch(error) {
+        return {kind:'rejected',diagnostic:String(error?.message??error).slice(0,1000)||'Invalid Tool arguments'};
+      } finally {if(paged)argumentBodies--;}
       try {
         const { payload, token } = await this.tool(session_id, operation_id, name, args, signal, fact_horizon);
         signal?.throwIfAborted();

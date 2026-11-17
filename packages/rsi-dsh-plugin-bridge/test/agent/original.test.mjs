@@ -219,10 +219,10 @@ integration('definite rejection retires tentative Todo state and permits a later
 });
 integration('Agent Tool rejection is explicit and abandon cannot discard another effect', async t => {
   const bridge = await setup(t);
-  const rejected = await bridge.agentTool({ session_id: 'session-one', operation_id: 'unbound', name: 'unbound', arguments: {} });
+  const rejected = await bridge.agentTool({ session_id: 'session-one', operation_id: 'unbound', name: 'unbound', arguments: {kind:'inline',value:{}} });
   assert.equal(rejected.kind, 'rejected');
   assert.equal(bridge.canonical('session-one').events.length, 0);
-  const staged = await bridge.agentTool({ session_id: 'session-one', operation_id: 'lost', name: 'todo_write', arguments: { todos: [] } });
+  const staged = await bridge.agentTool({ session_id: 'session-one', operation_id: 'lost', name: 'todo_write', arguments: {kind:'inline',value:{ todos: [] }} });
   assert.equal(staged.kind, 'staged');
   await assert.rejects(bridge.abandon('session-one', 'wrong'), /identity/);
   await bridge.abandon('session-one', 'lost');
@@ -273,7 +273,7 @@ integration('unknown event and malformed projection seed fail before Session pub
 integration('original Todo argument errors settle with a receipt and no Todo mutation', async t => {
   const bridge = await setup(t);
   const invalid = await bridge.agentTool({session_id:'session-one', operation_id:'invalid', name:'todo_write',
-    arguments:{todos:[{content:'x',status:'pending',hidden:true}]}});
+    arguments:{kind:'inline',value:{todos:[{content:'x',status:'pending',hidden:true}]}}});
   assert.equal(invalid.kind,'staged',invalid.diagnostic);
   assert.equal(invalid.result.is_error,true);
   assert.equal(invalid.result.metadata.dsh.error.code,'INVALID_ARGS');

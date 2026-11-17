@@ -1,3 +1,4 @@
+import {nativeSubmission} from './native-submission.mjs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
@@ -69,6 +70,7 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
   };
   let agents;
   const scope=applicationSessions(async(method,args,signal)=>{
+    if(method==='application.submit')args=await nativeSubmission(args,scope);
     const op=args.operation;calls.push({method,op:structuredClone(op),args:structuredClone(args)});
     if(method==='application.history')return read(args.session_id,op,signal);
     if(method==='application.cancel') {

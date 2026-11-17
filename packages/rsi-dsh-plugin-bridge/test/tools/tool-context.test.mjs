@@ -29,7 +29,7 @@ test('the original tool and pre-step hooks share one native message without re-e
     const header=id=>({version:4,id,createdAt:1,isSeeded:false});
     await bridge.load({header:header('parent'),events:[],revision:0});
     const tool=operation_id=>bridge.agentTool({session_id:'parent',operation_id,name:'todo_write',
-      arguments:{todos:[{content:'research',status:'completed'}]}});
+      arguments:{kind:'inline',value:{todos:[{content:'research',status:'completed'}]}}});
     const first=await tool('rejected-tool');
     assert.equal(first.kind,'staged',first.diagnostic);
     await bridge.receipt('parent','rejected-tool',first.token,'rejected',0);

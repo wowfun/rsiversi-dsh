@@ -237,7 +237,9 @@ the resolved working directory to their result event, including when a
 command exits unsuccessfully. The minimal preset's persistent tools leave
 that field absent. The [Session journal](session-journal.md) owns this mapping.
 
-Application opening uses protocol 13. The native Host supplies an opaque `owner`
+Application submissions preserve the native input capacity through request-owned bodies. The original request carries an inline value up to 256 KiB or a token and exact encoded byte length, bounded to 8 MiB. Native reads use `application.submit.read`; the pending request owns its immutable bytes and retires them on completion or cancellation. Each connection retains at most two bodies. The paired Agent protocol uses the same codec for Tool arguments bounded to 4 MiB and authenticated CAS load/fork segments bounded to 64 MiB, with `agent.request-body.read`. The native Store reservation stays attached to large CAS bytes through the request. Fragments are base64-encoded byte ranges of at most 512 KiB, occupying 699,052 base64 bytes below the 1 MiB frame limit; no transfer state is persisted. History and Step decision fragments retain their separate 128 KiB limits.
+
+Application opening uses protocol 14. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -711,7 +713,7 @@ controls in an EpochHeader; these fail explicitly instead of publishing a partia
 header. Each model-attempt Fact carries `attempt: {retain_context, events}` from
 RSI's canonical decoder in the same captured page. Encoded attempt chunks and a
 second attempt-read callback are absent. Agent extensions require native
-`rsi.extension.agent` version 9 for this history view and explicit candidate reload.
+`rsi.extension.agent` version 10 for this history view and explicit candidate reload.
 Their elapsed offsets remain unchanged and are anchored
 to the canonical ModelStarted timestamp. Original DSH stream accumulation and
 block assembly produce assistant messages and failed-attempt records. RSI's
@@ -1014,7 +1016,7 @@ fail before entering the writer queue: that callback cannot await its own view's
 release. The management Tool explicitly schedules accepted background work outside
 the callback context and returns its operation receipt.
 
-Application protocol 13 uses `application.stage` and `application.stage.release`. A candidate holds a process-bound Store lease,
+Application protocol 14 uses `application.stage` and `application.stage.release`. A candidate holds a process-bound Store lease,
 not persistent profile roots. Preparing it publishes no profile links, module
 resolver bindings or plugin JavaScript. Candidate payloads and immutable resolver
 maps are prepared once and published at commit. Cancellation drains preparation;

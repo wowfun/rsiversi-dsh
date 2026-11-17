@@ -43,7 +43,7 @@ const layout = JSON.parse(await readFile(layoutFile,'utf8'));
 let modules, app, opening, nativeSessions;
 async function open({protocol,profile,key,owner,importer,timings=false,tools=false}) {
   const start=performance.now();
-  if (protocol !== 13 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
+  if (protocol !== 14 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
   modules=installReleaseResolver(layout,roots,profile);
   const boot = await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   // DSH's own metadata and Typert loaders also use Node lookup from the
@@ -194,6 +194,7 @@ function close() {
 }
 const peer = new Peer({port:workerData,generation,drainOnCancel:drainsOnCancel,handler:async (method,args,signal) => {
   if (method==='extension.close') {await close();return null;}
+  if (method==='application.submit.read' && nativeSessions && !closing) return nativeSessions.readSubmission(args);
   if (method==='package.import' && npmRoot && !opening && !closing) {
     opening=importRelease(layout,npmRoot,args,signal);
     return opening;

@@ -6,6 +6,7 @@ import {requestPublication} from './request-publication.mjs';
 import {applicationInbox} from './inbox.mjs';
 import {applicationActivities} from './activities.mjs';
 import {submissionContent} from '../agent/file-input.mjs';
+import {requestBodies} from '../request-body.mjs';
 
 export class SidebarBodyError extends Error {}
 
@@ -14,6 +15,7 @@ export class SidebarBodyError extends Error {}
 export function applicationSessions(send,{capture,owner,agent,attached,select,decorate}={}) {
   const scope=new AsyncLocalStorage();
   const activities=applicationActivities(scope,owner);
+  const submissionBodies=requestBodies(8*1024*1024);
   let workspaceChange;
   const lanes=new Map();
   async function inSessions(ids,run) {
@@ -23,9 +25,12 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     try {await Promise.all(prior);return await run();}
     finally {resolve();for(const id of keys)if(lanes.get(id)===promise)lanes.delete(id);}
   }
-  function call(method,args,signal) {
+  function requestSignal(signal) {
     const lifetime=scope.getStore()?.signal;
-    return send(method,args,lifetime?(signal?AbortSignal.any([lifetime,signal]):lifetime):signal);
+    return lifetime?(signal?AbortSignal.any([lifetime,signal]):lifetime):signal;
+  }
+  function call(method,args,signal) {
+    return send(method,args,requestSignal(signal));
   }
   function activeRequest() {
     const active=scope.getStore(),request=!active?.released&&active?.request;
@@ -128,8 +133,12 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
   }
   async function submit(sessionId,input,signal) {
     const request=activeRequest();
+    signal=requestSignal(signal);
     const automatic=input.attribution && input.attribution.source.kind!=='user';
-    const receipt=await call('application.submit',{request,session_id:sessionId,...input,...(automatic?{origin:'application'}:{})},signal);
+    const {message_id,...value}=input;
+    const identity={request,session_id:sessionId,message_id};
+    const receipt=await submissionBodies.send({...value,...(automatic?{origin:'application'}:{})},identity,signal,
+      body=>send('application.submit',{...identity,body},signal));
     if(receipt.session_id!==sessionId||receipt.message_id!==input.message_id||
       !Number.isSafeInteger(receipt.accepted_control_seq)||receipt.accepted_control_seq<1)
       throw new Error('Invalid native mailbox receipt');
@@ -231,7 +240,8 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     workspaceChange:()=>(workspaceChange??=new AbortController()).signal,
     invalidateWorkspaces(){const before=workspaceChange;workspaceChange=undefined;before?.abort();},
     create,prompt,submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
-    runOwned:activities.run,observeOwned:activities.observe,retainDraft,close:activities.close,
+    readSubmission:input=>submissionBodies.read(input),
+    runOwned:activities.run,observeOwned:activities.observe,retainDraft,async close(){submissionBodies.close();await activities.close();},
     inbox:applicationInbox((id,operation,signal)=>scoped('application.inbox',{session_id:id,operation},signal)),
     command:(id,operation,signal)=>scoped('application.command',{session_id:id,operation},signal),
     stage(operation) {

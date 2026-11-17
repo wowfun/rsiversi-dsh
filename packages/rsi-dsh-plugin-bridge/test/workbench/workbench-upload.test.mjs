@@ -1,3 +1,4 @@
+import {nativeSubmission} from '../fixtures/native-submission.mjs';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {mkdtemp,mkdir,readFile,rm,symlink} from 'node:fs/promises';
@@ -21,6 +22,7 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   const submissions=[];let failSubmission=true;
   const scope=applicationSessions(async(method,args)=>{
     if(method==='application.submit'){
+      args=await nativeSubmission(args,scope);
       submissions.push(args);
       if(failSubmission)throw Error('fixture: native mailbox unavailable');
       return {session_id:args.session_id,message_id:args.message_id,accepted_control_seq:1};

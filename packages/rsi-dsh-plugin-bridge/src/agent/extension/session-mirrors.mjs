@@ -100,7 +100,7 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
           || events.length > load.count - offset) throw new Error('invalid load page');
       const bytes = Buffer.byteLength(JSON.stringify(events));
       const mirrored = forks.encodedBytes + residentBytes();
-      if (bytes > 256 * 1024 || load.bytes + bytes > 64 * 1024 * 1024 || mirrored + bytes > 256 * 1024 * 1024) throw new Error('load page capacity');
+      if (bytes > 64 * 1024 * 1024 || load.bytes + bytes > 64 * 1024 * 1024 || mirrored + bytes > 256 * 1024 * 1024) throw new Error('load page capacity');
       load.events.push(...structuredClone(events)); load.bytes += bytes;
     },
     abortAgentLoad({ session_id }) {
@@ -112,7 +112,7 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
       const load = loading.get(session_id);
       if (!load || load.events.length !== load.count) throw new Error('incomplete load');
       const bytes = Buffer.byteLength(JSON.stringify(checkpoint));
-      if (bytes > 64 * 1024 || load.bytes + bytes > 64 * 1024 * 1024) throw new Error('checkpoint capacity');
+      if (bytes > 64 * 1024) throw new Error('checkpoint capacity');
       const mirrored = forks.encodedBytes + residentBytes();
       if (mirrored + bytes > 256 * 1024 * 1024) throw new Error('generation mirror capacity');
       loading.delete(session_id);
