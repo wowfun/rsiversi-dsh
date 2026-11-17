@@ -13,7 +13,8 @@ integration('a rejected composition retires its Cordis root without masking the 
 
 integration('native command catalog preserves draft revision zero and stages original steer text', async t => {
   const bridge = await setup(t);
-  assert.equal(bridge.catalog().protocol, 5);
+  assert.equal(bridge.catalog().protocol, 6);
+  assert.equal(bridge.catalog().commands[0].composer_input.kind, 'text');
   assert.deepEqual(bridge.catalog().commands.map(command => [command.id, command.name, command.draft_safe]),
     [['rsi.extension.command.plan', 'plan', true]]);
   const call = (operation_id, input) => bridge.agentCommand({ session_id: 'session-one', operation_id, name: 'plan', input, fact_horizon: 0 });

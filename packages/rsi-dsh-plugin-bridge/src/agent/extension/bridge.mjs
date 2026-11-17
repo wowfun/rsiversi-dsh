@@ -120,8 +120,9 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
     ...mirrors.protocol,
     ...mutations.receipts,
     catalog() {
-      return { protocol: 5, commands: ctx.commands.list(catalogScope).map(command => ({
+      return { protocol: 6, commands: ctx.commands.list(catalogScope).map(command => ({
         id: `rsi.extension.command.${command.name}`, name: command.name, description: command.description, draft_safe: true,
+        composer_input:command.input?{kind:'text',hint:command.input.hint}:{kind:'none'},
       })), tools: ctx.tools.definitions().map(definition => {
         const schema = tools.projectToolSchema(definition, true);
         return { definition: { name: schema.name, description: schema.description, input_schema: schema.parameters },

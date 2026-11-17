@@ -877,7 +877,8 @@ scope. Disposing a view withdraws its calls. Removing and registering the
 same definition object creates a new occurrence. An outstanding call checks
 this at the original registry's final lookup, including after async hooks.
 
-The Agent catalog uses protocol 5 and carries ordinary command descriptors. A
+The Agent catalog uses protocol 6 and carries ordinary command descriptors,
+including explicit composer input metadata from the original DSH command. A
 command runs the original handler after synchronizing only its captured durable
 Fact horizon. Returned `inject` and `steer` text travels with the staged journal;
 the RSI owner assigns its identity and commits the entire batch atomically.
