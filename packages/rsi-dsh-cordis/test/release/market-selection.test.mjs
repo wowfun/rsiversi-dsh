@@ -44,6 +44,7 @@ test('only the importer leases npm at launch and declares both native interfaces
   }
   assert.equal(offset,payload.length);
   const load=name=>import(pathToFileURL(join(extracted,'rsi-dsh-plugin-bridge/src',name)));
+  assert.equal(typeof (await load('application/sessions.mjs')).applicationSessions,'function');
   assert.equal(typeof (await load('tools/application-tools.mjs')).applicationTools,'function');
   assert.equal(typeof (await load('history/history.mjs')).factObserver,'function');
 });

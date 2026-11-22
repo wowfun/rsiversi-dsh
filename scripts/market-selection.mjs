@@ -33,6 +33,7 @@ export async function writeSelection(destination,version,target,plugins,location
     'rsi-dsh-cordis/src/{archive,release}/**/*.mjs',
     'rsi-dsh-cordis/src/{registry/{npm-install,requirements},runtime/{frames,node,transport}}.mjs',
     'rsi-dsh-plugin-bridge/src/{agent,application,history,market,session,terminal,tools,workbench}/**/*.mjs',
+    'rsi-dsh-plugin-bridge/src/request-body.mjs',
     'rsi-dsh-plugin-bridge/src/browser/{brand-host.mjs,brand.client.js,rsiversi.svg}',
   ];
   const exclude=['**/plan-intent.mjs','**/fork-transfer.mjs','**/extension/**'];
