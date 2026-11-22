@@ -88,7 +88,7 @@ export async function provideLanguage(ctx,load,catalog,calls) {
     }
     async resolveModel(provider,id) {
       const selected=catalog.groups.find(group=>group.id===provider)?.models.find(model=>model.id===id);
-      return {provider,id,name:id,...(selected?.reasoning?{reasoning:selected.reasoning}:{})};
+      return selected?{provider,...selected}:{provider,id,name:id};
     }
     stream(options) {return calls.stream(options);}
   }

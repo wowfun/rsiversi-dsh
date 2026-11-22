@@ -280,7 +280,10 @@ uses the native catalog and exact provider route. The Host owns the credentials
 and the stream. A small final batch travels in the existing call reply. The
 call has no Session journal or automatic retry. The
 workbench reads the Host's default selection and registered deployments when
-the application generation opens. Standalone calls accept text, reasoning,
+the application generation opens. On a listed route, `llm.resolveModelInfo()`
+exposes the Host's context window and optional default output cap. The original
+DSH runtime applies that cap when a caller omits `maxTokens`. An explicit
+request cap takes precedence. Standalone calls accept text, reasoning,
 function calls and text tool results. Image input and adapter-private provider
 replay require a corresponding native representation.
 

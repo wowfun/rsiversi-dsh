@@ -163,11 +163,11 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     const request=activeRequest();
     return call(method,{request,...args},signal);
   }
-  async function modelCatalog(signal,optionalDefault=false){
+  async function modelCatalog(signal,forAdapter=false){
     const groups=new Map(),failures=new Map();
     let after=null,defaultSelection;
     do {
-      const page=await scoped('application.models',{after,...(optionalDefault?{optional_default:true}:{})},signal);
+      const page=await scoped('application.models',{after,...(forAdapter?{optional_default:true}:{})},signal);
       if(page.default)defaultSelection??={provider:page.default.deployment,model:page.default.model,
         ...(page.effort?{reasoningEffort:page.effort}:{})};
       for(const row of page.models){
@@ -175,9 +175,15 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
         if(row.failure){failures.set(id,{id,name:id,message:row.failure});continue;}
         let group=groups.get(id);
         if(!group){group={id,name:id,models:[]};groups.set(id,group);}
-        group.models.push({id:model,name:model,...(row.efforts.length?{reasoning:{
+        const entry={id:model,name:model};
+        if(forAdapter) {
+          entry.context={contextWindow:row.context_window};
+          if(row.default_output_tokens!=null)entry.defaultMaxTokens=row.default_output_tokens;
+        }
+        if(row.efforts.length)entry.reasoning={
           efforts:row.efforts.map(effort=>({id:effort,name:effort})),
-          ...(row.default_effort?{defaultEffort:row.default_effort}:{})}}:{})});
+          ...(row.default_effort?{defaultEffort:row.default_effort}:{})};
+        group.models.push(entry);
       }
       after=page.next;
     }while(after);
