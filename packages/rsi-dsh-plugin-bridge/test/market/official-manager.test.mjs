@@ -63,7 +63,7 @@ test('released Discover manager runs its configured package command and can inst
     ctx.effect(()=>()=>cmd.close(),'managed package command');
     ctx.provide('profileContext',{name:basename(profile),dir:profile,patchPath:join(profile,'cordis.patch.yml'),
       installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),cwd:profile,home:dirname(profile),
-      startedBundles:[],overlays:[],telemetryDisabledEnv:'1',packageManager:cmd.invocation});
+      startedBundles:[],overlayPaths:[],telemetryDisabledEnv:'1',packageManager:cmd.invocation});
     ctx.provide('hmr',managed.hmr);
     await ctx.plugin(boot.PluginPackages,{});
     await ctx.plugin((await load('@deepseek-ai/dsh-typert-registry')).default);

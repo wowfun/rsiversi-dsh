@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname,join} from 'node:path';
 import {createRequire} from 'node:module';
 import {test} from 'node:test';
 import {pathToFileURL} from 'node:url';
@@ -93,7 +93,9 @@ test('released web server admits the native proxy and serves its original compos
   assert.equal(doc.status,200);
   const html=await doc.text();
   assert.match(html,/__DSH_BOOT__/);
-  assert.match(html,/<title>DeepSeek Harness<\/title>/);
+  const document=await readFile(join(dirname(require.resolve('@deepseek-ai/dsh-web-frontend/package.json')),'dist/index.html'),'utf8');
+  const title=document.match(/<title>[^<]+<\/title>/)?.[0];
+  assert.ok(title && html.includes(title),'preserve the title from the selected frontend build');
   const initial=html.match(/<script[^>]*src="(plugins\/[^"]+)"/)?.[1];
   assert.ok(initial,'original bootstrap module is preloaded relative to the document');
   const preload=await fetch(new URL(initial.replaceAll('&amp;','&'),url),{headers});

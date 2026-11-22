@@ -39,7 +39,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
     app=await createApplication({profile,modules,baseRows:rows,provide:async(ctx,load)=>{
       await provideHttp(ctx,load,key);
       ctx.provide('profileContext',{name:'settings',dir:profile,patchPath:join(profile,'cordis.patch.yml'),
-        installAnchor:join(root,'package.json'),cwd:profile,home:profile,startedBundles:[],overlays:[]});
+        installAnchor:join(root,'package.json'),cwd:profile,home:profile,startedBundles:[],overlayPaths:[]});
       await ctx.plugin(boot.PluginPackages);
     }});
     const patch=await readFile(join(profile,'cordis.patch.yml'),'utf8').catch(e=>{if(e.code!=='ENOENT')throw e;});

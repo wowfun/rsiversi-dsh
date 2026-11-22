@@ -87,13 +87,29 @@ leave a backpressured body attached to a reusable connection or destroy its
 response socket.
 
 Market profiles use the published DSH runtime's version and public package
-exports. The workbench uses the DSH 0.2.2-rc.1 Session contracts and the
-Cordis range declared by its host. Source revisions and
+exports. For comparison with RSIversi use the DSH and vendor archives built
+from the same checkout as its Web control. The npm release tag and the
+comparison checkout can share a version while containing different code.
+The RSIversi Web comparison currently uses DSH commit
+`2e39e70496aa02986ca6a820c5d497e816b69d7e` (package version `0.2.2-rc.5`).
+Build the market runtime and the Agent reference's browser support from that
+checkout when comparing their behavior.
+The fixture resolver accepts that archive directory through `--from` and
+retains npm's resolved archive integrities in its lockfile. The workbench uses
+the Session contracts and Cordis of that selected host. Source revisions and
 archive digests identify test inputs and installed bytes, not a compatibility
 allowlist. Resolve peers strictly using DSH app-boot's prerelease semantics
 for host-provided DSH peers. When npm would exclude such a peer, the plugin
 binds it to the selected host version. The published-release fixture uses the
 same rule and the requested host's declared Cordis dependency range.
+
+For first-install checks, resolve with `--runtime-only` and run
+`package-market.mjs COHORT SHARDS` with no plugin names. The application
+starts without either catalog fixture plugin. Install an independently chosen
+bundle through the original manager, then compare its actual effects with DSH.
+The application supplies the launcher's `profileContext.overlayPaths` to
+DSH's config editor. Market workbenches launch with an empty list of
+command-line overlays, so profile edits recompose the installed bundle layers.
 
 Compatibility tests opted into with `RSI_DSH_MARKET_COHORT` resolve the original
 model-aware Tools and Claude Code Mods from that complete installed cohort.

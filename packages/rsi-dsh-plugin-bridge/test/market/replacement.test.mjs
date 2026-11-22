@@ -85,7 +85,7 @@ test('real local module replacement drains old callbacks, resolves same-version 
         ctx.effect(()=>()=>command.close());
         ctx.provide('profileContext',{name:basename(profile),dir:profile,patchPath:join(profile,'cordis.patch.yml'),
           installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),cwd:profile,home:dirname(profile),
-          startedBundles:[],overlays:[],telemetryDisabledEnv:'1',packageManager:command.invocation});
+          startedBundles:[],overlayPaths:[],telemetryDisabledEnv:'1',packageManager:command.invocation});
         ctx.provide('hmr',market.hmr);
         await ctx.plugin(boot.PluginPackages,{});
       }});

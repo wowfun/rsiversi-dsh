@@ -5,8 +5,8 @@ import {writeShards} from '../packages/rsi-dsh-cordis/src/release/artifacts.mjs'
 import { writeSelection } from './market-selection.mjs';
 
 const [input, output, ...plugins] = process.argv.slice(2);
-if (!input || !output || !plugins.length || new Set(plugins).size !== plugins.length)
-  throw new Error('Expected strict npm stage, new output directory, and ordered plugin names');
+if (!input || !output || new Set(plugins).size !== plugins.length)
+  throw new Error('Expected strict npm stage, new output directory, and optional ordered plugin names');
 const root = await realpath(input), destination = resolve(output);
 const manifest = JSON.parse(await readFile(join(root,'package.json'),'utf8'));
 const runtime = Object.keys(manifest.dependencies).filter(name=>!plugins.includes(name));

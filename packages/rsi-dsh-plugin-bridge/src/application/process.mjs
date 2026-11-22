@@ -152,7 +152,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     }
     ctx.provide('profileContext',{name:basename(profile),dir:profile,
       patchPath:join(profile,'cordis.patch.yml'),installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),
-      cwd:profile,home:dirname(profile),startedBundles:[],overlays:[],telemetryDisabledEnv:'1',packageManager});
+      cwd:profile,home:dirname(profile),startedBundles:[],overlayPaths:[],telemetryDisabledEnv:'1',packageManager});
     for (const name of ['dsh-session-projection','dsh-system-prompt','dsh-tools']) {
       const module = await load('@deepseek-ai/'+name);
       await ctx.plugin(module.default);

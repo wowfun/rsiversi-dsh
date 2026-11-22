@@ -79,7 +79,7 @@ test('real manager defers its Tool mutation, preserves siblings and reports its 
       hostModules.set(managerName+'/tools',managementTools(await load('@deepseek-ai/dsh-tools'),boundary));
       ctx.provide('profileContext',{name:basename(profile),dir:profile,patchPath:patch,
         installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),cwd:profile,home:dirname(profile),
-        startedBundles:[],overlays:[],telemetryDisabledEnv:'1'});
+        startedBundles:[],overlayPaths:[],telemetryDisabledEnv:'1'});
       ctx.provide('hmr',{runExclusive:operation=>boundary.run(operation),async reconcileProfile(){
         const exists=await stat(patch).catch(error=>{if(error.code!=='ENOENT')throw error;});
         const warnings=await app.reconcile([...rows,...(exists?[boot.loadOverlayPatches('rsi-dsh',patch)]:[])]);

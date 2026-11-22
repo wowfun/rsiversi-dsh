@@ -55,7 +55,8 @@ arguments select a narrower run under the same no-skip rule.
 ### Market workbench
 
 The market workbench runs the release's web shell and Plugin Manager. In
-Discover, select the Awesome index and install a plugin. Choose **Enable now**
+**Plugins → Add plugin**, enter a published npm specification, or select the
+Awesome index in Discover and install a plugin. Choose **Enable now**
 to activate it. To use the community market, install and enable `dshmarket`
 in Discover, then install the desired plugin from its own catalog. Both
 interfaces write to the same selected RSI Home and restore their profile at
@@ -66,22 +67,29 @@ original path or under `/document`. Fetch resources receive the original path
 and query on either mount. In-process resource reads retain the Peer supplied by
 their caller. DSH owns method handling, cancellation and response streaming.
 
-For a local acceptance Home, [stage-home.mjs](fixtures/market/stage-home.mjs)
-accepts the native RSI executable, a new Home, the release shard directory,
-the runtime selection directory produced by `select-market-runtime.mjs`
-and the paired browser document directory, in that order. The producer
-takes the release shard directory, a new output directory and the published
-npm package directory. It emits separate application, importer and npm
-manifests. The fixture installs the
-runtime and selects the market service profile. Open the paired document
-from that Home (PowerShell, with `$marketHome` and `$document` set to the
-paths used above):
+For a source comparison, build DSH at the [comparison revision](docs/runtime.md)
+and pack its built public workspace packages with its workspace pnpm. From the
+bridge checkout, use the resulting tarball directory (`$archives`), an unpacked
+npm distribution (`$npmRoot`), and fresh output paths. The DSH version comes
+from its CLI manifest. With PowerShell:
 
 ```powershell
-rsi --config-home "$marketHome/config/rsi" --data-home "$marketHome/data/rsi" --state-home "$marketHome/state/rsi" --cache-home "$marketHome/cache/rsi" --tmp-home "$marketHome/tmp" web --assets "$document"
+$version = (Get-Content "$dshSource/apps/cli/package.json" -Raw | ConvertFrom-Json).version
+node scripts/resolve-market-fixture.mjs $cohort $version "$npmRoot/bin/npm-cli.js" --from $archives --runtime-only
+node scripts/package-market.mjs $cohort $shards
+node scripts/select-market-runtime.mjs $shards $selection $npmRoot
+node scripts/build-market-document.mjs $rsiReleaseWeb $document $rsiSource
+node fixtures/market/stage-home.mjs $rsiBinary $marketHome $shards $selection $document
 ```
 
-Both target plugins can then be installed through the markets.
+This Home starts with the original manager and an empty selection of third-party
+plugins. Install a package by name to exercise the same path a user takes.
+
+Open the paired document from the staged market Home (PowerShell):
+
+```powershell
+& $rsiBinary --config-home "$marketHome/config/rsi" --data-home "$marketHome/data/rsi" --state-home "$marketHome/state/rsi" --cache-home "$marketHome/cache/rsi" --tmp-home "$marketHome/tmp" web --assets "$document"
+```
 
 ### Agent reference profile
 

@@ -12,6 +12,9 @@ An upgraded socket carries its authorized Session through subsequent data
 events. Its underlying TCP resource predates the HTTP request context.
 The original client connection and module services own their endpoint and
 manifest semantics. RSI owns browser authentication at the outer listener.
+The private connection registers its forwarding credential with DSH's
+`connection.authentication`. DSH passes the admitted owner Peer to HTTP,
+resource and upgrade handlers. In-process resource reads retain their caller.
 The private HTTP carrier uses the shipped DSH Web preset's gzip policy:
 level 1, with a 1024-byte threshold. The original WebServer owns negotiation,
 streaming and exclusions, including SSE, ranges and already encoded content.
