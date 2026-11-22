@@ -1102,6 +1102,11 @@ and active plugins before issuing a new operation. Human management calls await
 actual completion through the same request boundary.
 The root Include reads the managed profile's cordis.yml. Original plugins and
 the configuration editor can change this file and the profile's patch layers.
+Starting the workbench preserves an already selected base bundle and unchanged
+generated bundle files. Missing or changed generated files are restored from
+the selected workbench configuration. The market restores package links and live
+bindings on restart and updates the profile manifest only when the installed
+selections change its dependencies or the manifest needs initialization.
 The managed importer can install a local package or a newly published npm version
 immediately. Its profile advertises that default with
 `minimum-release-age=0` in the local `.npmrc`. Operator release-age

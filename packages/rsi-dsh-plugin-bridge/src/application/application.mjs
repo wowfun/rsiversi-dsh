@@ -1,25 +1,38 @@
 import {isAbsolute,join,relative,sep} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {lstat,writeFile} from 'node:fs/promises';
 import {inactiveFiber} from '../agent/fiber.mjs';
-import {readProfileManifest} from '../market/profile-files.mjs';
+import {boundedText,readProfileManifest} from '../market/profile-files.mjs';
 
 export const applicationBundle='@rsiversi/dsh-workbench';
 async function publishBase(profile,rows,load) {
   if(!rows.length) return [];
   const {writeFileAtomic,withFileLock}=await load('@deepseek-ai/dsh-atomic-write');
   const directory=join(profile,'node_modules',applicationBundle);
-  await mkdir(directory,{recursive:true});
   const patches=[{insert:rows}];
   const privateFile={mode:0o600};
-  await writeFileAtomic(join(directory,'cordis.patch.yml'),JSON.stringify(patches),privateFile);
-  await writeFileAtomic(join(directory,'package.json'),JSON.stringify({name:applicationBundle,version:'0.1.0',
-    dsh:{bundle:{patch:'cordis.patch.yml'}}}),privateFile);
+  async function publish(name,value) {
+    const path=join(directory,name),text=JSON.stringify(value),size=Buffer.byteLength(text);
+    const file=await lstat(path).catch(error=>{if(error.code!=='ENOENT')throw error;});
+    if(file?.isFile() && file.nlink===1 && file.size===size &&
+      (process.platform==='win32' || (file.mode&0o777)===privateFile.mode) &&
+      await boundedText(path,size)===text)return;
+    await writeFileAtomic(path,text,privateFile);
+  }
+  await publish('cordis.patch.yml',patches);
+  await publish('package.json',{name:applicationBundle,version:'0.1.0',dsh:{bundle:{patch:'cordis.patch.yml'}}});
   const path=join(profile,'package.json');
+  const selected=manifest=>{
+    const bundles=manifest?.dsh?.profile?.bundles;
+    return bundles?.[0]===applicationBundle && !bundles.includes(applicationBundle,1);
+  };
+  if(selected(await readProfileManifest(path)))return patches;
   await withFileLock(path,async()=>{
     const manifest=await readProfileManifest(path,{name:'rsi-managed-profile',private:true});
+    if(selected(manifest))return;
     manifest.dsh??={};manifest.dsh.profile??={};
-    manifest.dsh.profile.bundles=[applicationBundle,...(manifest.dsh.profile.bundles??[]).filter(name=>name!==applicationBundle)];
+    const bundles=manifest.dsh.profile.bundles??[];
+    manifest.dsh.profile.bundles=[applicationBundle,...bundles.filter(name=>name!==applicationBundle)];
     await writeFileAtomic(path,JSON.stringify(manifest,null,2)+'\n',privateFile);
   });
   return patches;

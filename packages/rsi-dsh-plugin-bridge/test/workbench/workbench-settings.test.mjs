@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
-import {mkdir,mkdtemp,readFile,rm,symlink,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,rm,stat,symlink,utimes,writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {dirname,join} from 'node:path';
@@ -66,9 +66,25 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.equal(credentials.ok,false);assert.match(credentials.error.message,/credentials service is absent/);
   await app.close();app=undefined;
   assert.match(await readFile(join(profile,'cordis.patch.yml'),'utf8'),/count: 7/);
-  await start();
+  const bundle=join(profile,'node_modules/@rsiversi/dsh-workbench');
+  const manifest=join(profile,'package.json');
+  const generated=[join(bundle,'package.json'),join(bundle,'cordis.patch.yml')];
+  const saved=await Promise.all(generated.map(path=>readFile(path)));
+  const stamp=new Date('2001-01-01T00:00:00Z');
+  const unchanged=[manifest,...generated];
+  await Promise.all(unchanged.map(path=>utimes(path,stamp,stamp)));
+  await writeFile(manifest+'.lock',String(process.pid)+'\n',{flag:'wx'});
+  try {await start();} finally {await rm(manifest+'.lock');}
+  assert.deepEqual(await Promise.all(unchanged.map(async path=>(await stat(path)).mtimeMs)),unchanged.map(()=>stamp.getTime()));
   assert.deepEqual(app.ctx.settingsProbe.read(),{count:7,token:'isolated-test-secret'});
   const restored=await rpc('settings/describe');assert.equal(restored.ok,true);
   assert.equal(restored.value.namespaces.find(row=>row.ns==='probe').value.count,7);
   assert.ok(!JSON.stringify(restored).includes('isolated-test-secret'));
+  await app.close();app=undefined;
+  await rm(generated[0]);
+  await writeFile(generated[1],Buffer.alloc(saved[1].length,32));
+  await start();
+  assert.deepEqual(await Promise.all(generated.map(path=>readFile(path))),saved);
+  assert.equal((await stat(manifest)).mtimeMs,stamp.getTime());
+  assert.equal(app.ctx.settingsProbe.read().count,7);
 });

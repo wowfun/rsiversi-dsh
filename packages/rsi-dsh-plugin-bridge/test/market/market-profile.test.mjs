@@ -89,6 +89,19 @@ test('market startup leaves shared and read-only npm configuration alone',async 
   try {await createMarketProfile(options);assert.equal(await readFile(file,'utf8'),setting);}
   finally {await chmod(file,0o600);}
 });
+test('market restart preserves the exact manifest until it needs a dependency map',async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-market-manifest-'));
+  t.after(()=>rm(profile,{recursive:true,force:true}));
+  const options={profile,state:join(profile,'state'),call:async()=>({})};
+  const path=join(profile,'package.json');
+  const source='{"name":"operator-profile","dependencies":{}}\n';
+  await writeFile(path,source);
+  await createMarketProfile(options);
+  assert.equal(await readFile(path,'utf8'),source);
+  await writeFile(path,'{"name":"operator-profile"}');
+  await createMarketProfile(options);
+  assert.deepEqual(JSON.parse(await readFile(path)),{name:'operator-profile',dependencies:{}});
+});
 
 test('transaction reservation excludes another caller before recovery files are read',async t=>{
   const base=await mkdtemp(join(tmpdir(),'rsi-market-reservation-'));

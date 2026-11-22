@@ -18,7 +18,8 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
     if(!['EACCES','EPERM','EROFS'].includes(error.code))throw error;
   });
   const path=join(profile,'package.json'), journal=join(state,'selections.json');
-  const manifest=()=>readProfileManifest(path,{name:'rsi-managed-profile',private:true,dependencies:{},dsh:{profile:{bundles:[]}}});
+  const emptyManifest=()=>({name:'rsi-managed-profile',private:true,dependencies:{},dsh:{profile:{bundles:[]}}});
+  const manifest=async()=>await readProfileManifest(path)??emptyManifest();
   const durable=await readSelections(journal);
   let installed=durable.installed;
   let pending;
@@ -103,29 +104,37 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
         bindings.set(name,{digest:selection.digest,release});
       }
       await linkProfilePackage(profile,name,modules.directory(name),modules.setProfileLink);
+      if(value.dependencies[name]===selection.version)return false;
       value.dependencies[name]=selection.version;
     }
     else {
       retireBinding(name);
-      delete value.dependencies[name];
       await unlinkProfilePackage(profile,name,modules.setProfileLink);
+      if(!Object.hasOwn(value.dependencies,name))return false;
+      delete value.dependencies[name];
     }
+    return true;
   }
   async function materializeSelections(selections,value,restoring,prepared) {
+    let changed=false;
     for(const [name,selection] of Object.entries(selections)) {
       try {
-        await materialize(name,selection,value,prepared?.get(name));
+        if(await materialize(name,selection,value,prepared?.get(name)))changed=true;
         unavailable.delete(name);
       } catch(error) {
         if(!restoring) throw error;
         reportUnavailable(name,error,unavailable);
       }
     }
+    return changed;
   }
   async function syncManifest(selections=installed,restoring=false,prepared) {
-    const value=await manifest();value.dependencies??={};
-    await materializeSelections(selections,value,restoring,prepared);
-    await save(path,value);
+    const existing=await readProfileManifest(path);
+    const initialize=existing?.dependencies==null;
+    const value=existing??emptyManifest();
+    value.dependencies??={};
+    const changed=await materializeSelections(selections,value,restoring,prepared);
+    if(initialize||changed)await save(path,value);
   }
   const saveSelection=(selected,rollback=null)=>saveSelections(journal,selected,rollback);
   async function restore(previous,rollback,restoring=false) {
