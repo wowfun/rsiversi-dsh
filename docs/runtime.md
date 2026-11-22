@@ -271,6 +271,18 @@ callback; HTTP handlers retain their own authenticated request scope. An activit
 drains its ordered native writes before resolving, including during teardown.
 The first rejected write stops the remaining writes and fails the reply, even if
 a Cordis callback rejects with a non-Error value.
+In a forwarded HTTP callback, the public WebServer origin and request socket
+peer describe the Host listener and its connecting client. The private
+loopback hop remains internal to the carrier.
+Enabled plugins can also make independent
+Language calls through the released Cordis `llm` service. Its Host adapter
+uses the native catalog and exact provider route. The Host owns the credentials
+and the stream. The call has no Session journal or automatic retry. The
+workbench reads the Host's default selection and registered deployments when
+the application generation opens. Standalone calls accept text, reasoning,
+function calls and text tool results. Image input and adapter-private provider
+replay require a corresponding native representation.
+
 A resident observation retains the caller and cancellation lifetime without
 holding one publication open forever. Writes scheduled by its notifications open
 finite owner activities; per-Agent ordering still applies. Their lifetime is

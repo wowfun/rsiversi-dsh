@@ -9,6 +9,7 @@ import {requestBoundary} from './request-boundary.mjs';
 import {drainsOnCancel} from './entry.mjs';
 import {leasedPluginPackages} from './package-metadata.mjs';
 import {provideHttp} from './http.mjs';
+import {languageCalls,provideLanguage} from './language.mjs';
 import {importRelease} from '../../../rsi-dsh-cordis/src/release/import.mjs';
 import {createMarketProfile} from '../market/market-profile.mjs';
 import {linkProfilePackage} from '../market/profile-files.mjs';
@@ -40,8 +41,8 @@ for (let i=0;i<paths.length;i+=2) roots.set(paths[i],paths[i+1]);
 const npmRoot=roots.get('--npm');
 roots.delete('--npm');
 const layout = JSON.parse(await readFile(layoutFile,'utf8'));
-let modules, app, opening, nativeSessions;
-async function open({protocol,profile,key,owner,importer,timings=false,tools=false}) {
+let modules, app, opening, nativeSessions, language;
+async function open({protocol,profile,key,owner,importer,timings=false,tools=false,language:hasLanguage=false}) {
   const start=performance.now();
   if (protocol !== 14 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
   modules=installReleaseResolver(layout,roots,profile);
@@ -88,6 +89,12 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       select:(request,signal)=>history.selectModel(request,signal),
       capture:async(id,signal)=>agents?.get(id)?(await agents.refresh(id,signal)).session:persistence.capture(id,signal)});
     nativeSessions=sessionScope;
+    if(hasLanguage){
+      language=languageCalls(call,owner);
+      ctx.effect(()=>()=>language.close(),'cancel standalone Host model calls');
+      const catalog=await sessionScope.observeOwned(signal=>sessionScope.modelCatalog(signal,true));
+      await provideLanguage(ctx,load,catalog,language);
+    }
     const {TypertRemoteService,RemoteError}=await load('@deepseek-ai/dsh-typert-protocol');
     const interactions=workbenchInteractions(ctx,sessionScope,await load('@deepseek-ai/dsh-scope'));
     const api=Object.assign({},await load('@deepseek-ai/dsh-session'),await load('@deepseek-ai/dsh-session/surface'),await load('@deepseek-ai/dsh-util-values'));
@@ -196,6 +203,8 @@ function close() {
 }
 const peer = new Peer({port:workerData,generation,drainOnCancel:drainsOnCancel,handler:async (method,args,signal) => {
   if (method==='extension.close') {await close();return null;}
+  if(method==='application.language.events'&&language)return language.deliver(args,signal);
+  if(method==='application.language.read'&&language)return language.read(args);
   if (method==='application.submit.read' && nativeSessions && !closing) return nativeSessions.readSubmission(args);
   if (method==='package.import' && npmRoot && !opening && !closing) {
     opening=importRelease(layout,npmRoot,args,signal,roots);

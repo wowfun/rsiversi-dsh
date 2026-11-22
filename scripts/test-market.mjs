@@ -12,6 +12,7 @@ if(!process.env.RSI_DSH_MARKET_COHORT) {
   const files=process.argv.length>2?process.argv.slice(2):[
     'packages/rsi-dsh-cordis/test/runtime/transport.test.mjs',
     'packages/rsi-dsh-plugin-bridge/test/application/request-boundary.test.mjs',
+    'packages/rsi-dsh-plugin-bridge/test/application/language.test.mjs',
     'packages/rsi-dsh-plugin-bridge/test/application/application-replacement.test.mjs',
     'packages/rsi-dsh-plugin-bridge/test/tools/application-tools.test.mjs',
     'packages/rsi-dsh-plugin-bridge/test/workbench/workbench-settings.test.mjs',

@@ -39,13 +39,16 @@ export async function resolveBody(body, maximum, read) {
   const buffer = Buffer.allocUnsafe(body.bytes);
   for (let offset=0; offset<buffer.length;) {
     const part = await read(body.token,offset);
-    if (part?.offset !== offset || typeof part.data !== 'string' || part.data.length > Math.ceil(BODY_FRAGMENT_BYTES/3)*4 ||
-        part.data.length%4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)) throw Error('Invalid request body fragment');
-    const decoded = part.data.length/4*3-(part.data.endsWith('==')?2:part.data.endsWith('=')?1:0);
-    if (!decoded || decoded > BODY_FRAGMENT_BYTES || decoded > buffer.length-offset)
-      throw Error('Invalid request body fragment');
-    if(buffer.write(part.data,offset,decoded,'base64')!==decoded) throw Error('Invalid request body fragment');
-    offset+=decoded;
+    offset=writeBodyFragment(buffer,offset,part);
   }
   return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(buffer));
+}
+
+export function writeBodyFragment(buffer,offset,part) {
+  if (part?.offset !== offset || typeof part.data !== 'string' || part.data.length > Math.ceil(BODY_FRAGMENT_BYTES/3)*4 ||
+      part.data.length%4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)) throw Error('Invalid request body fragment');
+  const decoded = part.data.length/4*3-(part.data.endsWith('==')?2:part.data.endsWith('=')?1:0);
+  if (!decoded || decoded > BODY_FRAGMENT_BYTES || decoded > buffer.length-offset ||
+      buffer.write(part.data,offset,decoded,'base64')!==decoded) throw Error('Invalid request body fragment');
+  return offset+decoded;
 }

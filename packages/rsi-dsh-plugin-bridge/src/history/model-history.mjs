@@ -33,14 +33,22 @@ function finish(event) {
 /** The same native events produce DSH chunks for a live prefix and a durable settlement. */
 export function modelProjection(llm,startedAt,onChunk) {
   const stream = new llm.AssistantStreamAccumulator();
-  const open = new Map(); let previous = 0;
-  function push(time, chunk) {
+  let previous = 0;
+  const project=modelChunks((time,chunk)=>{
     const item=stream.push({time,chunk});
     onChunk?.(item);
-  }
+  });
   function accept(elapsed,event) {
     if (!integer(elapsed) || elapsed < previous || !integer(startedAt + elapsed)) throw new Error('invalid canonical model timing');
-    previous = elapsed; const time = startedAt + elapsed;
+    previous = elapsed;project(startedAt+elapsed,event);
+  }
+  return {stream,accept};
+}
+
+/** Convert normalized native events into the original DSH streaming grammar. */
+export function modelChunks(push) {
+  const open=new Map();
+  return (time,event)=>{
     switch (event.type) {
       case 'content_started': {
         const type = { text: 'text', reasoning: 'reasoning', tool_call: 'tool-call' }[event.content.type];
@@ -76,8 +84,7 @@ export function modelProjection(llm,startedAt,onChunk) {
         push(time, { type: 'finish', reason: finish(event) });open.clear();break;
       default: throw new Error(`model event needs an explicit DSH mapping: ${event.type}`);
     }
-  }
-  return {stream,accept};
+  };
 }
 
 export function observeAttempt(session, mapping, fact, llm) {

@@ -19,9 +19,9 @@ export function serveApplication(input,output,generation,arguments_,entry) {
       await close();
       return null;
     }
-    if(closing || !['package.import','application.open'].includes(method))
-      throw new Error('Unknown application operation');
+    if(closing)throw new Error('Application carrier closed');
     if(!worker) {
+      if(!['package.import','application.open'].includes(method))throw new Error('Application has not opened');
       const {port1,port2}=new MessageChannel();
       worker=new Worker(entry,{argv:arguments_,stdout:true,stderr:true,workerData:port2,transferList:[port2]});
       worker.stdout.pipe(process.stderr,{end:false});

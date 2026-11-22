@@ -163,12 +163,12 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     const request=activeRequest();
     return call(method,{request,...args},signal);
   }
-  async function modelCatalog(signal){
+  async function modelCatalog(signal,optionalDefault=false){
     const groups=new Map(),failures=new Map();
     let after=null,defaultSelection;
     do {
-      const page=await scoped('application.models',{after},signal);
-      defaultSelection??={provider:page.default.deployment,model:page.default.model,
+      const page=await scoped('application.models',{after,...(optionalDefault?{optional_default:true}:{})},signal);
+      if(page.default)defaultSelection??={provider:page.default.deployment,model:page.default.model,
         ...(page.effort?{reasoningEffort:page.effort}:{})};
       for(const row of page.models){
         const {deployment:id,model}=row.route;

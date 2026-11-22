@@ -38,6 +38,9 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   async function start(){
     app=await createApplication({profile,modules,baseRows:rows,provide:async(ctx,load)=>{
       await provideHttp(ctx,load,key);
+      ctx.effect(()=>ctx.webServer.register({kind:'exact',path:'/fixture/listener',handler:(req,res)=>{
+        res.end(JSON.stringify([ctx.webServer.getOrigin(),req.socket.remoteAddress,req.socket.remotePort,req.socket.remoteFamily]));
+      }}));
       ctx.provide('profileContext',{name:'settings',dir:profile,patchPath:join(profile,'cordis.patch.yml'),
         installAnchor:join(root,'package.json'),cwd:profile,home:profile,startedBundles:[],overlayPaths:[]});
       await ctx.plugin(boot.PluginPackages);
@@ -52,6 +55,11 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
     const body=await res.text();assert.equal(res.status,200,body);return JSON.parse(body).result;
   }
   await start();
+  const listener=app.ctx.webServer.getOrigin();
+  const coordinates=await fetch(listener+'/fixture/listener',{headers:{'x-rsi-upstream-key':key,
+    'x-rsi-upstream-peer':'[2001:db8::9]:1414','x-rsi-upstream-origin':'https://workbench.example'}});
+  assert.deepEqual(await coordinates.json(),['https://workbench.example','2001:db8::9',1414,'IPv6']);
+  assert.equal(app.ctx.webServer.getOrigin(),listener);
   const apps=await fetch(app.ctx.webServer.getOrigin()+'/open-in-app/apps',{headers:{'x-rsi-upstream-key':key}});
   assert.equal(apps.status,200);assert.ok(Array.isArray((await apps.json()).apps));
   const before=await rpc('settings/describe');assert.equal(before.ok,true,JSON.stringify(before));
