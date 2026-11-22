@@ -94,6 +94,11 @@ The RSIversi Web comparison currently uses DSH commit
 `2e39e70496aa02986ca6a820c5d497e816b69d7e` (package version `0.2.2-rc.5`).
 Build the market runtime and the Agent reference's browser support from that
 checkout when comparing their behavior.
+The Agent reference producer uses the upstream `build:artifacts` target.
+When the control already has its release artifacts, use
+`node scripts/build-upstream.mjs SOURCE OUTPUT --built`. It packs those files
+with the workspace pnpm, preserving the public client environment embedded in
+the control. Its receipt records the upstream client build and archive digests.
 The fixture resolver accepts that archive directory through `--from` and
 retains npm's resolved archive integrities in its lockfile. The workbench uses
 the Session contracts and Cordis of that selected host. Source revisions and
@@ -559,9 +564,10 @@ Node builtins are available and this process is not a sandbox.
 The host checks its own runtime version before loading plugin code, including
 when an explicit RSI preset bypasses Node discovery. The reference source
 producer can build a checkout, a modified source tree or an archive. Only a
-clean checkout can reuse packed artifacts. Reuse checks the source revision,
-lockfile, build script, Node, installed build tools and the cached tarball's
-digest. A source change or missing Git metadata triggers a fresh build.
+clean checkout can reuse a previous automatic build. Reuse checks the revision,
+lockfile, producer, Node, toolchain, public client environment, original client
+artifact record and selected tarball digests. Explicit `--built` packs the current
+artifacts directly and records their identity.
 
 The generated Agent preset puts the process and adapter under one Profile group
 with fresh Local isolation for `rsi.extension.connection`. Registering a Local

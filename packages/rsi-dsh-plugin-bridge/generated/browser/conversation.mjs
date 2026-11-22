@@ -1,9 +1,10 @@
-// Generated from DeepSeek Harness fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159. See LICENSE.
+// Generated from DeepSeek Harness 2e39e70496aa02986ca6a820c5d497e816b69d7e. See LICENSE.
 import {
   WeakMapWithValues,
   assertNever,
+  extractTextContent,
   isSurfaceEvent
-} from "./shared/WLBUY26R.mjs";
+} from "./shared/YMOTVR5R.mjs";
 
 // packages/client/ui-conversation/src/client/conversation/assembly.ts
 import { Service as Service2 } from "@deepseek-ai/cordis";
@@ -61,7 +62,7 @@ function inspectSystemPrompt(previous, event) {
     time: event.time,
     turn: event.data.turn,
     step: event.data.step,
-    text: event.data.message.content.flatMap((block) => block.type === "text" ? [block.text] : []).join(""),
+    text: extractTextContent(event.data.message.content),
     update: op === "append" && previous?.nodes.some((item) => item.node.text !== "") === true
   } : void 0;
   if (introduced !== void 0) {
@@ -1035,11 +1036,13 @@ var ConversationNodeAssembler = class {
   }
   /**
    * Rebuild against the current Registry set after a low-frequency plugin change.
+   * @param entries - complete window to rebuild from; omitted replays the loaded inputs.
+   * @param hasMore - whether older history remains outside `entries`.
    * @returns immediate publication request.
    */
-  rebuildRegistry() {
+  rebuildRegistry(entries = this.sortedInputs(), hasMore = this.hasMore) {
     this.resetViewBuilders();
-    return this.replaceWindow(this.sortedInputs(), this.hasMore);
+    return this.replaceWindow(entries, hasMore);
   }
   /**
    * Materialize dirty Contexts and advance every active view builder.
@@ -2390,25 +2393,45 @@ var UserTextRegistry = class extends ConversationDefinitionRegistry {
 
 // packages/client/ui-conversation/src/client/conversation/assembly.ts
 var BoundConversation = class {
-  constructor(feed, assembler) {
+  /**
+   * @param feed - the Session's contiguous event window.
+   * @param assembler - this binding's Node assembler.
+   * @param retained - whether any reference retains the `conversation` facet; assembly follows the feed only while true.
+   */
+  constructor(feed, assembler, retained) {
+    this.feed = feed;
     this.assembler = assembler;
+    this.retained = retained;
     this.viewStore = assembler;
     this.snapshot = createSnapshotStore2(this.currentSnapshot());
     this.openTurn = createSnapshotStore2(assembler.openTurn());
-    this.replace(feed.getSnapshot());
-    this.disposeFeed = feed.subscribe(() => {
-      this.accept(feed.getSnapshot());
-    });
   }
+  feed;
   assembler;
+  retained;
   snapshot;
   openTurn;
   viewStore;
   targetSources = /* @__PURE__ */ new Map();
   revision = -1;
   frame;
+  following = false;
+  /** Whether the assembler holds the window at `revision`; a failed fold leaves nothing to extend incrementally. */
+  folded = false;
   disposeFeed = () => {
   };
+  disposeRetained = () => {
+  };
+  /**
+   * Begin following facet retention; the owner registers this binding's disposal first,
+   * so subscriptions acquired before a failed initial fold still have an owner.
+   */
+  start() {
+    this.disposeRetained = this.retained.subscribe(() => {
+      this.follow(this.retained.getSnapshot());
+    });
+    this.follow(this.retained.getSnapshot());
+  }
   target(target) {
     let source = this.targetSources.get(target);
     if (source === void 0) {
@@ -2429,17 +2452,60 @@ var BoundConversation = class {
     this.publishing(() => this.assembler.activateTarget(target));
   }
   rebuild() {
+    if (!this.following) return;
     this.publish(this.assembler.rebuildRegistry());
   }
   dispose() {
+    this.following = false;
+    this.disposeRetained();
     this.cancelFrame();
     this.disposeFeed();
+  }
+  /**
+   * Start or stop following the feed. Starting folds the whole current window and publishes it at once;
+   * stopping drops the fold and publishes the empty result.
+   */
+  follow(retained) {
+    if (retained === this.following) return;
+    this.following = retained;
+    this.cancelFrame();
+    if (!retained) {
+      this.disposeFeed();
+      this.disposeFeed = () => {
+      };
+      this.folded = false;
+      this.publishing(() => {
+        this.assembler.rebuildRegistry([], false);
+        return this.assembler.flush();
+      });
+      return;
+    }
+    this.disposeFeed = this.feed.subscribe(() => {
+      if (this.following) this.accept(this.feed.getSnapshot());
+    });
+    this.foldWindow();
+  }
+  /** Fold the whole current window against the current registry and publish it synchronously. */
+  foldWindow() {
+    const window = this.feed.getSnapshot();
+    this.folded = false;
+    this.cancelFrame();
+    this.publishing(() => {
+      this.assembler.rebuildRegistry(window.entries, window.hasMore);
+      this.revision = window.revision;
+      this.folded = true;
+      return this.assembler.flush();
+    });
   }
   replace(window) {
     this.revision = window.revision;
     this.publish(this.assembler.replaceWindow(window.entries, window.hasMore));
   }
   accept(window) {
+    if (!this.folded) {
+      this.foldWindow();
+      return;
+    }
     if (window.revision === this.revision) return;
     if (window.revision !== this.revision + 1 || window.change.kind === "replace") {
       this.replace(window);
@@ -2583,7 +2649,8 @@ var UiConversation = class extends Service2 {
     if (current !== void 0) return current.binding;
     const binding = new BoundConversation(
       owner.eventSource,
-      new ConversationNodeAssembler(this.events, this.views, this.groups)
+      new ConversationNodeAssembler(this.events, this.views, this.groups),
+      this.retainedConversation(owner)
     );
     const record = { source: owner, binding, disposeScope: () => {
     } };
@@ -2597,7 +2664,24 @@ var UiConversation = class extends Service2 {
     record.disposeScope = () => {
       void disposeScope();
     };
+    try {
+      binding.start();
+    } catch (error) {
+      this.drop(record, true);
+      throw error;
+    }
     return binding;
+  }
+  /**
+   * Whether a reference retains the `conversation` facet of this exact binding; a same-id
+   * replacement generation's counts do not apply to a binding that is no longer current.
+   */
+  retainedConversation(owner) {
+    const info = this.sessions.retainInfo(owner.sessionId);
+    return {
+      getSnapshot: () => this.sessions.binding(owner.sessionId) === owner && (info.getSnapshot().retainedFacets?.conversation ?? 0) > 0,
+      subscribe: (listener) => info.subscribe(listener)
+    };
   }
   /**
    * Resolve one Gateway-authorized durable image URL, cached per Session so

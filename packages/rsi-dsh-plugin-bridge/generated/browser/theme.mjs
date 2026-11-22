@@ -1,4 +1,4 @@
-// Generated from DeepSeek Harness fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159. See LICENSE.
+// Generated from DeepSeek Harness 2e39e70496aa02986ca6a820c5d497e816b69d7e. See LICENSE.
 
 // packages/client/ui-layout/src/client/theme-presenter.ts
 var DARK_ATTRIBUTE = "data-ds-dark-theme";
@@ -19,10 +19,20 @@ var ThemePresenter = class {
   appliedTokens = [];
   /** The single metadata node this presenter inserts and removes. */
   themeColorMeta;
+  styleObserver;
   /** Create the presenter-owned metadata node before the first snapshot arrives. */
   constructor() {
     this.themeColorMeta = document.createElement("meta");
     this.themeColorMeta.name = "theme-color";
+  }
+  /** Observe stylesheet installation and replacement after theme initialization. */
+  start() {
+    if (this.styleObserver !== void 0) return;
+    this.styleObserver = new MutationObserver((changes) => {
+      const isStyle = (node) => node.nodeName === "STYLE";
+      if (changes.some((change) => isStyle(change.target) || change.target.parentNode?.nodeName === "STYLE" || [...change.addedNodes, ...change.removedNodes].some(isStyle))) this.refreshThemeColor();
+    });
+    this.styleObserver.observe(document.head, { childList: true, subtree: true, characterData: true });
   }
   /**
    * Project a snapshot onto the document: set root `color-scheme` and the body
@@ -57,7 +67,10 @@ var ThemePresenter = class {
       body.style.setProperty(name, value);
       this.appliedTokens.push(name);
     }
-    this.themeColorMeta.content = getComputedStyle(body).backgroundColor;
+    this.refreshThemeColor();
+  }
+  refreshThemeColor() {
+    this.themeColorMeta.content = getComputedStyle(document.body).backgroundColor;
     if (!this.themeColorMeta.isConnected) document.head.append(this.themeColorMeta);
   }
   /**
@@ -65,6 +78,8 @@ var ThemePresenter = class {
    * attribute, token variables, the font sizes, font lists, and the owned metadata node.
    */
   dispose() {
+    this.styleObserver?.disconnect();
+    this.styleObserver = void 0;
     document.documentElement.style.removeProperty("color-scheme");
     document.documentElement.removeAttribute(THEME_SOURCE_ATTRIBUTE);
     const body = document.body;

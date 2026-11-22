@@ -1,4 +1,4 @@
-// Generated from DeepSeek Harness fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159. See LICENSE.
+// Generated from DeepSeek Harness 2e39e70496aa02986ca6a820c5d497e816b69d7e. See LICENSE.
 
 // packages/client/ui-conversation/src/client/locales.ts
 var PLAN_NEXT_ACTION_EN = "describe your task to generate plan";
@@ -35,6 +35,7 @@ var en = {
   "attachment.pathUnavailable": "Could not obtain the folder path; drag it in again",
   "attachment.pathUnsupported": "The path contains characters a reference cannot carry; rename it and try again",
   "image.pending": "Pending images",
+  "attachments.unavailable": "Some draft attachments are no longer available; add them again",
   "image.openOriginal": "View original",
   "image.openOriginalLabel": "{label}, click to view original",
   "image.remove": "Remove image {name}",
@@ -337,10 +338,20 @@ var en = {
   "tool.title.removeCordis": "Remove Cordis Plugin",
   "tool.title.pwsh": "Pwsh",
   "tool.title.readImage": "Read image",
+  "tool.title.officeRender": "Render document",
+  "tool.title.officeConvert": "Convert document",
+  "tool.title.officeRecalculate": "Recalculate workbook",
   "tool.title.grep": "Grep",
   "tool.title.glob": "Glob",
   "tool.title.webSearch": "Search",
   "tool.title.webFetch": "Fetch",
+  "tool.webFetch.failure.dns": "Couldn't resolve the host name. Check your network, proxy, or DNS settings.",
+  "tool.webFetch.failure.refused": "Connection refused. Check the address, port, or proxy.",
+  "tool.webFetch.failure.connectionTimeout": "Connection timed out. Check your network or proxy, then retry.",
+  "tool.webFetch.failure.certificate": "Certificate verification failed. Check the system clock, proxy, or certificates.",
+  "tool.webFetch.failure.interrupted": "Connection interrupted. Try again later.",
+  "tool.webFetch.failure.unreachable": "Network or host unreachable. Check your network connection or proxy.",
+  "tool.webFetch.failure.network": "Network request failed. See the output for details.",
   "tool.autoReviewRejected": "Rejected by Auto review",
   "tool.autoReviewNotExecuted": "Tool was not executed. Reason: {reason}",
   "tool.autoReviewReasonFallback": "Auto review did not authorize this action",

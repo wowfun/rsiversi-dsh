@@ -1,4 +1,4 @@
-// Generated from DeepSeek Harness fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159. See LICENSE.
+// Generated from DeepSeek Harness 2e39e70496aa02986ca6a820c5d497e816b69d7e. See LICENSE.
 
 // packages/client/locale/src/locales/en.ts
 var en = {
@@ -32,8 +32,6 @@ var en = {
   "more": "More",
   "collapse": "Collapse",
   "expand": "Expand",
-  "subtitle.expand": "Expand description for {name}",
-  "subtitle.collapse": "Collapse description for {name}",
   "back": "Back",
   "brand.localBuild": "DSH Local Build",
   "workspace.defaultName": "Default workspace",

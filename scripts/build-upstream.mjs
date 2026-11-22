@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { globSync, readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { globSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, dirname, join, relative } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
+import { parseArgs } from 'node:util';
 import {sourceIdentity} from './source-identity.mjs';
 
-const source = resolve(process.argv[2] ?? '../rsiversi/.references/rsi/deepseek-harness');
-const destination = resolve(process.argv[3] ?? '.local/upstream');
+const { values, positionals } = parseArgs({ options: { built: { type: 'boolean' } }, allowPositionals: true });
+const source = resolve(positionals[0] ?? '../rsiversi/.references/rsi/deepseek-harness');
+const destination = resolve(positionals[1] ?? '.local/upstream');
 const roots = ['@deepseek-ai/dsh-tool-todo', '@deepseek-ai/dsh-plan-mode', '@deepseek-ai/dsh-client-ui-tool', '@deepseek-ai/dsh-client-ui-plan',
   '@deepseek-ai/dsh-client-store', '@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client-ui-primitives', '@deepseek-ai/dsh-client-ui-dockkit'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -33,44 +33,52 @@ for (const name of roots.slice(4)) {
   }
 }
 mkdirSync(destination, { recursive: true });
-const requireUpstream = createRequire(join(source, 'package.json'));
+const pnpmManifest = join(source, 'node_modules/pnpm/package.json');
+const pnpmPackage = JSON.parse(readFileSync(pnpmManifest));
+const pnpm = join(dirname(pnpmManifest), pnpmPackage.bin.pnpm);
 const buildInputs = {
-  baseline:identity.revision, node: process.version,
-  lockSha256: hash(readFileSync(join(source, 'pnpm-lock.yaml'))),
+  baseline: identity.revision, node: process.version, lockSha256: hash(readFileSync(join(source, 'pnpm-lock.yaml'))),
   scriptSha256: hash(readFileSync(new URL(import.meta.url))),
+  clientEnvironment: hash(JSON.stringify(Object.entries(process.env)
+    .filter(([key]) => key.startsWith('DSH_CLIENT_') || key === 'DSH_BUILD_CLIENT_PROFILE')
+    .sort(([left], [right]) => left.localeCompare(right)))),
   toolchain: Object.fromEntries(['typescript', 'tsdown', 'pnpm'].map(name =>
     [name, JSON.parse(readFileSync(join(source, 'node_modules', name, 'package.json'))).version])),
 };
 const buildInputSha256 = hash(JSON.stringify(buildInputs));
-execFileSync(process.execPath, ['--max-old-space-size=8192', requireUpstream.resolve('typescript/bin/tsc'), '-b',
-  'packages/typert/generator', ...[...selected.values()].map(pkg => relative(source, pkg.dir))],
-  { cwd: source, stdio: 'inherit' });
-const { build } = await import(pathToFileURL(requireUpstream.resolve('tsdown')));
-const { decoratorPlugin } = await import(pathToFileURL(join(source, 'packages/typert/generator/lib/types/tsdown-plugin.js')));
-const pnpmManifest = join(source, 'node_modules/pnpm/package.json');
-const pnpm = join(dirname(pnpmManifest), JSON.parse(readFileSync(pnpmManifest)).bin.pnpm);
-const artifacts = [];
-const previous = existsSync(join(destination, 'receipt.json')) ? JSON.parse(readFileSync(join(destination, 'receipt.json'))) : undefined;
-// Each invocation uses upstream build defaults and its original local config.
-// Workspace pack rewrites workspace specifiers exactly as the upstream release does.
-for (const [name, { manifest, dir }] of selected) {
-  const cached = identity.cacheable && previous?.cacheable && previous.buildInputSha256 === buildInputSha256 ? previous.artifacts.find(artifact => artifact.name === name) : undefined;
-  if (cached && existsSync(join(destination, cached.tarball)) && hash(readFileSync(join(destination, cached.tarball))) === cached.sha256) {
-    artifacts.push(cached); continue;
-  }
-  if (!existsSync(join(dir, 'lib/types/index.js'))) throw new Error(`Compile original project first: ${name}`);
-  const config = join(dir, 'tsdown.config.ts');
-  if (existsSync(config)) {
-    await build({ cwd: dir, config, configLoader: 'native' });
-  } else {
-    await build({ cwd: dir, config: false, entry: ['lib/types/index.js'], outDir: 'lib', format: ['esm'], platform: 'node', target: 'es2024', fixedExtension: false, dts: false, clean: false, plugins: [decoratorPlugin()] });
-  }
-  execFileSync(process.execPath, [pnpm, '--dir', dir, 'pack', '--pack-destination', destination], { cwd: source, stdio: 'pipe', maxBuffer: 4 * 1024 * 1024 });
-  const tarball = `${name.replace('@', '').replaceAll('/', '-')}-${manifest.version}.tgz`;
-  artifacts.push({ name, version: manifest.version, source: relative(source, dir).replaceAll('\\', '/'), tarball,
-    sha256: hash(readFileSync(join(destination, tarball))), entry: manifest.main, entrySha256: hash(readFileSync(join(dir, manifest.main))) });
-  console.log(`packed ${artifacts.length}/${selected.size} ${name}`);
+const receiptPath = join(destination, 'receipt.json');
+const buildRecord = join(source, '.dsh-build/client-build-environment.json');
+const tarballName = (name, version) => name.replace('@', '').replaceAll('/', '-') + '-' + version + '.tgz';
+if (!values.built && identity.cacheable && existsSync(receiptPath) && existsSync(buildRecord)) {
+  const previous = JSON.parse(readFileSync(receiptPath));
+  if (previous.cacheable && previous.buildInputSha256 === buildInputSha256 &&
+      previous.clientBuild?.artifacts.sha256 === JSON.parse(readFileSync(buildRecord)).artifacts.sha256 &&
+      previous.artifacts.length === selected.size && previous.artifacts.every(artifact => {
+        const pkg = selected.get(artifact.name);
+        if (!pkg || artifact.tarball !== tarballName(artifact.name, pkg.manifest.version)) return false;
+        const file = join(destination, artifact.tarball);
+        return existsSync(file) && hash(readFileSync(file)) === artifact.sha256;
+      })) process.exit(0);
 }
-const completed=sourceIdentity(source);
-const cacheable=identity.cacheable && completed.cacheable && completed.revision===identity.revision;
-writeFileSync(join(destination, 'receipt.json'), JSON.stringify({ ...buildInputs, buildInputSha256, cacheable, pnpm: JSON.parse(readFileSync(pnpmManifest)).version, roots, browserDependencies, artifacts }, null, 2) + '\n');
+function run(args) {
+  execFileSync(process.execPath, [pnpm, ...args], { cwd: source, stdio: 'inherit', windowsHide: true });
+}
+if (!values.built) run(['run', 'build:artifacts']);
+const clientBuild = JSON.parse(readFileSync(buildRecord));
+run(['--recursive', '--workspace-concurrency=4', ...Array.from(selected.keys(), name => '--filter=' + name),
+  'pack', '--pack-destination', destination]);
+const artifacts = [];
+for (const [name, { manifest, dir }] of selected) {
+  const tarball = tarballName(name, manifest.version);
+  artifacts.push({
+    name, version: manifest.version, source: relative(source, dir).replaceAll('\\', '/'), tarball,
+    sha256: hash(readFileSync(join(destination, tarball))), entry: manifest.main,
+    entrySha256: hash(readFileSync(join(dir, manifest.main))),
+  });
+}
+const completed = sourceIdentity(source);
+const receipt = {
+  ...buildInputs, buildInputSha256, cacheable: !values.built && identity.cacheable && completed.cacheable && identity.revision === completed.revision,
+  pnpm: pnpmPackage.version, clientBuild, browserDependencies, roots, artifacts,
+};
+writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
