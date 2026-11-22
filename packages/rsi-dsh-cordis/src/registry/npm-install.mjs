@@ -70,8 +70,14 @@ export async function installNpm(npmRoot, root, work, specs, signal,registry,cac
 /** npm's unreviewed scripts can run during a normal install. Rebuild only
  * exact directories in the already resolved private graph. */
 export async function rebuildApproved(npmRoot,root,work,builds,policy,signal,cache) {
-  const pending=[...new Set(builds.filter(row=>!Object.hasOwn(policy,row.name)).map(row=>row.name))];
-  if(pending.length) {
+  const pending=new Set(),approved=[];
+  for(const row of builds) {
+    const key=row.item.resolved?.startsWith('file:')?row.name:row.name+'@'+row.version;
+    const decision=Object.hasOwn(policy,key)?policy[key]:Object.hasOwn(policy,row.name)?policy[row.name]:undefined;
+    if(decision===undefined)pending.add(key);
+    else if(decision)approved.push(join(root,row.location));
+  }
+  if(pending.size) {
     // This line is consumed by the released Plugin Manager's recordPendingBuilds.
     const names=[];
     for(const name of pending) {
@@ -80,10 +86,8 @@ export async function rebuildApproved(npmRoot,root,work,builds,policy,signal,cac
     }
     throw new Error('Ignored build scripts: '+names.join(', '));
   }
-  const approved=builds.filter(row=>policy[row.name]===true);
   if(!approved.length) return false;
-  await runNpm(npmRoot,root,work,['rebuild','--offline','--bin-links=false','--',
-    ...approved.map(row=>join(root,row.location))],signal,cache);
+  await runNpm(npmRoot,root,work,['rebuild','--offline','--bin-links=false','--',...approved],signal,cache);
   return true;
 }
 

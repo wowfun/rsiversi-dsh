@@ -127,8 +127,10 @@ Share the runtime's physical Cordis, React
 and DSH service identities. Keep the plugin's own dependencies private where
 their ranges or module identities differ. Registry resolution runs with scripts
 disabled. The market reads the original Plugin Manager's per-dependency
-allowBuilds decisions. An undecided build reports the dependency to that
-manager before publishing a selection. Only explicitly approved, resolved
+allowBuilds decisions. For a registry dependency the manager records the
+resolved `name@version`. An exact decision takes precedence over an existing
+package-wide decision. An undecided release goes back to the manager before
+publishing a selection. Only explicitly approved, resolved
 private package instances are rebuilt in staging. This executes code with the
 local operator's permissions, including on Windows. The installer gives the
 child a private npm home and no Service credentials.

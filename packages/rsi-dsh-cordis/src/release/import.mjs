@@ -70,8 +70,8 @@ export async function importRelease(base,npmRoot,request,signal,runtimeRoots) {
         throw new Error(name+' has no DSH bundle patch');
     }
     const policy=request.options?.builds??{};
-    if(typeof policy!=='object' || Array.isArray(policy) || Object.entries(policy).some(([name,value])=>
-      packageLocation('node_modules/'+name)!==name || typeof value!=='boolean')) throw new Error('Invalid registry build decisions');
+    if(typeof policy!=='object' || Array.isArray(policy) || Object.values(policy).some(value=>typeof value!=='boolean'))
+      throw new Error('Invalid registry build decisions');
     const lock=JSON.parse(await readFile(join(root,'package-lock.json'),'utf8'));
     const present=Object.keys(runtime).filter(name=>Object.hasOwn(lock.packages,'node_modules/'+name));
     const groups=await releaseLayout(root,present,plugins,signal,true,
