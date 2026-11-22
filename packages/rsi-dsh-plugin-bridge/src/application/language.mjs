@@ -37,19 +37,19 @@ export function languageCalls(call,owner) {
     let received;
     const work=bodies.send(request,{id},signal,body=>
       call('application.language',{id,request:owner,model:{deployment:options.provider,model:options.model},body},signal)
-    ).then(()=>state.next.resolve({done:true}),error=>state.next.resolve({error}));
+    ).then(reply=>state.next.resolve({done:true,events:reply?.events}),error=>state.next.resolve({error}));
     try {
       for(;;) {
         received=await state.next.promise;
-        if(received.done)return;
         if(received.error)throw received.error;
         state.next=Promise.withResolvers();
-        for(const event of received.events) {
+        for(const event of received.events??[]) {
           // DSH has no chunk for ancillary native diagnostics or source annotations.
           if(event.type==='warning'||event.type==='source')continue;
           project(0,event);
           yield* chunks;chunks.length=0;
         }
+        if(received.done)return;
         received.ack.resolve();
       }
     } finally {

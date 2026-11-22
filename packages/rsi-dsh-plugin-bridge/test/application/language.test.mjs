@@ -7,6 +7,13 @@ const options={provider:'configured',model:'selected',system:'Keep the date.',me
 const opening={type:'content_started',index:0,content:{type:'text'}};
 const delta=text=>({type:'content_delta',index:0,delta:{type:'text',value:text}});
 
+test('an inline final reply completes the stream without an extra callback',async()=>{
+  const calls=languageCalls(async()=>({events:[opening,delta('answer'),{type:'content_finished',index:0},{type:'finished',reason:'stop'}]}),'owner');
+  const chunks=await Array.fromAsync(calls.stream(options));
+  assert.deepEqual(chunks.map(chunk=>chunk.type),['block-start','text-delta','block-end','finish']);
+  assert.equal(chunks[2].block.text,'answer');calls.close();
+});
+
 test('standalone calls feed the native route, stream with backpressure and cancel when the reader leaves',async()=>{
   const cancelled=Promise.withResolvers();let delivered=false;
   const calls=languageCalls(async(method,args,signal)=>{
