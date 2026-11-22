@@ -1,5 +1,5 @@
 import { build, transform } from 'esbuild';
-import { readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 const cohort = resolve(process.argv[2] ?? '.local/cohort');
@@ -13,9 +13,7 @@ for (const name of ['ui-tool', 'ui-plan', 'ui-theme']) {
   approved.push({ id, url: `/${name}.js`, integrity: `sha256-${createHash('sha256').update(bytes).digest('base64')}` });
 }
 await writeFile('fixtures/browser/approved.json', JSON.stringify(approved, null, 2));
-// The dictionary is not a standalone published module. This fixture copies original
-// locale data only; both components under test remain the unchanged packed scripts.
-const localeSource = await readFile(resolve(process.argv[3] ?? '../references/rsi/deepseek-harness', 'packages/client/ui-conversation/src/client/locales.ts'), 'utf8');
+const localeSource = await readFile(join(cohort, 'node_modules/@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'), 'utf8');
 const { code } = await transform(localeSource, { loader: 'ts', format: 'esm' });
 const { en } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
 await writeFile('fixtures/browser/conversation.json', JSON.stringify(en));

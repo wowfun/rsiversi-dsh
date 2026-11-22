@@ -58,7 +58,9 @@ Original UI bundles resolve their synchronous host modules from this table.
 
 The bridge supplies the sessions, remote, remote.commands, remote.session,
 locale, uiConversation, resources, sidebarRight and sidebarRightTabs contracts
-actually consumed by Todo and Plan, including the pinned common dictionary for Markdown toolbar labels. Package injection metadata does not substitute
+actually consumed by Todo and Plan. The browser fixture reads the Markdown
+toolbar dictionary from the installed conversation package in the same cohort
+as the component bundles. Package injection metadata does not substitute
 for checking these service contracts. RSI's older vendored visual helpers are
 not the original runtime.
 
