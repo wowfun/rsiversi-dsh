@@ -105,12 +105,16 @@ export async function provideHttp(ctx,load,key,sessionScope) {
         }
         return withPublicPeer(req,()=>route.handler(req,socket,head,peer));
       };
-      const release=super.registerUpgrade({...route,handler});
-      try {
-        const auth=typeof route.auth==='function'?facts=>{
-          const url=new URL(facts.url);url.pathname=documentPath(url.pathname);
+      const auth=typeof route.auth==='function'?facts=>{
+        if(!authenticated(facts))return 'deny';
+        return withPublicPeer(facts,()=>{
+          if(facts.url.pathname===route.path)return route.auth(facts);
+          const url=new URL(facts.url);url.pathname=route.path;
           return route.auth({...facts,url});
-        }:route.auth;
+        });
+      }:route.auth;
+      const release=super.registerUpgrade({...route,handler,auth});
+      try {
         const mounted=super.registerUpgrade({...route,handler,auth,path:'/document'+route.path});
         return ()=>{mounted();release();};
       } catch(error){release();throw error;}

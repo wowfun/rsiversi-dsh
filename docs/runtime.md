@@ -271,9 +271,9 @@ callback; HTTP handlers retain their own authenticated request scope. An activit
 drains its ordered native writes before resolving, including during teardown.
 The first rejected write stops the remaining writes and fails the reply, even if
 a Cordis callback rejects with a non-Error value.
-In a forwarded HTTP callback, the public WebServer origin and request socket
-peer describe the Host listener and its connecting client. The private
-loopback hop remains internal to the carrier.
+In a forwarded HTTP callback or a socket upgrade's route policy and handler,
+the public WebServer origin and socket peer describe the Host listener and
+its connecting client. The private loopback hop remains internal to the carrier.
 Enabled plugins can also make independent
 Language calls through the released Cordis `llm` service. Its Host adapter
 uses the native catalog and exact provider route. The Host owns the credentials

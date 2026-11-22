@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {mkdir,mkdtemp,readFile,rm,stat,symlink,utimes,writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
+import {get} from 'node:http';
 import {tmpdir} from 'node:os';
 import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -41,6 +42,10 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
       ctx.effect(()=>ctx.webServer.register({kind:'exact',path:'/fixture/listener',handler:(req,res)=>{
         res.end(JSON.stringify([ctx.webServer.getOrigin(),req.socket.remoteAddress,req.socket.remotePort,req.socket.remoteFamily]));
       }}));
+      ctx.effect(()=>ctx.webServer.registerUpgrade({path:'/fixture/upgrade',
+        auth:request=>request.url.pathname==='/fixture/upgrade'&&request.socket.remoteAddress==='2001:db8::9'&&
+          ctx.webServer.getOrigin()==='https://workbench.example'?'required':'deny',
+        handler:(_req,socket)=>socket.end('HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n')}));
       ctx.provide('profileContext',{name:'settings',dir:profile,patchPath:join(profile,'cordis.patch.yml'),
         installAnchor:join(root,'package.json'),cwd:profile,home:profile,startedBundles:[],overlayPaths:[]});
       await ctx.plugin(boot.PluginPackages);
@@ -59,6 +64,12 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const coordinates=await fetch(listener+'/fixture/listener',{headers:{'x-rsi-upstream-key':key,
     'x-rsi-upstream-peer':'[2001:db8::9]:1414','x-rsi-upstream-origin':'https://workbench.example'}});
   assert.deepEqual(await coordinates.json(),['https://workbench.example','2001:db8::9',1414,'IPv6']);
+    for(const path of ['/fixture/upgrade','/document/fixture/upgrade']){
+      const code=await new Promise((resolve,reject)=>get(listener+path,{headers:{connection:'Upgrade',upgrade:'fixture',
+        'x-rsi-upstream-key':key,'x-rsi-upstream-peer':'[2001:db8::9]:1414','x-rsi-upstream-origin':'https://workbench.example'}},
+        res=>{res.resume();resolve(res.statusCode);}).on('error',reject));
+      assert.equal(code,204,path);
+    }
   assert.equal(app.ctx.webServer.getOrigin(),listener);
   const apps=await fetch(app.ctx.webServer.getOrigin()+'/open-in-app/apps',{headers:{'x-rsi-upstream-key':key}});
   assert.equal(apps.status,200);assert.ok(Array.isArray((await apps.json()).apps));
