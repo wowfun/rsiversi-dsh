@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {writePayloadFiles} from '../../packages/rsi-dsh-cordis/src/archive/payload.mjs';
 import {digest,json} from '../../packages/rsi-dsh-cordis/src/release/artifacts.mjs';
 import {runtimeEnvironment} from '../../packages/rsi-dsh-cordis/src/runtime/node.mjs';
+import {homeOptions} from './home.mjs';
 
 const [bin,home,document]=process.argv.slice(2).map(path=>resolve(path));
 await mkdir(home,{recursive:false});
@@ -33,7 +34,7 @@ await writeFile(join(source,'package.json'),manifest);
 const config=join(home,'config/rsi');
 const env={...runtimeEnvironment(),PATH:process.env.PATH,RSI_OPENAI_COMPATIBLE_API_KEY:'isolated-fixture-secret'};
 function cli(...args) {
-  return execFileSync(bin,['--config-home',config,'--state-home',join(home,'state/rsi'),'--cache-home',join(home,'cache/rsi'),...args],
+  return execFileSync(bin,[...homeOptions(home),...args],
     {cwd:home,env,encoding:'utf8',windowsHide:true,timeout:300000,maxBuffer:2*1024*1024});
 }
 cli('config','init');
@@ -77,6 +78,8 @@ target = 'rsi-agent-workspace-context'
 config_json = ${JSON.stringify(JSON.stringify({user_instruction_file:join(config,'AGENTS.md'),user_agent_roots:[join(config,'agents')],user_skill_roots:[join(config,'skills')]}))}
 `);
 cli('plugin','install','--local',source);
+const installed=JSON.parse(await readFile(join(home,'data/rsi/packages/resolution.json'),'utf8'));
+assert.equal(installed.packages['sample-application'].digest,digest(manifest));
 const start=new URL(cli('web','--assets',document,'--no-open','--port','0').match(/https?:\/\/[^\s]+/)[0]);
   const response=await fetch(start.origin+'/api/v2/browser-bootstrap',{method:'POST',headers:{
     origin:start.origin,'x-rsi-csrf':'1','x-rsi-launch-ticket':start.hash.slice(12)}});

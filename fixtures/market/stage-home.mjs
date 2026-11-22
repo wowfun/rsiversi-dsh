@@ -2,13 +2,14 @@ import {execFileSync} from 'node:child_process';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {writeMarketServiceProfile} from '../../scripts/market-service-profile.mjs';
+import {homeOptions} from './home.mjs';
 
 const [bin,home,shards,selection,document]=process.argv.slice(2).map(path=>resolve(path));
 const config=join(home,'config/rsi'),state=join(home,'state/rsi');
 await mkdir(home,{recursive:false});
 const receipt=JSON.parse(await readFile(join(selection,'receipt.json'),'utf8'));
 if(receipt.plugins.length || receipt.artifacts.some(row=>row.owner!=='runtime')) throw new Error('Expected a runtime-only selection');
-const base=['--config-home',config,'--state-home',state,'--cache-home',join(home,'cache/rsi')];
+const base=homeOptions(home);
 function run(...args) {
   return execFileSync(bin,[...base,...args],{cwd:home,encoding:'utf8',windowsHide:true,maxBuffer:4*1024*1024});
 }

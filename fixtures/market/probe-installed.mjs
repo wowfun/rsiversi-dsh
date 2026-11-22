@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {once} from 'node:events';
 import {setTimeout as sleep} from 'node:timers/promises';
+import {homeOptions} from './home.mjs';
 
 // Reach a market-installed plugin through the public native listener. Keep
 // the one-use launch ticket and device credential out of the receipt.
@@ -12,8 +13,7 @@ const [bin,home,document]=process.argv.slice(2,5).map(path=>resolve(path));
 const options=process.argv.slice(5);
 const [session,second]=options.filter(arg=>arg!=='--check-paired-device');
 const started=performance.now();
-const cli=(...args)=>execFileSync(bin,['--config-home',join(home,'config/rsi'),
-  '--state-home',join(home,'state/rsi'),'--cache-home',join(home,'cache/rsi'),...args],
+const cli=(...args)=>execFileSync(bin,[...homeOptions(home),...args],
   {cwd:home,windowsHide:true,encoding:'utf8',stdio:['ignore','pipe','pipe']});
 const launch=new URL(cli('web','--no-open','--port','0','--assets',document).match(/https?:\/\/[^\s]+/)[0]);
 const origin=launch.origin;

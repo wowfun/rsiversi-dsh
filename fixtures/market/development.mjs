@@ -7,6 +7,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {writePayloadFiles} from '../../packages/rsi-dsh-cordis/src/archive/payload.mjs';
 import {digest,json} from '../../packages/rsi-dsh-cordis/src/release/artifacts.mjs';
 import {runtimeEnvironment} from '../../packages/rsi-dsh-cordis/src/runtime/node.mjs';
+import {homeOptions} from './home.mjs';
 
 const [bin,home,document,stage,base]=process.argv.slice(2).map(path=>resolve(path));
 await mkdir(home,{recursive:true});
@@ -39,8 +40,8 @@ const manifest=json({format:2,name:packageName,version:'1',target:'portable',dep
     {path:'process.json',bytes:recipe.length,digest:digest(recipe),executable:false}],
   exports:{runtime:{kind:'payload_tree',path:'runtime.rsi',index_digest:tree.indexDigest},application:{kind:'process_extension',path:'process.json'}}});
 await writeFile(join(source,'package.json'),manifest);
-const config=join(home,'config/rsi'),state=join(home,'state/rsi');
-const options=['--config-home',config,'--state-home',state,'--cache-home',join(home,'cache/rsi')];
+const config=join(home,'config/rsi');
+const options=homeOptions(home);
 const cli=(...args)=>execFileSync(bin,[...options,...args],{encoding:'utf8',windowsHide:true,cwd:home});
 try {await readFile(join(config,'rsi.toml'));} catch(error) {if(error.code!=='ENOENT')throw error;cli('config','init');}
 cli('plugin','install','--local',source);

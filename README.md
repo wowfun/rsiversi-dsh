@@ -25,7 +25,8 @@ installs an isolated Application process using the real application Session
 adapter and a deterministic local provider. It verifies startup, paged submission
 of 1 MiB escaped native-valid text, exact durable acceptance readback, and
 idempotent same-message submission. The new Home retains hashes and results;
-the fixture stops its Host and provider and does not read model credentials.
+the fixture stops its Host and provider. Market fixtures select config, data,
+state, cache and scratch below the chosen Home, including when reopening it.
 
 ### Market integration verification
 
@@ -77,7 +78,7 @@ from that Home (PowerShell, with `$marketHome` and `$document` set to the
 paths used above):
 
 ```powershell
-rsi --config-home "$marketHome/config/rsi" --state-home "$marketHome/state/rsi" --cache-home "$marketHome/cache/rsi" web --assets "$document"
+rsi --config-home "$marketHome/config/rsi" --data-home "$marketHome/data/rsi" --state-home "$marketHome/state/rsi" --cache-home "$marketHome/cache/rsi" --tmp-home "$marketHome/tmp" web --assets "$document"
 ```
 
 Both target plugins can then be installed through the markets.
