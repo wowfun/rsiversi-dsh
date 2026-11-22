@@ -82,7 +82,10 @@ export function installReleaseResolver(layout, roots, profile) {
       release??=local;
       return () => {
         lastParent=lastOwner=undefined;
-        for(const [name,row] of entries) if(rootsByName.get(name)===row) rootsByName.delete(name);
+        for(const [name,row] of entries) if(rootsByName.get(name)===row) {
+          const shipped=release?.get(installation?.dependencies[name]);
+          if(shipped)rootsByName.set(name,shipped);else rootsByName.delete(name);
+        }
         for(const row of owned) {
           const owners=byDirectory.get(row.directory);
           if(owners?.delete(row) && !owners.size) byDirectory.delete(row.directory);
@@ -180,7 +183,7 @@ export function installReleaseResolver(layout, roots, profile) {
       return path;
     }
     const name = barePackageName(specifier);
-    const target = rootsByName.get(name);
+    const target = release.get(installation?.dependencies[name]) ?? rootsByName.get(name);
     if (!target) throw new Error('Not a profile package: '+name);
     return createRequire(target.parent).resolve(specifier);
   }

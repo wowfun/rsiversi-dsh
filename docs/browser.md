@@ -25,6 +25,10 @@ DSH list response. An unavailable page or an overflow rejects the read;
 only a successful empty catalog is an empty list.
 
 The market workbench uses one application-level DSH Web shell and slot tree.
+Enabled bundles may register providers with the original DSH skill registry.
+The Session-addressed skill catalog supplies slash suggestions from those
+providers. Tool-enabled applications expose the original skill loader to the
+Agent. Provider registration and withdrawal follow the bundle's Cordis fiber.
 RSI and original-brand entry documents share the shell, the application's
 Cordis tool registry and a native Session ingress for authorized sidebar
 requests. Session-scoped resources hang from that root; they

@@ -30,19 +30,27 @@ test('child runners keep transitive npm dependencies in their own physical paylo
   assert.throws(()=>runtimePayloads(packages),/exceed one runtime payload/);
 });
 
-test('installation bundle lookup keeps the runtime dependency across a market shadow',t=>{
+test('installation bundle lookup keeps the runtime dependency across a market shadow',async t=>{
   const runtime='node_modules/runtime',bundle='node_modules/bundle';
   const nested=runtime+'/'+bundle;
-  const roots=new Map([['release',tmpdir()],['market',join(tmpdir(),'market')]]);
+  const root=await mkdtemp(join(tmpdir(),'rsi-bundle-lookup-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const roots=new Map([['release',root],['market',join(root,'market')]]);
+  const shipped=join(root,nested),profile=join(roots.get('market'),bundle);
+  for(const directory of [shipped,profile]) {
+    await mkdir(directory,{recursive:true});await writeFile(join(directory,'index.js'),'module.exports = {}');
+  }
   const resolver=installReleaseResolver({format:1,runtime:'runtime',locations:{
     [runtime]:{package:'release',dependencies:{bundle:nested}},
     [nested]:{package:'release',dependencies:{}},
   }},roots);
   t.after(()=>resolver.close());
-  resolver.add({format:1,locations:{[bundle]:{package:'market',dependencies:{}}}},roots,['bundle']);
+  const unselect=resolver.add({format:1,locations:{[bundle]:{package:'market',dependencies:{}}}},roots,['bundle']);
   assert.equal(resolver.directory('bundle'),join(roots.get('market'),bundle));
+  assert.equal(resolver.entry('bundle'),join(shipped,'index.js'));
   assert.equal(resolver.installationDependency('bundle'),join(roots.get('release'),nested));
   assert.equal(resolver.installationDependency('runtime'),undefined);
+  unselect();
+  assert.equal(resolver.directory('bundle'),join(roots.get('release'),nested));
 });
 
 test('a repacked host owns a captured peer and its internal dependencies even after hoisting',async t=>{

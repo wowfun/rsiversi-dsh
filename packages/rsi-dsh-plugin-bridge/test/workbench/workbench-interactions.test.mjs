@@ -37,11 +37,13 @@ test('authenticated browser windows share the original owner Peer and settle one
   t.after(async()=>{abort.abort();await app.close();});
   await app.reconcile([{insert:['dsh-typert-registry','dsh-api-remote-access','dsh-api-gateway','dsh-api-remotes'].map(id=>({id,name:'@deepseek-ai/'+id}))}]);
   const bridge=app.ctx.typertGateway;
-  const admission=()=>app.ctx.connection.admit({headers:{'x-rsi-upstream-key':'a'.repeat(64)}});
+  const host=new URL(app.ctx.webServer.getOrigin()).host;
+  const admission=()=>app.ctx.connection.admit({headers:{host,'x-rsi-upstream-key':'a'.repeat(64)}});
   const peer=admission().peer,other=admission().peer;
   assert.equal(peer,other);
-  assert.equal(peer,app.ctx.connection.browserPeer);
+  assert.equal(peer.principal.kind,'owner');
   assert.equal(app.ctx.connection.admit({headers:{}}).rejection,403);
+  assert.equal(app.ctx.connection.admit({headers:{host}}).rejection,401);
   const frames=bridge.openRemoteEvents({args:{}},abort.signal,peer);
   const foreign=bridge.openRemoteEvents({args:{}},abort.signal,other);
   await frames.next();

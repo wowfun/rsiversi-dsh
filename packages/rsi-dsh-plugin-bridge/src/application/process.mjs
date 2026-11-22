@@ -102,6 +102,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const {Deque}=await load('@deepseek-ai/dsh-deque');
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
       (id,signal)=>agents.ensure(id,signal)));
+    ctx.plugin((await load('@deepseek-ai/dsh-api-session-controller')).SessionSkillCatalog);
     hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,sessionScope,RemoteError));
     const jobName='@deepseek-ai/dsh-api-job-controller';
     if(rows.some(row=>row.name===jobName))hostModules.set(jobName,jobController((await load(jobName)).default,history));
@@ -161,7 +162,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     await ctx.plugin(agentApi.AgentRegistry);
     agents=await workbenchAgents(ctx,sessionScope,history,await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue);
     if(tools){
-      base[0].insert.push({id:'tool-schedule',name:'@deepseek-ai/dsh-tool-schedule'});
+      base[0].insert.push({id:'tool-schedule',name:'@deepseek-ai/dsh-tool-schedule'},
+        {id:'tool-skill',name:'@deepseek-ai/dsh-tool-skill'});
       await (await ctx.plugin((await load('@deepseek-ai/dsh-user-approval')).default,{})).await();
       const {retireOutcome,...listener}=await applicationTools(ctx,{load,key,generation,directory:tools.outcomeDirectory,sessions:sessionScope,boundary,
         resolveAgent:(id,signal)=>sessionScope.runOwned(()=>agents.ensure(id,signal),signal)});
@@ -196,7 +198,7 @@ const peer = new Peer({port:workerData,generation,drainOnCancel:drainsOnCancel,h
   if (method==='extension.close') {await close();return null;}
   if (method==='application.submit.read' && nativeSessions && !closing) return nativeSessions.readSubmission(args);
   if (method==='package.import' && npmRoot && !opening && !closing) {
-    opening=importRelease(layout,npmRoot,args,signal);
+    opening=importRelease(layout,npmRoot,args,signal,roots);
     return opening;
   }
   if (method!=='application.open' || opening || closing) throw new Error('Application operation unavailable');

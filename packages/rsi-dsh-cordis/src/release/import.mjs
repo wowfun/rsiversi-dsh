@@ -10,7 +10,7 @@ import {writePayloadFiles} from '../archive/payload.mjs';
 
 // PackageStore supplies the staging directory, importer dependencies and
 // actual toolchain lease. Stage only the extension to the running release.
-export async function importRelease(base,npmRoot,request,signal) {
+export async function importRelease(base,npmRoot,request,signal,runtimeRoots) {
   const {staging,workspace,specifications} = request;
   if (request.format !== 1 || !isAbsolute(staging) || !isAbsolute(workspace) ||
       !Array.isArray(specifications) || !specifications.length || specifications.length>128)
@@ -32,12 +32,25 @@ export async function importRelease(base,npmRoot,request,signal) {
         [[name,row.version]] : [];
     }));
     if (!runtime['@deepseek-ai/dsh']) throw new Error('Missing release runtime');
-    if (specs.some(spec=>Object.hasOwn(runtime,spec.name))) throw new Error('Cannot replace active runtime package');
+    async function selectRoot(name) {
+      if(!Object.hasOwn(runtime,name))return;
+      const location=base.locations['node_modules/'+base.runtime]?.dependencies?.[name];
+      const directory=runtimeRoots?.get(base.locations[location]?.package);
+      if(directory) {
+        const shipped=JSON.parse(await readFile(join(directory,location,'package.json'),'utf8'));
+        if(shipped.dsh?.bundle?.patch!==undefined) {
+          delete runtime[name];
+          return;
+        }
+      }
+      throw new Error('Cannot replace active runtime package');
+    }
+    for(const spec of specs)await selectRoot(spec.name);
     const cache=request.options?.cache===true?registryCache(workspace):join(work,'cache');
     const manifests=await Promise.all(specs.map(spec=>npmManifest(npmRoot,spec,request.options?.registry,cache,signal)));
+    for(const manifest of manifests)await selectRoot(manifest.name);
     const pins={};
     for(const manifest of manifests) {
-      if(Object.hasOwn(runtime,manifest.name))throw new Error('Cannot replace active runtime package');
       for(const name of Object.keys({...manifest.dependencies,...manifest.peerDependencies,...manifest.optionalDependencies}))
         if(Object.hasOwn(runtime,name))pins[name]=runtime[name];
     }

@@ -9,6 +9,26 @@ import {test} from 'node:test';
 import {importRelease} from '../../src/release/import.mjs';
 
 const npmRoot=process.env.RSI_DSH_NPM_ROOT;
+test('a shipped bundle can be selected from a profile while runtime services remain immutable',{skip:!npmRoot},async t=>{
+  const root=await mkdtemp(join(tmpdir(),'rsi-shipped-bundle-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const runtime='@deepseek-ai/dsh',name='@deepseek-ai/installable-fixture',location='node_modules/'+name;
+  const installed=join(root,'lease',location),candidate=join(root,'candidate'),staging=join(root,'staging');
+  await Promise.all([installed,candidate,staging].map(path=>mkdir(path,{recursive:true})));
+  const bundle={name,version:'1.0.0',dsh:{bundle:{patch:'./patch.yml'}}};
+  await writeFile(join(installed,'package.json'),JSON.stringify(bundle));
+  await writeFile(join(candidate,'package.json'),JSON.stringify({...bundle,version:'1.0.1'}));
+  await writeFile(join(candidate,'patch.yml'),'[]\n');
+  const base={runtime,plugins:[],version:'1.0.0',locations:{
+    ['node_modules/'+runtime]:{version:'1.0.0',dependencies:{[name]:location}},
+    [location]:{package:'shard',version:'1.0.0',dependencies:{}}}};
+  const roots=new Map([['shard',join(root,'lease')]]),signal=new AbortController().signal;
+  const request={format:1,workspace:root,staging,specifications:[candidate],options:{registry:'http://127.0.0.1:1'}};
+  const result=await importRelease(base,npmRoot,request,signal,roots);
+  const layout=JSON.parse(await readFile(join(staging,result.directories.at(-1),'layout.json')));
+  assert.deepEqual(layout.plugins,[name]);assert.equal(layout.locations[location].version,'1.0.1');
+  await writeFile(join(installed,'package.json'),JSON.stringify({name,version:'1.0.0'}));
+  await assert.rejects(importRelease(base,npmRoot,request,signal,roots),/Cannot replace active runtime package/);
+});
 test('an app-boot compatible prerelease peer binds to the host without leasing a second payload',{skip:!npmRoot},async t=>{
   const root=await mkdtemp(join(tmpdir(),'rsi-host-peer-'));t.after(()=>rm(root,{recursive:true,force:true}));
   const npm=createRequire(join(npmRoot,'package.json')),peer='@deepseek-ai/dsh-agent',version='0.2.2-rc.1';

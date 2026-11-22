@@ -109,7 +109,9 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
     }
     else {
       retireBinding(name);
-      await unlinkProfilePackage(profile,name,modules.setProfileLink);
+      const shipped=modules.installationDependency(name);
+      if(shipped)await linkProfilePackage(profile,name,shipped,modules.setProfileLink);
+      else await unlinkProfilePackage(profile,name,modules.setProfileLink);
       if(!Object.hasOwn(value.dependencies,name))return false;
       delete value.dependencies[name];
     }
@@ -238,7 +240,7 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
       for(const plugin of layout.plugins) {
         updates[plugin]={package:name,digest,version:layout.locations['node_modules/'+plugin].version};
         const mapping=modules.prepare(layout,roots,[plugin]);prepared.set(plugin,mapping);
-        patches.set(plugin,bundlePatches(boot,mapping.directory(plugin),boot.readProfileVersionExemptions(profile),boot.getDshRuntimeVersion()));
+        patches.set(plugin,bundlePatches(boot,modules.installationDependency(plugin)??mapping.directory(plugin),boot.readProfileVersionExemptions(profile),boot.getDshRuntimeVersion()));
       }
       if(expected && (layout.plugins.length!==1 || layout.plugins[0]!==expected.name || updates[expected.name].version!==expected.version))
         throw Object.assign(new Error('unexpected-package'),{code:'unexpected-package'});

@@ -16,6 +16,20 @@ import {catalogObserver} from '../../src/workbench/catalog.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('the workbench skill registry discovers and withdraws an original bundle provider',{skip:!root},async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'rsi-workbench-skills-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve(name)));
+  const modules={directory:name=>dirname(require.resolve(name+'/package.json'))};
+  const profile=await workbenchProfile(modules,await load('@deepseek-ai/dsh-app-boot'),dir);
+  const row=profile.rows.find(entry=>entry.name==='@deepseek-ai/dsh-skill');assert.ok(row);
+  const ctx=new (await load('@deepseek-ai/cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  await ctx.plugin((await load(row.name)).default,row.config).await();
+  const provider=ctx.plugin(await load('@deepseek-ai/dsh-skill-badge'));await provider.await();
+  assert.ok((await ctx.skills.list()).some(skill=>skill.name==='dsh-badge'));
+  assert.match((await ctx.skills.get('dsh-badge')).content,/726×120/);
+  await provider.dispose();assert.equal(await ctx.skills.get('dsh-badge'),undefined);
+});
 test('follow opens authorized history before optional independent Agent startup',async()=>{
   const activation=Promise.withResolvers(),failure=Promise.withResolvers(),starts=[],reads=[];
   const app=new AbortController();
@@ -195,7 +209,9 @@ test('base workbench serves authorized cold pages through published Typert witho
   await app.reconcile([{insert:selected.rows.filter(row=>entries.some(name=>row.name==='@deepseek-ai/'+name))}]);
   const additions=[];app.ctx.on('api-session/added',row=>additions.push(row));
   const lifetime=new AbortController();t.after(()=>lifetime.abort());
-  const peer=app.ctx.connection.admit({headers:{'x-rsi-upstream-key':key}}).peer;
+  const host=new URL(app.ctx.webServer.getOrigin()).host;
+  const peer=app.ctx.connection.admit({headers:{host,'x-rsi-upstream-key':key}}).peer;
+  assert.equal(peer.principal.kind,'owner');
   const observers=[0,1].map(()=>app.ctx.typertGateway.openRemoteEvents({args:{}},lifetime.signal,peer));
   for(const observer of observers)await observer.next();
   const result=await fetch(app.ctx.webServer.getOrigin()+'/api/session/list',{method:'POST',

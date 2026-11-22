@@ -620,8 +620,13 @@ placement when the declared versions and peers permit one. npm records the
 actual placements in its lock. Packaging an existing installed tree preserves
 that lock, including multiple versions or peers that require separate instances.
 The release importer seeds its npm stage with the selected runtime packages
-declared by the requested plugins. npm resolves the remaining transitive
-dependencies. Edges into the admitted runtime reuse its selected graph. A
+declared by the requested plugins. A bundle declared by the DSH installation
+may also be installed as a profile dependency. Its profile package retains the
+submitted contents. DSH resolves its activation patch from the installation
+first, and removing the profile dependency leaves the shipped package available.
+Runtime services and shared libraries retain their leased identities.
+The importer uses npm for remaining transitive dependencies. Edges into the
+admitted runtime reuse its selected graph. A
 market install therefore does not need to reinstall the DSH umbrella package
 unless the plugin requests it.
 The bundled npm resolves in an empty work directory with an explicit registry,
