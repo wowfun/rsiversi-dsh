@@ -69,6 +69,8 @@ for(const restored of [false,true])test(`the published Live Share Host serves gr
       await provideHttp(ctx,load,key,scope);
       const protocol=await load('@deepseek-ai/dsh-typert-protocol');
       const history={control:live.control,
+        async metadata(id,signal){return {...await scope.history(id,{type:'open'},signal),cwd:home};},
+        async capture(_id,meta){return {header:meta,seq:13};},
         async page({address},signal){
           await scope.history(address.sessionId,{type:'open'},signal);
           return {cursor:-1,hasMore:false,records:[]};
@@ -114,6 +116,15 @@ for(const restored of [false,true])test(`the published Live Share Host serves gr
     const args={request:{address:{kind:'session',sessionId:shared}}};
     const page=await read({op:'call',path:'/api/session/page',body:{type:'client-request',rpcId:'history',method:'session/page',payload:{args}}});
     assert.deepEqual(page.body.result?.value,{cursor:-1,hasMore:false,records:[]},JSON.stringify(page));
+    const stateArgs={request:{sessionId:shared}};
+    const state=await read({op:'call',path:'/api/session/state',body:{type:'client-request',rpcId:'state',method:'session/state',payload:{args:stateArgs}}});
+    const cold={cursor:12,active:false,running:false,queue:null,pendingInput:[]};
+    assert.deepEqual(state.body.result?.value,cold,JSON.stringify(state));
+    const states=await read({op:'stream-open',id:4,endpoint:'session/observeState',payload:{args:stateArgs}});
+    assert.equal(states.status,200);
+    const first=await read({op:'stream-next',id:4});
+    assert.deepEqual(first.body.values,[cold],JSON.stringify(first));
+    assert.equal((await read({op:'stream-cancel',id:4})).status,200);
     for(const [id,endpoint] of [[1,'workspace/follow'],[2,'session/control'],[3,'session/follow']]){
       const opening=await read({op:'stream-open',id,endpoint,payload:{args:id===3?args:{}}});
       assert.equal(opening.status,200,JSON.stringify(opening));

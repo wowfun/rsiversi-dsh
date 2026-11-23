@@ -1,5 +1,6 @@
 import {updateQueue} from './queue.mjs';
 import {observeSessionEvents} from './event-stream.mjs';
+import {observeSessionState,readSessionState} from './session-state.mjs';
 
 /** Use the release's generated session codec and dispatch machinery. */
 export function sessionSummary(ctx,{id,cwd,updatedAt,blank,running,parent,projections}) {
@@ -158,6 +159,14 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
     }
     events(request,signal) {return this.read(stop=>history.page(request,stop),signal);}
     page(request,signal) {return this.events(request,signal);}
+    state({sessionId},signal) {
+      return this.read(stop=>readSessionState(this.ctx,history,RemoteError,sessionId,stop),signal);
+    }
+    observeState({sessionId},signal) {
+      const open=stop=>observeSessionState(this.ctx,sessionId,stop,
+        readSignal=>readSessionState(this.ctx,history,RemoteError,sessionId,readSignal));
+      return this.readerAccess?scope.observeStream(open,signal):open(signal);
+    }
     observeEvent({address},signal) {
       return observeSessionEvents(this.ctx,address.kind==='subagent'?address.childSessionId:address.sessionId,signal,{RemoteError,Deque});
     }

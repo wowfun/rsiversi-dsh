@@ -39,6 +39,12 @@ scope retain their original sequence. On creation, the listener includes
 events appended after that Session's `firstLiveSeq`, excluding restored
 history. Cancellation or owner disposal removes the listener.
 
+`session.state` reads the current event cursor, driver status, queue and pending
+remote input without activating an Agent. A detached Session has a null queue.
+`session.observeState` opens with that same state and sends complete replacements
+when the addressed Session or Agent changes. The reader's existing Session grant
+applies to both operations. Neither operation writes a saved state snapshot.
+
 `session.observeProjections` also returns `ready` after registration, including
 for a Session that does not exist yet. It consumes the same committed changes
 as `session.control`. An active transcript, an attached Agent's native
