@@ -48,18 +48,26 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   await app.reconcile([{insert:[{id:'attachments',name:'@deepseek-ai/dsh-attachment-local',config:{dshHome:profile}},
     ...entries.map(id=>({id,name:'@deepseek-ai/'+id}))]}]);
   const data=Buffer.alloc(1024*1024+17,0x5a);
-  const upload=async id=>{
+  const upload=async (id,body)=>{
     const response=await fetch(app.ctx.webServer.getOrigin()+'/document/api/session/uploadFileBinary?'+new URLSearchParams({sessionId:id,name:'receipt.bin'}),{
-      method:'POST',headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/octet-stream'},body:data});
+      method:'POST',headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/octet-stream'},body});
     assert.equal(response.status,200);return response.json();
   };
-  const receipt=await upload('cold');assert.equal(receipt.ok,true,JSON.stringify(receipt));
+  const receipt=await upload('cold',data);assert.equal(receipt.ok,true,JSON.stringify(receipt));
   assert.deepEqual(calls,['cold']);
   assert.deepEqual(await readFile(app.ctx.attachments.fileHostPath(receipt.value.file)),data);
   const own=app.ctx.fileUploads.resolve(agents.get('cold'),receipt.value.receiptId);
   assert.deepEqual(own?.attachment??own,receipt.value.file);
   assert.equal(app.ctx.fileUploads.resolve({session:{id:'other'}},receipt.value.receiptId),undefined);
-  const refused=await upload('unknown');assert.equal(refused.ok,false);assert.equal(agents.has('unknown'),false);
+  // DSH closes the socket after rejecting a still-streaming body. Its error
+  // response can arrive before the close when the full body is already read.
+  try {
+    const refused=await upload('unknown',data);
+    assert.equal(refused.ok,false);assert.match(refused.error.message,/unavailable/);
+  }catch(error){
+    if(!['ECONNRESET','UND_ERR_SOCKET'].includes(error.cause?.code))throw error;
+  }
+  assert.equal(agents.has('unknown'),false);
   assert.deepEqual(calls,['cold','unknown']);
   const requestId=randomUUID();
   const prompt=async(content=[{type:'file',receiptId:receipt.value.receiptId}],id=requestId)=>{
