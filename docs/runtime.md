@@ -91,7 +91,7 @@ exports. For comparison with RSIversi use the DSH and vendor archives built
 from the same checkout as its Web control. The npm release tag and the
 comparison checkout can share a version while containing different code.
 The RSIversi Web comparison currently uses DSH commit
-`2e39e70496aa02986ca6a820c5d497e816b69d7e` (package version `0.2.2-rc.5`).
+`4b399c39a6d1479cd84ca591b4d7c88e24d38a96` (package version `0.2.3-alpha.2`).
 Build the market runtime and the Agent reference's browser support from that
 checkout when comparing their behavior.
 The Agent reference producer uses the upstream `build:artifacts` target.

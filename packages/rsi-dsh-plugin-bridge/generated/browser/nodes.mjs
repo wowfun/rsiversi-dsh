@@ -1,10 +1,9 @@
-// Generated from DeepSeek Harness 2e39e70496aa02986ca6a820c5d497e816b69d7e. See LICENSE.
+// Generated from DeepSeek Harness 4b399c39a6d1479cd84ca591b4d7c88e24d38a96. See LICENSE.
 import {
   PartialArguments,
-  extractTextContent,
   isAppendSurfaceEvent,
   isReplacementSurfaceEvent
-} from "./shared/YMOTVR5R.mjs";
+} from "./shared/OUGHIGPX.mjs";
 
 // packages/client/ui-chat/src/client/conversation-nodes/common.ts
 var CHAT_SYNTHETIC_SEQ_OFFSETS = {
@@ -1339,11 +1338,12 @@ function legacyContribution(raw) {
     case "steering":
     case "context":
     case "command":
-    case "compaction":
     case "turn-error":
     case "turn-max-tokens":
     case "unknown":
       return { anchorSeq: node.anchorSeq, nodes: [node.data], partial: null, running: null };
+    case "compaction":
+      return node.data.kind === "compaction-progress" ? EMPTY_CONTRIBUTION : { anchorSeq: node.anchorSeq, nodes: [node.data], partial: null, running: null };
     case "assistant-step": {
       const data = node.data;
       if (data.status === "running") {
@@ -1673,15 +1673,10 @@ function compactSource(event) {
   };
 }
 function compactSummary(match, checkpoint) {
-  let summary = null;
   let shadowedItemCount = null;
   let shadowedTokenCount = null;
   if (match?.event.type === "compaction/summary") {
     const data = match.event.data;
-    if (Array.isArray(data.summary)) {
-      const text = extractTextContent(data.summary);
-      summary = text.trim() === "" ? null : text;
-    }
     shadowedItemCount = Array.isArray(data.shadowedSeqs) && data.shadowedSeqs.every((seq) => Number.isSafeInteger(seq) && seq >= 0) ? data.shadowedSeqs.length : null;
     shadowedTokenCount = Number.isSafeInteger(data.shadowedTokenCount) && data.shadowedTokenCount >= 0 ? data.shadowedTokenCount : null;
   }
@@ -1689,7 +1684,6 @@ function compactSummary(match, checkpoint) {
     kind: "compaction",
     seq: checkpoint.event.seq,
     time: checkpoint.event.time,
-    summary,
     summaryEventSeq: match?.event.seq ?? null,
     shadowedItemCount,
     shadowedTokenCount
@@ -1767,9 +1761,11 @@ function registerCommandConversationNode(ctx) {
 
 // packages/client/ui-chat/src/client/conversation-nodes/compaction.ts
 function fallbackState3(context) {
+  const ended = context.matches.find((match) => match.event.type === "compaction/end");
   const summary = context.matches.find((match) => match.event.type === "compaction/summary");
   const checkpoint = context.matches.find((match) => compactSource(match.event) !== void 0);
   return {
+    ...ended === void 0 ? {} : { ended },
     ...summary === void 0 ? {} : { summary },
     ...checkpoint === void 0 ? {} : { checkpoint }
   };
@@ -1791,10 +1787,18 @@ var compactionDefinition = {
     return null;
   },
   start: () => ({}),
-  update: (context, match) => updateCompactionState(context.state, match),
+  update: (context, match) => match.event.type === "compaction/end" ? { ...context.state, ended: match } : updateCompactionState(context.state, match),
   buildViewNode: (context) => {
     const state = context.state ?? fallbackState3(context);
-    if (state.checkpoint === void 0) return null;
+    if (state.checkpoint === void 0) {
+      const anchor = context.start ?? state.ended;
+      if (anchor === void 0) return null;
+      const location = contextLocation(context);
+      const closed = (location.kind === "turn" || location.kind === "step") && location.turn.status === "closed";
+      const ended = state.ended?.event;
+      const progress = ended?.type === "compaction/end" ? { kind: "compaction-progress", status: "ended", ...ended.data.error === void 0 ? {} : { error: ended.data.error } } : { kind: "compaction-progress", status: closed ? "interrupted" : "running" };
+      return chatNode(context, "compaction", anchor.event.seq, progress);
+    }
     const marker = compactSummary(state.summary, state.checkpoint);
     return chatNode(context, "compaction", marker.seq, marker);
   }
@@ -2835,6 +2839,78 @@ function registerTurnProcess(ctx) {
     }
   });
 }
+
+// packages/llm/llm/src/error.ts
+var LLM_FAILURE_CODES = {
+  ABORTED: {},
+  ACCOUNT_QUOTA: {},
+  ACCOUNT_SIGN_IN_REQUIRED: {},
+  ACCOUNT_TOKEN_INVALID: {},
+  AUTH: {},
+  CLIENT_UPGRADE_REQUIRED: {},
+  CONTENT_REFUSED: {},
+  CONTEXT_WINDOW_EXCEEDED: {},
+  DISCOVERY_FAILED: {},
+  DISCOVERY_UNSUPPORTED: {},
+  DUPLICATE_ADAPTER: {},
+  DUPLICATE_DIRECTORY: {},
+  DUPLICATE_DISCOVERY: {},
+  EMPTY_RESPONSE: { retryChoice: true },
+  FILES_API: {},
+  IMAGE_OFFLOAD_REQUIRED: {},
+  INVALID_ADAPTER: {},
+  INVALID_CATALOG: {},
+  INVALID_CONFIG: {},
+  INVALID_CREDENTIAL: {},
+  INVALID_DIRECTORY: {},
+  INVALID_DISCOVERY: {},
+  INVALID_MODEL_CONTEXT: {},
+  INVALID_MODEL_INFO: {},
+  INVALID_MODEL_MAX_TOKENS: {},
+  INVALID_MODEL_REASONING: {},
+  INVALID_PREPARED_CALL: {},
+  INVALID_REPLAY_STATE: {},
+  INVALID_REQUEST: {},
+  INVALID_RESPONSE: {},
+  MALFORMED_RESPONSE: { retryChoice: true },
+  MISSING_CREDENTIAL: {},
+  MODEL_SWITCH_COMPACTION_FAILED: {},
+  MODEL_UNSUPPORTED: {},
+  NO_ADAPTER: {},
+  NO_CREDENTIAL_STORE: {},
+  NO_DISCOVERY: {},
+  PI_AI_ERROR: {},
+  QUOTA: { retryChoice: true },
+  RATE_LIMIT: { retryChoice: true },
+  REGISTRATION_DISPOSED: {},
+  REQUEST_EXTENSION: {},
+  REQUEST_HEADERS: {},
+  SERVER: { retryChoice: true },
+  STREAM_CLOSED: { retryChoice: true },
+  TIMEOUT: { retryChoice: true },
+  TRANSPORT: { retryChoice: true },
+  UNKNOWN: {},
+  UNKNOWN_MODEL: {},
+  UNSTORABLE_PROVIDER_ID: {},
+  UNSUPPORTED_CONTENT: {},
+  UNSUPPORTED_OPTION: {},
+  UNSUPPORTED_REASONING_EFFORT: {}
+};
+var RETRY_CODE_CHOICES = Object.freeze(
+  Object.keys(LLM_FAILURE_CODES).filter((code) => "retryChoice" in LLM_FAILURE_CODES[code])
+);
+var STRUCTURED_CONTEXT_OVERFLOW = new RegExp(
+  String.raw`(?:^|[^a-z0-9])context[\s_-](?:length|window)[\s_-]` + String.raw`(?:exceed(?:ed|s)?|overflow(?:ed)?|limit[\s_-]exceeded)(?:$|[^a-z0-9])`,
+  "i"
+);
+var TOO_LARGE_FOR_CONTEXT = new RegExp(
+  String.raw`\b(?:request|prompt|input|messages?)\s+(?:is\s+|are\s+)?` + String.raw`too\s+(?:large|long)\s+for\s+(?:(?:this|the)\s+)?` + String.raw`(?:model(?:'s)?\s+)?context(?:\s+window)?\b`,
+  "i"
+);
+var EXCEEDS_MODEL_CONTEXT = new RegExp(
+  String.raw`\b(?:input|prompt|request|messages?)\b.{0,40}` + String.raw`\b(?:exceed(?:s|ed)?|overflows?|is\s+larger\s+than)\b.{0,40}` + String.raw`\b(?:the\s+)?(?:model(?:'s)?\s+)?context(?:\s+(?:length|window))?\b`,
+  "i"
+);
 
 // packages/llm/llm/src/assistant-stream.ts
 function lastAssistantStreamChunk(stream, type) {

@@ -59,6 +59,9 @@ react-dom/client, @deepseek-ai/cordis, zod, @tanstack/react-virtual,
 @deepseek-ai/dsh-client-store, @deepseek-ai/dsh-client-ui-slots,
 @deepseek-ai/dsh-client-ui-primitives and @deepseek-ai/dsh-client-ui-dockkit.
 Original UI bundles resolve their synchronous host modules from this table.
+Their module metadata supplies the document styles. The renderer mounts the
+original stylesheet producers in package order before displaying the components
+and removes its styles when the document bridge is disposed.
 
 The bridge supplies the sessions, remote, remote.commands, remote.session,
 locale, uiConversation, resources, sidebarRight and sidebarRightTabs contracts

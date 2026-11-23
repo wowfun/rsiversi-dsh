@@ -9,6 +9,7 @@ import * as dockkit from '@deepseek-ai/dsh-client-ui-dockkit';
 import { installModuleLoader } from 'rsi-dsh-cordis/browser';
 import { BrowserScope, presentationServices } from './scope.mjs';
 import { ThemePresenter } from '../../generated/browser/theme.mjs';
+import { DocumentStyles } from '../../generated/browser/styles.mjs';
 import './workbench.css';
 
 const Bridge = createContext(undefined);
@@ -32,7 +33,10 @@ export async function installWorkbenchBridge(sdk, approved) {
   const themeForm = store.createSnapshotStore({ value: themeValue() });
   root.provide('configForms', { get: () => themeForm });
   await root.plugin(theme);
+  const styles = new DocumentStyles(document.head, loader);
+  root.effect(() => { styles.mount(); return () => styles.dispose(); });
   const presenter = new ThemePresenter();
+  presenter.start();
   presenter.apply(root.theme.getTheme());
   const detachTheme = root.on('theme/change', snapshot => presenter.apply(snapshot));
   const themeObserver = new MutationObserver(() => themeForm.set({ value: themeValue() }));

@@ -1,4 +1,4 @@
-// Generated from DeepSeek Harness 2e39e70496aa02986ca6a820c5d497e816b69d7e. See LICENSE.
+// Generated from DeepSeek Harness 4b399c39a6d1479cd84ca591b4d7c88e24d38a96. See LICENSE.
 
 // packages/util/values/lib/index.js
 var SIMPLE_ESCAPES = {
@@ -677,6 +677,27 @@ var WeakMapWithValues = class {
   }
 };
 
+// packages/core/session/lib/types/surface.js
+var SURFACE_EVENT_TYPES = /* @__PURE__ */ new Set([
+  "system/message",
+  "developer/message",
+  "user/message",
+  "assistant/message",
+  "tool/result"
+]);
+function isSurfaceEvent(event) {
+  if (!SURFACE_EVENT_TYPES.has(event.type))
+    return false;
+  const candidate = event;
+  return candidate.surfaceOp !== void 0;
+}
+function isAppendSurfaceEvent(event) {
+  return isSurfaceEvent(event) && event.surfaceOp === "append";
+}
+function isReplacementSurfaceEvent(event) {
+  return isSurfaceEvent(event) && event.surfaceOp !== "append";
+}
+
 // packages/util/values/src/partial-json.ts
 var SIMPLE_ESCAPES2 = {
   '"': '"',
@@ -1306,37 +1327,10 @@ function assertNever2(value, context) {
   throw new Error(`unreachable variant${context ? ` in ${context}` : ""}: ${rendered}`);
 }
 
-// packages/llm/llm/lib/types/message.js
-function extractTextContent(content, options) {
-  return content.filter((block) => block.type === "text").map((block) => block.text).join(options?.separator ?? "");
-}
-
-// packages/core/session/lib/types/surface.js
-var SURFACE_EVENT_TYPES = /* @__PURE__ */ new Set([
-  "system/message",
-  "developer/message",
-  "user/message",
-  "assistant/message",
-  "tool/result"
-]);
-function isSurfaceEvent(event) {
-  if (!SURFACE_EVENT_TYPES.has(event.type))
-    return false;
-  const candidate = event;
-  return candidate.surfaceOp !== void 0;
-}
-function isAppendSurfaceEvent(event) {
-  return isSurfaceEvent(event) && event.surfaceOp === "append";
-}
-function isReplacementSurfaceEvent(event) {
-  return isSurfaceEvent(event) && event.surfaceOp !== "append";
-}
-
 export {
   PartialArguments,
   assertNever,
   WeakMapWithValues,
-  extractTextContent,
   isSurfaceEvent,
   isAppendSurfaceEvent,
   isReplacementSurfaceEvent

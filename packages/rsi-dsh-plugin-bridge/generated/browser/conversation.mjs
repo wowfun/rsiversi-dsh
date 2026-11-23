@@ -1,10 +1,9 @@
-// Generated from DeepSeek Harness 2e39e70496aa02986ca6a820c5d497e816b69d7e. See LICENSE.
+// Generated from DeepSeek Harness 4b399c39a6d1479cd84ca591b4d7c88e24d38a96. See LICENSE.
 import {
   WeakMapWithValues,
   assertNever,
-  extractTextContent,
   isSurfaceEvent
-} from "./shared/YMOTVR5R.mjs";
+} from "./shared/OUGHIGPX.mjs";
 
 // packages/client/ui-conversation/src/client/conversation/assembly.ts
 import { Service as Service2 } from "@deepseek-ai/cordis";
@@ -37,6 +36,75 @@ function inspectRequestPrompt(previous, event, system) {
   };
 }
 
+// packages/llm/llm/lib/types/error.js
+var LLM_FAILURE_CODES = {
+  ABORTED: {},
+  ACCOUNT_QUOTA: {},
+  ACCOUNT_SIGN_IN_REQUIRED: {},
+  ACCOUNT_TOKEN_INVALID: {},
+  AUTH: {},
+  CLIENT_UPGRADE_REQUIRED: {},
+  CONTENT_REFUSED: {},
+  CONTEXT_WINDOW_EXCEEDED: {},
+  DISCOVERY_FAILED: {},
+  DISCOVERY_UNSUPPORTED: {},
+  DUPLICATE_ADAPTER: {},
+  DUPLICATE_DIRECTORY: {},
+  DUPLICATE_DISCOVERY: {},
+  EMPTY_RESPONSE: { retryChoice: true },
+  FILES_API: {},
+  IMAGE_OFFLOAD_REQUIRED: {},
+  INVALID_ADAPTER: {},
+  INVALID_CATALOG: {},
+  INVALID_CONFIG: {},
+  INVALID_CREDENTIAL: {},
+  INVALID_DIRECTORY: {},
+  INVALID_DISCOVERY: {},
+  INVALID_MODEL_CONTEXT: {},
+  INVALID_MODEL_INFO: {},
+  INVALID_MODEL_MAX_TOKENS: {},
+  INVALID_MODEL_REASONING: {},
+  INVALID_PREPARED_CALL: {},
+  INVALID_REPLAY_STATE: {},
+  INVALID_REQUEST: {},
+  INVALID_RESPONSE: {},
+  MALFORMED_RESPONSE: { retryChoice: true },
+  MISSING_CREDENTIAL: {},
+  MODEL_SWITCH_COMPACTION_FAILED: {},
+  MODEL_UNSUPPORTED: {},
+  NO_ADAPTER: {},
+  NO_CREDENTIAL_STORE: {},
+  NO_DISCOVERY: {},
+  PI_AI_ERROR: {},
+  QUOTA: { retryChoice: true },
+  RATE_LIMIT: { retryChoice: true },
+  REGISTRATION_DISPOSED: {},
+  REQUEST_EXTENSION: {},
+  REQUEST_HEADERS: {},
+  SERVER: { retryChoice: true },
+  STREAM_CLOSED: { retryChoice: true },
+  TIMEOUT: { retryChoice: true },
+  TRANSPORT: { retryChoice: true },
+  UNKNOWN: {},
+  UNKNOWN_MODEL: {},
+  UNSTORABLE_PROVIDER_ID: {},
+  UNSUPPORTED_CONTENT: {},
+  UNSUPPORTED_OPTION: {},
+  UNSUPPORTED_REASONING_EFFORT: {}
+};
+var RETRY_CODE_CHOICES = Object.freeze(Object.keys(LLM_FAILURE_CODES).filter((code) => "retryChoice" in LLM_FAILURE_CODES[code]));
+var STRUCTURED_CONTEXT_OVERFLOW = new RegExp(String.raw`(?:^|[^a-z0-9])context[\s_-](?:length|window)[\s_-]` + String.raw`(?:exceed(?:ed|s)?|overflow(?:ed)?|limit[\s_-]exceeded)(?:$|[^a-z0-9])`, "i");
+var TOO_LARGE_FOR_CONTEXT = new RegExp(String.raw`\b(?:request|prompt|input|messages?)\s+(?:is\s+|are\s+)?` + String.raw`too\s+(?:large|long)\s+for\s+(?:(?:this|the)\s+)?` + String.raw`(?:model(?:'s)?\s+)?context(?:\s+window)?\b`, "i");
+var EXCEEDS_MODEL_CONTEXT = new RegExp(String.raw`\b(?:input|prompt|request|messages?)\b.{0,40}` + String.raw`\b(?:exceed(?:s|ed)?|overflows?|is\s+larger\s+than)\b.{0,40}` + String.raw`\b(?:the\s+)?(?:model(?:'s)?\s+)?context(?:\s+(?:length|window))?\b`, "i");
+
+// packages/llm/llm/lib/types/message.js
+function extractTextContent(content, options) {
+  let texts = content.filter((block) => block.type === "text").map((block) => block.text);
+  if (options?.trim === true)
+    texts = texts.map((text) => text.trim()).filter(Boolean);
+  return texts.join(options?.separator ?? "");
+}
+
 // packages/client/ui-conversation/src/client/contract/system-prompt.ts
 function inspectSystemPrompt(previous, event) {
   const op = isSurfaceEvent(event) ? event.surfaceOp : void 0;
@@ -57,26 +125,34 @@ function inspectSystemPrompt(previous, event) {
     retained.set(event.seq, position);
     replacements = retained;
   }
-  const introduced = event.type === "system/message" ? {
-    seq: event.seq,
-    time: event.time,
-    turn: event.data.turn,
-    step: event.data.step,
-    text: extractTextContent(event.data.message.content),
-    update: op === "append" && previous?.nodes.some((item) => item.node.text !== "") === true
-  } : void 0;
+  let introduced;
+  if (event.type === "system/message") {
+    introduced = {
+      seq: event.seq,
+      time: event.time,
+      turn: event.data.turn,
+      step: event.data.step,
+      text: extractTextContent(event.data.message.content, { separator: "\n\n", trim: true }),
+      update: op === "append" && previous?.nodes.some((item) => item.node.text !== "") === true
+    };
+  }
   if (introduced !== void 0) {
     nodes = [...nodes, { position, node: introduced }].sort((a, b) => a.position - b.position);
   }
-  const surviving = nodes.findLast((item) => item.node.text !== "")?.node;
-  const effective = surviving === previous?.nodes.findLast((item) => item.node.text !== "")?.node ? previous?.effective : introduced !== void 0 && introduced === surviving ? introduced : {
-    seq: event.seq,
-    time: event.time,
-    turn: surviving?.turn ?? 0,
-    step: surviving?.step ?? 0,
-    text: surviving?.text ?? "",
-    update: false
-  };
+  const nonEmpty = nodes.filter((item) => item.node.text !== "");
+  const surviving = nonEmpty.at(-1)?.node;
+  const text = nonEmpty.map((item) => item.node.text).join("\n\n");
+  let effective = previous?.effective;
+  if (effective?.text !== text && (effective !== void 0 || text !== "")) {
+    effective = {
+      seq: event.seq,
+      time: event.time,
+      turn: surviving?.turn ?? 0,
+      step: surviving?.step ?? 0,
+      text,
+      update: introduced?.update === true
+    };
+  }
   return { firstSeq, uncertain, nodes, replacements, effective, introduced };
 }
 

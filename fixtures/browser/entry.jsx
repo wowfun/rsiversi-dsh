@@ -11,6 +11,7 @@ import * as primitives from '@deepseek-ai/dsh-client-ui-primitives';
 import * as dockkit from '@deepseek-ai/dsh-client-ui-dockkit';
 import { PartialArguments } from '@deepseek-ai/dsh-util-values';
 import { installModuleLoader } from '../../packages/rsi-dsh-cordis/src/runtime/browser.mjs';
+import { DocumentStyles } from '../../packages/rsi-dsh-plugin-bridge/generated/browser/styles.mjs';
 import approved from './approved.json';
 import conversation from './conversation.json';
 import './shell.css';
@@ -63,6 +64,8 @@ ctx.provide('configForms', { get: () => ({ subscribe: noop, getSnapshot: () => (
 await ctx.plugin(await loader.load('@deepseek-ai/dsh-client-ui-theme'));
 await ctx.plugin(await loader.load('@deepseek-ai/dsh-client-ui-tool'));
 await ctx.plugin(await loader.load('@deepseek-ai/dsh-client-ui-plan'));
+const styles = new DocumentStyles(document.head, loader);
+ctx.effect(() => { styles.mount(); return () => styles.dispose(); });
 const find = (name, key) => {
   const entry = core.entriesOfSlot(name).find(item => key === undefined || item.options.key === key);
   if (!entry) throw new Error(`original component missing: ${name}/${key}`);

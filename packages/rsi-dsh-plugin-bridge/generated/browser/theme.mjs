@@ -1,4 +1,4 @@
-// Generated from DeepSeek Harness 2e39e70496aa02986ca6a820c5d497e816b69d7e. See LICENSE.
+// Generated from DeepSeek Harness 4b399c39a6d1479cd84ca591b4d7c88e24d38a96. See LICENSE.
 
 // packages/client/ui-layout/src/client/theme-presenter.ts
 var DARK_ATTRIBUTE = "data-ds-dark-theme";

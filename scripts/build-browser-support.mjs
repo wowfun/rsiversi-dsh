@@ -17,6 +17,7 @@ const entries={
   conversation:['ui-conversation/src/client/conversation/assembly.ts','UiConversation'],
   nodes:['ui-chat/src/client/conversation-nodes/register.ts','registerConversationNodes'],
   theme:['ui-layout/src/client/theme-presenter.ts','ThemePresenter'],
+  styles:['ui-renderer/src/client/styles/document-styles.ts','DocumentStyles'],
   common:['locale/src/locales/en.ts','en'],
   messages:['ui-conversation/src/client/locales.ts','en'],
 };

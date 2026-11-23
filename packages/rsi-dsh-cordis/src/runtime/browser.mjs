@@ -4,13 +4,29 @@ export function installModuleLoader(modules, approved) {
   const table = new Map(Object.entries(modules));
   const expected = new Map(approved.map(entry => [entry.id, entry]));
   const loaded = new Map();
-  const require = id => { if (!table.has(id)) throw new Error(`unresolved browser singleton: ${id}`); return table.get(id); };
-  window.__ModuleLoader__ = Object.freeze({ load({ id, factory }) {
-    if (!expected.has(id) || loaded.has(id) || typeof factory !== 'function') throw new Error('unapproved or duplicate browser bundle');
-    const plugin = factory(require);
-    loaded.set(id, plugin);
+  const listeners = new Set();
+  const resolveAsset = reference => reference;
+  function materialize({id, factory, meta}) {
+    const edges = new Set();
+    const require = name => {
+      if (!table.has(name)) throw new Error(`unresolved browser singleton: ${name}`);
+      edges.add(name);
+      const singleton = table.get(name);
+      const manifest = singleton.__$dsh_client_module_manifest;
+      return manifest ? (loaded.get(name) ?? materialize(manifest)).exports : singleton;
+    };
+    require.asset = resolveAsset;
+    const record = {id, ownerId: id, exports: factory(require), meta, edges};
+    loaded.set(id, record);
+    for (const listener of listeners) listener();
+    return record;
+  }
+  window.__ModuleLoader__ = Object.freeze({ load(registration) {
+    if (!expected.has(registration.id) || loaded.has(registration.id) || typeof registration.factory !== 'function')
+      throw new Error('unapproved or duplicate browser bundle');
+    materialize(registration);
   } });
-  return Object.freeze({ async load(id, signal) {
+  async function load(id, signal) {
     const entry = expected.get(id);
     if (!entry || loaded.has(id)) throw new Error('unapproved or duplicate browser load');
     const url = new URL(entry.url, location.href);
@@ -26,6 +42,10 @@ export function installModuleLoader(modules, approved) {
       document.head.append(script);
     });
     if (!loaded.has(id)) throw new Error(`bundle did not register: ${id}`);
-    return loaded.get(id);
-  } });
+    return loaded.get(id).exports;
+  }
+  return Object.freeze({
+    load, resolveAsset, activeRecords: () => loaded.values(),
+    subscribeModules(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+  });
 }

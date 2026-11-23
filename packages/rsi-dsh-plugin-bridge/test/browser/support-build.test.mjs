@@ -19,6 +19,7 @@ test('packed browser roles share one upstream module and retain their license on
   await source('ui-conversation/src/client/conversation/assembly.ts',"export {identity as UiConversation} from '../../../../shared.ts';");
   await source('ui-chat/src/client/conversation-nodes/register.ts',"export {identity as registerConversationNodes} from '../../../../shared.ts';");
   await source('ui-layout/src/client/theme-presenter.ts','export class ThemePresenter {}');
+  await source('ui-renderer/src/client/styles/document-styles.ts','export class DocumentStyles {}');
   await source('locale/src/locales/en.ts',"export const en={send:'Send'};");
   await source('ui-conversation/src/client/locales.ts',"export const en={reply:'Reply'}; export const unrelated='unused dictionary';");
   await writeFile(join(root,'LICENSE'),'upstream license');
@@ -27,6 +28,7 @@ test('packed browser roles share one upstream module and retain their license on
   const role=name=>import(pathToFileURL(join(output,name+'.mjs')));
   assert.equal((await role('conversation')).UiConversation,(await role('nodes')).registerConversationNodes);
   assert.equal(typeof (await role('theme')).ThemePresenter,'function');
+  assert.equal(typeof (await role('styles')).DocumentStyles,'function');
   assert.deepEqual((await role('common')).en,{send:'Send'});
   assert.deepEqual((await role('messages')).en,{reply:'Reply'});
   assert.doesNotMatch(await readFile(join(output,'messages.mjs'),'utf8'),/unused dictionary/);
