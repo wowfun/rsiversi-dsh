@@ -60,3 +60,23 @@ test('Workspace move errors retain DSH business identities',async()=>{
     assert.equal(error.code,'workspace/move-invalid');assert.deepEqual(error.data,request);return true;
   });
 });
+
+test('workspace feeds preserve detached pins and exclude promoted drafts without rewriting native rows',async()=>{
+  const other='b'.repeat(64);
+  const members=Object.freeze([
+    {group:0,session:'a',account_position:1,last_activity_ms:'3'},
+    {group:1,session:'detached',account_position:0,last_activity_ms:'20',pinned:true},
+    {group:0,session:'z',account_position:0,last_activity_ms:'4'},
+  ]);
+  const scope={workspaceChange:()=>new AbortController().signal,
+    drafts:async()=>[{id:'detached',workspace:other,updatedAt:1},{id:'private',workspace:workspaceId,updatedAt:6}],
+    workspace:async input=>input.type==='list'
+      ? {items:[{id:workspaceId,path:'/one',created:1},{id:other,path:'/two',created:1}],order:[workspaceId,other]}
+      : {groups:[workspaceId,null],members}};
+  const Controller=workspaceController(class {},scope,RemoteError);
+  const frames=new Controller().follow(new AbortController().signal);
+  const {value:{value}}=await frames.next();
+  assert.deepEqual(value.items.map(row=>row.sessionIds),[['private','z','a'],[]]);
+  assert.deepEqual(value.pinnedSessionIds,['detached']);
+  await frames.return();
+});

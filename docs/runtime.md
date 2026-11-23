@@ -1316,7 +1316,10 @@ List queries remain authoritative after reconnect. An omitted fork cursor
 selects the last completed local Turn.
 The new root can continue independently. A cursor inside an open Turn
 requires a separate interrupted-history seed and is refused explicitly.
-The original Workspace feed groups Sessions by native execution coordinates.
+The Workspace feed uses the native registration's explicit Session membership.
+An Agent created with only a cwd stays accessible by ID and is excluded from
+that Workspace's chat list and blank reuse. An explicit Workspace chat joins
+that registration. A fork follows the source's membership. The workspace feed\nplaces each attached Session at its native account position. Pins and archives\ninclude visible detached Sessions independently of workspace placement.
 It publishes a baseline, observes the native directory subscription, and sends
 a replacement when the visible registrations or Navigation membership change.
 The feed includes the browser owner's native ready drafts until publication

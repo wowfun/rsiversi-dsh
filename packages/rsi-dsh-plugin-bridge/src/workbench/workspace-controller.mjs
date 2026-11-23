@@ -34,20 +34,23 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     }while(after);
     items.sort((a,b)=>order.get(a.id)-order.get(b.id));
     const {groups,members}=await scope.workspace({type:'membership'},signal);
-    const published=new Set(members.map(row=>row.session));
-    const byWorkspace=new Map(),archives=[],pins=[];
-    for(const member of members.sort((a,b)=>a.group-b.group||a.account_position-b.account_position)){
-      if(member.archived)archives.push(member);
-      if(member.pinned)pins.push(member);
-      const group=groups[member.group],rows=byWorkspace.get(group)??[];
-      if(rows.length===0)byWorkspace.set(group,rows);
-      rows.push(member);
+    const drafts = new Map((await scope.drafts(signal)).map(draft => [draft.id, draft]));
+    const byWorkspace = new Map(), archives = [], pins = [];
+    for (const member of members) {
+      drafts.delete(member.session);
+      if (member.archived) archives.push(member);
+      if (member.pinned) pins.push(member);
+      const workspace = groups[member.group];
+      if (workspace == null) continue;
+      let rows = byWorkspace.get(workspace);
+      if (!rows) byWorkspace.set(workspace, rows = []);
+      rows[member.account_position] = member;
     }
-    for(const draft of await scope.drafts(signal)){
-      if(published.has(draft.id))continue;
-      const rows=byWorkspace.get(draft.workspace)??[];
+    for (const draft of drafts.values()) {
+      if (draft.workspace == null) continue;
+      let rows = byWorkspace.get(draft.workspace);
+      if (!rows) byWorkspace.set(draft.workspace, rows = []);
       rows.unshift({session:draft.id,last_activity_ms:draft.updatedAt});
-      byWorkspace.set(draft.workspace,rows);
     }
     return {items:items.map(row=>{
       if(row.created==null)throw new Error('Workspace has no recorded creation time');
