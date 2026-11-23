@@ -2,6 +2,35 @@ import {once} from 'node:events';
 import {readWorkspaceBaseline,workspaceView} from './workspace-registry.mjs';
 import {isDeepStrictEqual} from 'node:util';
 
+export function ownerDirectoryPicker(Controller,scope,RemoteError) {
+  function admit(method) {
+    if(scope.isHostOwner())return;
+    const action='directoryPicker/'+method;
+    throw new RemoteError('remote-access/denied',`remote access: ${action}: access denied (no-allow)`,
+      {action,reason:'no-allow'});
+  }
+  return class extends Controller {
+    pick(signal){admit('pick');return super.pick(signal);}
+    list(path,signal){admit('list');return super.list(path,signal);}
+    createDirectory(path,name){admit('createDirectory');return super.createDirectory(path,name);}
+  };
+}
+
+/** The process home belongs to the package cache. The picker displays the operator's home. */
+export function hostHomePicker(Browse,home) {
+  return class extends Browse {
+    constructor(ctx,config) {
+      super(ctx,config);
+      const browse=super.capability();
+      this.hostBrowse={...browse,list:async(path,signal)=>{
+        const listing=await browse.list(path??home,signal);
+        return {...listing,home};
+      }};
+    }
+    capability(){return this.hostBrowse;}
+  };
+}
+
 function mergeActivity(reported,native) {
   if(!reported.length)return native;
   if(!native.length)return reported;

@@ -8,6 +8,13 @@ native Session cwd for relative files and can open explicit host paths as the
 operator. A Session selects its default directory. Only the native browser
 device issued to the local operator can enter this shell or run its package
 operations.
+The workspace sidebar uses the shipped DSH directory picker. Its adaptive
+plugin mounts a matching browser surface and Host backend. The browse picker
+can enter any directory accessible to the Host account, follow directory links,
+and create a child folder there. Its routes share the local operator gate.
+The application profile requests Host desktop launch facts. SSH launches use
+the browse surface. Its Home breadcrumb opens the Host account's directory.
+The package runtime keeps its own home for caches and downloads.
 At application startup the launcher publishes the release's immutable
 `launchEnvironment` service. Its process layer contains the environment
 admitted to the package process. Plugins in the same generation read the

@@ -15,7 +15,7 @@ import {createMarketProfile} from '../market/market-profile.mjs';
 import {linkProfilePackage} from '../market/profile-files.mjs';
 import {applicationSessions} from './sessions.mjs';
 import {workbenchWorkspaceRegistry} from '../workbench/workspace-registry.mjs';
-import {workspaceController} from '../workbench/workspace-controller.mjs';
+import {hostHomePicker,ownerDirectoryPicker,workspaceController} from '../workbench/workspace-controller.mjs';
 import {sessionController} from '../workbench/session-controller.mjs';
 import {jobController} from '../workbench/job-controller.mjs';
 import {workbenchProfile} from '../workbench/profile.mjs';
@@ -121,7 +121,17 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
       (id,signal,source)=>agents.ensure(id,signal,source)));
     ctx.plugin((await load('@deepseek-ai/dsh-api-session-controller')).SessionSkillCatalog);
-    hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,sessionScope,RemoteError));
+    const workspaceModule='@deepseek-ai/dsh-api-workspace-controller';
+    const {DirectoryPickerController}=await load(workspaceModule);
+    if(process.env.RSI_HOST_HOME){
+      const browse='@deepseek-ai/dsh-host-directory-picker-browse';
+      hostModules.set(browse,hostHomePicker((await load(browse)).default,process.env.RSI_HOST_HOME));
+    }
+    const Workspace=workspaceController(TypertRemoteService,sessionScope,RemoteError);
+    const Picker=ownerDirectoryPicker(DirectoryPickerController,sessionScope,RemoteError);
+    hostModules.set(workspaceModule,class extends Workspace {
+      constructor(scope){super(scope);scope.plugin(Picker);}
+    });
     const jobName='@deepseek-ai/dsh-api-job-controller';
     if(rows.some(row=>row.name===jobName))hostModules.set(jobName,jobController((await load(jobName)).default,history));
     const terminalName='@deepseek-ai/dsh-api-terminal-controller';

@@ -17,6 +17,7 @@ test('OS-home runtime downloads stay outside the portable market profile',async 
   await writeFile(receipt,JSON.stringify({selection:{name:'runtime',digest:'a'.repeat(64)}}));
   await writeMarketServiceProfile({receipt,document:dir,state,profile:'market',output});
   const config=await readFile(output,'utf8');
+  assert.match(config,/^host_desktop = true$/m);
   // The producer emits an inline TOML table of JSON-quoted string fields.
   const table=/^environment = \{(.*)\}$/m.exec(config)[1];
   const env=JSON.parse('{'+table.replace(/("(?:[^"\\]|\\.)*") = /g,'$1:')+'}');
