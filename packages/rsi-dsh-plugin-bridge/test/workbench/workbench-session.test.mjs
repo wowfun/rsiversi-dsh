@@ -138,27 +138,66 @@ test('rename uses the authorized Session and returns the title service event coo
   assert.deepEqual(calls,[' raw title ',' ']);
 });
 
-test('restore waits for stop providers; a stop failure leaves the committed archive intact',async()=>{
+test('confirmed archive uses the native writer before stop and follow-up, and restore waits for both',async()=>{
   const started=Promise.withResolvers(),release=Promise.withResolvers(),calls=[],warnings=[];
-  const scope={workspace:async({type})=>{
-    calls.push(type);
-    if(type==='archive')return {status:'applied',changed:true,archivedSessionIds:['s']};
-    if(type==='unarchive')return {status:'applied',changed:true,archivedSessionIds:[]};
-    throw Error('native stop failed');
+  const scope={workspace:async operation=>{
+    calls.push(operation.type);
+    if(operation.type==='archive'){
+      assert.equal(operation.stop_activity,true);
+      return {status:'applied',changed:true,archivedSessionIds:['s']};
+    }
+    if(operation.type==='archive_activity')return {status:'applied',changed:false,archivedSessionIds:['s']};
+    assert.equal(operation.type,'unarchive');
+    return {status:'applied',changed:true,archivedSessionIds:[]};
   }};
   const Service=workspaceController(class {constructor(ctx){this.ctx=ctx;}},scope,Error);
-  const workspaces=new Service({get:()=>undefined,logger:{warn:text=>warnings.push(text)},
-    parallel:async()=>{started.resolve();await release.promise;throw Error('plugin stop failed');}});
+  const workspaces=new Service({logger:{warn:text=>warnings.push(text)},
+    parallel:async(event,{sessionId})=>{
+      assert.equal(sessionId,'s');calls.push(event);
+      if(event==='workspace/session-stop'){started.resolve();await release.promise;throw Error('plugin stop failed');}
+      if(event==='workspace/session-archived')throw Error('plugin follow-up failed');
+    }});
   const archive=workspaces.archiveSession({sessionId:'s',stopActivity:true});
   await started.promise;
   const restore=workspaces.unarchiveSession({sessionId:'s'});
-  await Promise.resolve();assert.deepEqual(calls,['archive','stop_archive_activity']);
+  await Promise.resolve();assert.deepEqual(calls,['archive','workspace/session-stop']);
   release.resolve();
   assert.deepEqual(await archive,{archivedSessionIds:['s']});
   assert.deepEqual(await restore,{archivedSessionIds:[]});
-  assert.deepEqual(calls,['archive','stop_archive_activity','unarchive']);
-  assert.ok(warnings.some(line=>line.includes('native stop failed')));
+  assert.deepEqual(calls,['archive','workspace/session-stop','workspace/session-archived','archive_activity','workspace/session-unarchiving','unarchive']);
   assert.ok(warnings.some(line=>line.includes('plugin stop failed')));
+  assert.ok(warnings.some(line=>line.includes('plugin follow-up failed')));
+});
+
+test('a rejected unarchiving listener keeps the session archived and a retry waits for it',async()=>{
+  let archived=true,attempts=0;
+  const changes=[];
+  const scope={workspace:async ({type})=>{
+    if(type==='archive_activity')return {status:archived?'applied':'ready',activity:[],archivedSessionIds:archived?['s']:[]};
+    assert.equal(type,'unarchive');changes.push(archived);archived=false;return {archivedSessionIds:[]};
+  }};
+  const Service=workspaceController(class {constructor(ctx){this.ctx=ctx;}},scope,Error);
+  const controller=new Service({parallel:async(event,{sessionId})=>{
+    assert.equal(event,'workspace/session-unarchiving');assert.equal(sessionId,'s');assert.ok(archived);
+    if(++attempts===1)throw Error('cleanup pending');
+  }});
+  await assert.rejects(controller.unarchiveSession({sessionId:'s'}),/cleanup pending/);
+  assert.ok(archived);assert.deepEqual(changes,[]);
+  assert.deepEqual(await controller.unarchiveSession({sessionId:'s'}),{archivedSessionIds:[]});
+  assert.deepEqual(await controller.unarchiveSession({sessionId:'s'}),{archivedSessionIds:[]});
+  assert.equal(attempts,2);assert.deepEqual(changes,[true,false]);
+});
+
+test('an activity first observed by the native archive writer is returned to the caller',async()=>{
+  const activity=[{kind:'turn'}],calls=[];
+  const scope={workspace:async ({type})=>{
+    calls.push(type);return {status:'ready',activity:type==='archive'?activity:[]};
+  }};
+  const Service=workspaceController(class {constructor(ctx){this.ctx=ctx;}},scope,
+    class extends Error {constructor(code,_message,data){super(code);Object.assign(this,{code,data});}});
+  const controller=new Service({waterfall:async(_event,_args,next)=>next()});
+  await assert.rejects(controller.archiveSession({sessionId:'s'}),{code:'workspace/session-active',data:{sessionId:'s',activity}});
+  assert.deepEqual(calls,['archive_activity','archive']);
 });
 
 test('base workbench serves authorized cold pages through published Typert without a registry importer', {skip:!root},async t=>{
@@ -168,7 +207,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   await symlink(join(root,'node_modules/@deepseek-ai'),join(profile,'node_modules/@deepseek-ai'),process.platform==='win32'?'junction':'dir');
   const require=createRequire(join(root,'package.json')),key=randomBytes(32).toString('hex');
   const registered=new Map([['mirror',{status:'running'}]]);
-  const sent=[],archives=new Set(),activityQueries=[],stops=[],nativeStops=[];
+  const sent=[],archives=new Set(),activityQueries=[],stops=[],nativeStops=[],archivedEvents=[];
   const scope=applicationSessions(async(method,args)=>{
     const {request,after}=args;
     if(method==='application.actor'){
@@ -200,12 +239,13 @@ test('base workbench serves authorized cold pages through published Typert witho
         const {session}=args.operation;
         if(session==='missing')return {status:'unknown'};
         const changed=!archives.has(session);
+        if(changed&&['working','mirror'].includes(session)){
+          if(!args.operation.stop_activity)return {status:'ready',activity:[{kind:'turn'}]};
+          nativeStops.push(session);
+        }
         archives.add(session);
         return {status:'applied',changed,archivedSessionIds:[...archives]};
       }
-      case 'stop_archive_activity':
-        assert.ok(archives.has(args.operation.session));
-        nativeStops.push([args.operation.session,args.operation.stop_root]);return null;
       case 'set_pin':{
         const {session,pinned}=args.operation;
         if(session==='missing'&&pinned)return {status:'unknown'};
@@ -351,6 +391,7 @@ test('base workbench serves authorized cold pages through published Typert witho
     if(sessionId==='children')return [{kind:'subagent',items:[{id:'a',label:'Plugin label'}]},...rest];
     return sessionId==='mirror'?[{kind:'turn'},...rest]:rest;
   });
+  app.ctx.on('workspace/session-archived',({sessionId})=>{assert.ok(archives.has(sessionId));archivedEvents.push(sessionId);});
   app.ctx.on('workspace/session-stop',({sessionId})=>{
     assert.ok(archives.has(sessionId));stops.push(sessionId);
   });
@@ -383,7 +424,8 @@ test('base workbench serves authorized cold pages through published Typert witho
   }
   assert.deepEqual(activityQueries,['working','children','idle','mirror']);
   assert.deepEqual(stops,['working','mirror']);
-  assert.deepEqual(nativeStops,[['working',true],['mirror',false]]);
+  assert.deepEqual(nativeStops,['working','mirror']);
+  assert.deepEqual(archivedEvents,['idle','working','mirror']);
   const rename=await fetch(app.ctx.webServer.getOrigin()+'/api/workspace/rename',{method:'POST',
     headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
     body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'workspace/rename',payload:{args:{request:{workspaceId:'a'.repeat(64),title:'Renamed'}}}})});

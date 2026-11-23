@@ -109,29 +109,33 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       return serializeArchive(async()=>{
         const request={sessionId};
         const unknown=()=>new RemoteError('session/not-found','Unknown Session',request);
+        const active=activity=>new RemoteError('workspace/session-active','Session has active work',{sessionId,activity});
         if(!stopActivity){
           const state=await scope.workspace({type:'archive_activity',session:sessionId},signal);
           if(state.status==='unknown')throw unknown();
           if(state.status==='applied')return {archivedSessionIds:state.archivedSessionIds};
           const reported=await this.ctx.waterfall('workspace/session-activity',request,async()=>[]);
           const activity=mergeActivity(reported,state.activity);
-          if(activity.length)throw new RemoteError('workspace/session-active','Session has active work',{sessionId,activity});
+          if(activity.length)throw active(activity);
         }
-        const result=await scope.workspace({type:'archive',session:sessionId},signal);
+        const result=await scope.workspace({type:'archive',session:sessionId,stop_activity:stopActivity},signal);
         if(result.status==='unknown')throw unknown();
-        if(result.changed&&stopActivity){
-          const live=this.ctx.get('agents')?.get(sessionId)?.status==='running';
-          const stops=[this.ctx.parallel('workspace/session-stop',request),
-            scope.workspace({type:'stop_archive_activity',session:sessionId,stop_root:!live},signal)];
-          for(const stop of await Promise.allSettled(stops)){
-            if(stop.status==='rejected')this.ctx.logger.warn(`Cannot stop archived Session ${sessionId}: ${stop.reason}`);
+        if(result.status==='ready')throw active(result.activity);
+        if(result.changed){
+          if(stopActivity){
+            try {await this.ctx.parallel('workspace/session-stop',request);}
+            catch(error){this.ctx.logger.warn(`Cannot stop archived Session ${sessionId}: ${error}`);}
           }
+          try {await this.ctx.parallel('workspace/session-archived',request);}
+          catch(error){this.ctx.logger.warn(`Session ${sessionId} archived, but archive follow-up admission failed: ${error}`);}
         }
         return {archivedSessionIds:result.archivedSessionIds};
       });
     }
     unarchiveSession({sessionId},signal){
       return serializeArchive(async()=>{
+        const state=await scope.workspace({type:'archive_activity',session:sessionId},signal);
+        if(state.status==='applied')await this.ctx.parallel('workspace/session-unarchiving',{sessionId});
         const {archivedSessionIds}=await scope.workspace({type:'unarchive',session:sessionId},signal);
         return {archivedSessionIds};
       });
