@@ -36,7 +36,8 @@ test('plugins claim an ordinary root on their native caller and publish it only 
       return {kind:'draft',shared:true,revision:0,session_id:args.session_id,pending:[]};
     assert.fail(method+' '+args.operation?.type);
   },{owner:'app-caller',agent:id=>agents?.get(id),registered:id=>ctx.agents.get(id)});
-  let agents=await workbenchAgents(ctx,scope,{
+  const loop=ctx.plugin({inject:['agents','sessionProjections'],apply(){}});await loop;
+  let agents=await workbenchAgents(loop.ctx,scope,{
     metadata:async()=>({selection_cursor:{kind:'draft',revision:0}}),
     captureAgent:async id=>({session:saved.get(id),options:{}}),
   },await load('dsh-scope'),agentApi,api.snapshotJsonValue);
@@ -66,7 +67,10 @@ test('plugins claim an ordinary root on their native caller and publish it only 
   assert.deepEqual(resumed.agent.session.header,handle.agent.session.header);
   await resumed.dispose();assert.deepEqual(announced,[['root','startup'],['root','resume']]);
   const fromBrowser=await browser(()=>owner.ctx.agents.create({sessionId:'web',meta}));
-  assert.equal(fromBrowser.agent.id,'web');await fromBrowser.dispose();
+  assert.equal(fromBrowser.agent.id,'web');
+  await loop.dispose();
+  assert.equal(ctx.agents.get('web'),undefined,'retiring the factory releases an Agent held by another plugin');
+  await fromBrowser.dispose();
   assert.deepEqual(calls.filter(([method])=>method==='application.create').map(([,caller])=>caller),['app-caller','app-caller','web-caller']);
 });
 
@@ -170,7 +174,10 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
       }
       owner.journal.merge(states.get(id).events);return {options:selection,session:owner.journal.session};
     }};
-  agents=await workbenchAgents(ctx,scope,history,await load('dsh-scope'),await load('dsh-agent'),api.snapshotJsonValue);
+  await ctx.plugin((await load('dsh-system-prompt')).default);
+  await ctx.plugin((await load('dsh-tools')).default);
+  const loop=ctx.plugin({inject:['agents','sessionProjections','tools'],apply(){}});await loop;
+  agents=await workbenchAgents(loop.ctx,scope,history,await load('dsh-scope'),await load('dsh-agent'),api.snapshotJsonValue);
   t.after(async()=>{gate?.resolve();drain?.resolve();await ctx.fiber.dispose();await scope.close();});
   const parent=await scope.runOwned(()=>agents.ensure('parent'));
   assert.equal(ctx.agents.get('parent'),parent);
@@ -193,6 +200,7 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
     agentOptions:selection,setup(agentCtx,agent){
       scoped=agentCtx;assert.equal(ctx.agents.get('child'),undefined);
       assert.equal(scope.sessions.get('child'),agent.session);
+      assert.equal(typeof agentCtx.tools.guard,'function','Agent scope inherits the factory tool registry');
       agentCtx.effect(()=>()=>lifecycle.push('scope-disposed'));
       return {commit(){lifecycle.push('committed');}};
     }}));

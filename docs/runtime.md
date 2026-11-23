@@ -221,8 +221,11 @@ rows, groups and reconciliation. Failed activation releases the root Fiber and p
 the original diagnostic. A registry install and a profile enable are distinct
 operations; the market's request specifies which to perform.
 
-The market workbench mounts the release's local subprocess service, sandbox,
-sandbox policy, platform shell and shell environment registry. Installed plugins can use `ctx.shell`
+The market workbench mounts the release's sandboxed filesystem, local subprocess
+service, sandbox policy, platform shell and shell environment registry. Plugins can
+resolve paths against a Session cwd and pass its policy to `ctx.fs` mutations.
+The original filesystem enforces that policy and delegates reads to the local
+provider. Installed plugins can use `ctx.shell`
 without registering another model tool. Claude Code and Codex command hooks
 use their own config files, stdin dialects and result decoding. They run in
 the Session cwd and use the DSH deployment policy, as the published hook
@@ -383,7 +386,9 @@ one application subscription. Their native preparation is acquired on demand.
 The original Agent registry has a native-backed factory. A plugin creating an
 ordinary unseeded root through `ctx.agents.create` reserves its exact
 Session ID, cwd and selected preset. A second claim fails, including across a
-Host restart. Setup runs in the Agent scope owned by the caller before publication.
+Host restart. Setup runs before publication in the factory's Agent scope.
+That scope inherits the loop's services, including the scoped tool registry.
+Disposing either the creating plugin or the factory retires the Agent.
 The Session is available during setup. Remote Agent lookups wait for publication.
 An active HTTP caller retains its Workspace authority. Calls originating in
 the application use its trusted callback.

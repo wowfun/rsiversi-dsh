@@ -248,11 +248,12 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         }
       }
     }
-    const release=owner.effect(function*(){
-      world=createScope(owner,agent,{parent:options.parentAgent});agent.ctx=world.ctx;
+    const releaseScope=ctx.effect(function*(){
+      world=createScope(ctx,agent,{parent:options.parentAgent});agent.ctx=world.ctx;
       yield world.rawDispose;
       yield stop;
     },'native Agent '+id);
+    const release=owner===ctx?releaseScope:owner.effect(()=>()=>releaseScope(),'native Agent owner '+id);
     function dispose(){
       return disposing??=(async()=>{
         try {await release();}finally{await world.dispose();}

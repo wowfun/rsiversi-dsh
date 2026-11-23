@@ -185,7 +185,11 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     }
     const agentApi=await load('@deepseek-ai/dsh-agent');
     await ctx.plugin(agentApi.AgentRegistry);
-    agents=await workbenchAgents(ctx,sessionScope,history,await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue);
+    const loopServices=['agents','sessions','sessionProjections','tools','systemPrompt'];
+    if(hasLanguage)loopServices.push('llm');
+    await ctx.inject(loopServices,async loop=>{
+      agents=await workbenchAgents(loop,sessionScope,history,await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue);
+    }).await();
     if(tools){
       base[0].insert.push({id:'tool-schedule',name:'@deepseek-ai/dsh-tool-schedule'},
         {id:'tool-skill',name:'@deepseek-ai/dsh-tool-skill'});

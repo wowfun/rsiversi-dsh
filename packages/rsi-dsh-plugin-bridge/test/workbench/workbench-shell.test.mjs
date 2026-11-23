@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {mkdir,mkdtemp,readFile,rm,stat,writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
-import {homedir} from 'node:os';
+import {homedir,tmpdir} from 'node:os';
 import {dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {pathToFileURL} from 'node:url';
@@ -14,6 +14,34 @@ import {workbenchProfile} from '../../src/workbench/profile.mjs';
 import {shellPreset} from '../../../../fixtures/market/shell-preset.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('the market filesystem enforces the release policy for the Session workspace',{skip:!root},async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-dsh-fs-'));
+  const workspace=join(profile,'project');
+  let app;
+  t.after(async()=>{await app?.close();await rm(profile,{recursive:true,force:true});});
+  await mkdir(workspace);
+  const require=createRequire(join(root,'package.json'));
+  const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
+  const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
+  const {rows}=await workbenchProfile(modules,boot,profile);
+  app=await createApplication({profile,modules,provide:async(ctx,load)=>{
+    await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
+  }});
+  await app.reconcile([{insert:rows.filter(row=>['fs-sandbox','sandbox-policy'].includes(row.id))}]);
+  const fs=app.ctx.get('fs');
+  assert.ok(fs,'market profile must mount its sandboxed filesystem');
+  const {Session}=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-session')));
+  const session=Session.create('plugin-fs',[],{version:4,id:'plugin-fs',cwd:workspace,createdAt:0,isSeeded:false});
+  const policy=app.ctx.sandboxPolicy.resolve({session});
+  assert.equal(policy.workspaceRoot,workspace);
+  const file=await fs.resolve('plugin-note.txt',{cwd:workspace});
+  await fs.writeText(file,'first',undefined,undefined,policy);
+  assert.equal(await readFile(join(workspace,'plugin-note.txt'),'utf8'),'first');
+  const readOnly=app.ctx.sandboxPolicy.resolve({session,mode:'read-only'});
+  await assert.rejects(fs.writeText(file,'second',undefined,undefined,readOnly),{code:'FS_SANDBOX_DENIED'});
+  assert.equal(await fs.readText(file),'first');
+});
+
 test('the market profile runs the release shell service and platform model tools', {skip:!root,timeout:120000},async t=>{
   // bwrap gives the child a private /tmp. Keep the fixture on the host filesystem.
   const profile=await mkdtemp(join(homedir(),'.rsi-dsh-shell-'));
