@@ -1312,17 +1312,14 @@ selects the last completed local Turn.
 The new root can continue independently. A cursor inside an open Turn
 requires a separate interrupted-history seed and is refused explicitly.
 The original Workspace feed groups Sessions by native execution coordinates.
-It publishes a baseline and sends a replacement when the visible Workspace
-registrations or Navigation membership change. The current native registry
-has no change stream, so a connected follower samples it once per second.
+It publishes a baseline, observes the native directory subscription, and sends
+a replacement when the visible registrations or Navigation membership change.
 The feed includes the browser owner's native ready drafts until publication
 or expiry. The draft list and the durable navigation seed share Session IDs.
 Workspace creation, rename and deletion use the native registry. An existing
 directory registered twice returns one creation and one reuse.
-The original `session/prompt` accepts text for an existing native Session.
-The DSH request ID is the native durable message ID. Queue and steer preserve
-their respective delivery modes. File receipts and inline images require a
-native Media import and currently return an explicit error.
+For `session/prompt`, the DSH request ID is the native durable message ID.
+Queue and steer preserve their respective delivery modes.
 The corresponding committed human message carries that same ID as its DSH
 `source.rpcId`, allowing the composer to settle its local pending bubble.
 The workbench's ordinary Session cancel command sends native Session-wide
