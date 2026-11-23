@@ -41,6 +41,24 @@ test('named creates publish the Agent in arrival order and a rejected claim rele
   assert.deepEqual(calls,['failed','new','again']);assert.deepEqual(published,['startup','resume']);
 });
 
+test('the standard workbench serves DSH session statistics beyond a single page',{skip:!root},async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'rsi-workbench-stats-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const modules={directory:name=>dirname(require.resolve(name+'/package.json'))};
+  const profile=await workbenchProfile(modules,await load('dsh-app-boot'),dir);
+  const row=profile.rows.find(entry=>entry.id==='session-stats');assert.ok(row);
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  await ctx.plugin((await load('dsh-session')).default);await ctx.plugin((await load('dsh-session-projection')).default);
+  await ctx.plugin(await import(pathToFileURL(require.resolve(row.name))),row.config);
+  const session=ctx.sessions.create('long-history');
+  for(let turn=1;turn<=45;turn++){
+    session.append('step/start',{turn,step:1});session.append('step/end',{turn,step:1});
+  }
+  const {turns,steps}=ctx.sessionProjections.snapshot(session).values.sessionStats;
+  assert.deepEqual({turns,steps},{turns:45,steps:45});
+});
+
 test('the workbench skill registry discovers and withdraws an original bundle provider',{skip:!root},async t=>{
   const dir=await mkdtemp(join(tmpdir(),'rsi-workbench-skills-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const require=createRequire(join(root,'package.json'));

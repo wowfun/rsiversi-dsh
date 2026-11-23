@@ -25,6 +25,8 @@ DSH list response. An unavailable page or an overflow rejects the read;
 only a successful empty catalog is an empty list.
 
 The market workbench uses one application-level DSH Web shell and slot tree.
+The original session statistics projection supplies whole-session turn and step
+counts to the chat footer, including after a paginated history load.
 Enabled bundles may register providers with the original DSH skill registry.
 The Session-addressed skill catalog supplies slash suggestions from those
 providers. Tool-enabled applications expose the original skill loader to the
