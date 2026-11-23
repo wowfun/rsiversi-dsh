@@ -85,7 +85,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const call=(method,args,signal)=>peer.request(method,args,{signal});
     let persistence,agents,history;
     const storage=sessionJournalStore(join(profileState(profile),'sessions'),await load('@deepseek-ai/dsh-atomic-write'),()=>ctx.emit('rsi/catalog-projection'));
-    sessionScope=applicationSessions(call,{owner,agent:id=>agents?.get(id),attached:()=>agents?.sessions(),decorate:storage.decorate,
+    sessionScope=applicationSessions(call,{owner,agent:id=>agents?.get(id),registered:id=>ctx.get('agents')?.get(id),
+      attached:()=>agents?.sessions(),decorate:storage.decorate,
       select:(request,signal)=>history.selectModel(request,signal),
       capture:async(id,signal)=>agents?.get(id)?(await agents.refresh(id,signal)).session:persistence.capture(id,signal)});
     nativeSessions=sessionScope;

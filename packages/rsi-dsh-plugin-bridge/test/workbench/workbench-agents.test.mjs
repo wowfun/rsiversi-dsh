@@ -12,6 +12,64 @@ import {SessionProjectionJournal} from '../../src/session/session-projection-jou
 import {inputIntents} from '../../src/session/inbox/input-intents.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('plugins claim an ordinary root on their native caller and publish it only after setup',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context(),agentApi=await load('dsh-agent');
+  await ctx.plugin((await load('dsh-session-projection')).default);await ctx.plugin(agentApi.AgentRegistry);
+  const api={...await load('dsh-session'),...await load('dsh-session/surface'),...await load('dsh-util-values')};
+  const saved=new Map(),calls=[],announced=[];
+  const claimEntered=Promise.withResolvers(),claimRelease=Promise.withResolvers(),remoteEntered=Promise.withResolvers();
+  const scope=applicationSessions(async(method,args)=>{
+    calls.push([method,args.request]);
+    if(method==='application.create'){
+      assert.equal(args.requested,undefined);assert.equal(args.cwd,process.cwd());
+      assert.equal(args.preset,'writer');assert.equal(args.fork,undefined);
+      if(saved.has(args.fresh))throw Error('Session already exists');
+      const journal=new SessionProjectionJournal(ctx,api,{header:{version:4,id:args.fresh,createdAt:1,cwd:args.cwd,isSeeded:false,agentPreset:args.preset}},{save:async()=>{}});
+      saved.set(args.fresh,journal.session);
+      if(args.fresh==='root'){claimEntered.resolve();await claimRelease.promise;}
+      return {id:args.fresh,reused:false,summary:{createdAt:1}};
+    }
+    if(method==='application.actor')return {id:args.session_id,cwd:process.cwd()};
+    if(method==='application.inbox'&&args.operation.type==='open')
+      return {kind:'draft',shared:true,revision:0,session_id:args.session_id,pending:[]};
+    assert.fail(method+' '+args.operation?.type);
+  },{owner:'app-caller',agent:id=>agents?.get(id),registered:id=>ctx.agents.get(id)});
+  let agents=await workbenchAgents(ctx,scope,{
+    metadata:async()=>({selection_cursor:{kind:'draft',revision:0}}),
+    captureAgent:async id=>({session:saved.get(id),options:{}}),
+  },await load('dsh-scope'),agentApi,api.snapshotJsonValue);
+  t.after(async()=>{await ctx.fiber.dispose();await scope.close();});
+  ctx.on('agent/created',({agent,source})=>announced.push([agent.id,source]));
+  const owner=ctx.plugin({inject:['agents'],apply(){}});await owner;
+  const meta={cwd:process.cwd(),agentPreset:'writer'};
+  const setup=Promise.withResolvers(),release=Promise.withResolvers();
+  const created=owner.ctx.agents.create({sessionId:'root',meta,async setup(_ctx,agent){
+    assert.equal(ctx.agents.get('root'),undefined);assert.equal(scope.sessions.get('root'),agent.session);
+    setup.resolve();await release.promise;
+  }});
+  await claimEntered.promise;
+  const observed=agents.ensure('root');claimRelease.resolve();
+  await setup.promise;assert.deepEqual(announced,[]);
+  const browser=await scope.prepare({headers:{'x-rsi-upstream-request':'web-caller'},url:'/api/test'});
+  const lookup=browser(()=>scope.lookupAgent('root',(id,signal)=>{remoteEntered.resolve();return agents.ensure(id,signal);}));
+  await Promise.race([remoteEntered.promise,lookup.then(()=>assert.fail('lookup returned during setup'))]);
+  await assert.rejects(owner.ctx.agents.create({sessionId:'root',meta}),/already|in progress/);
+  release.resolve();const handle=await created;
+  assert.equal(await lookup,handle.agent);assert.equal(await observed,handle.agent);assert.deepEqual(announced,[['root','startup']]);
+  assert.equal(handle.agent.session.header.agentPreset,'writer');
+  await handle.dispose();
+  await assert.rejects(owner.ctx.agents.create({sessionId:'root',meta}),/already exists/);
+  assert.equal(ctx.agents.get('root'),undefined);
+  const resumed=await owner.ctx.agents.resume({resumeSessionId:'root'});
+  assert.deepEqual(resumed.agent.session.header,handle.agent.session.header);
+  await resumed.dispose();assert.deepEqual(announced,[['root','startup'],['root','resume']]);
+  const fromBrowser=await browser(()=>owner.ctx.agents.create({sessionId:'web',meta}));
+  assert.equal(fromBrowser.agent.id,'web');await fromBrowser.dispose();
+  assert.deepEqual(calls.filter(([method])=>method==='application.create').map(([,caller])=>caller),['app-caller','app-caller','web-caller']);
+});
+
 for(const open of [false,true])test(`original registry owns ${open?'open':'completed'} native fork setup, input receipts and ordered stop before scoped teardown`,{skip:!root,timeout:10000},async t=>{
   const require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));

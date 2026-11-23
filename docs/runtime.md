@@ -373,8 +373,14 @@ Plugins see one `agent/created` with source `startup` for a new identity and
 `resume` when reopening a stored identity. Reusing a live blank keeps the
 same Agent. Pristine shared blanks receive native change notifications through
 one application subscription. Their native preparation is acquired on demand.
-The original Agent registry has a native-backed factory. Opening a workbench
-transcript attaches a live mirror without waking a model. Listing remains cold;
+The original Agent registry has a native-backed factory. A plugin creating an
+ordinary unseeded root through `ctx.agents.create` reserves its exact
+Session ID, cwd and selected preset. A second claim fails, including across a
+Host restart. Setup runs in the Agent scope owned by the caller before publication.
+The Session is available during setup. Remote Agent lookups wait for publication.
+An active HTTP caller retains its Workspace authority. Calls originating in
+the application use its trusted callback.
+Opening a workbench transcript attaches a live mirror without waking a model. Listing remains cold;
 sidebar reads refresh existing Agents and leave unattached side conversations for
 the caller's resume setup. Owned Agents and their working directories remain
 accessible outside a browser request. Each mirror reads history and

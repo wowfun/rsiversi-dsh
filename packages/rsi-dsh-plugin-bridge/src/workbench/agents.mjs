@@ -203,10 +203,11 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     };
     return agent;
   }
-  function attach(owner,options,source,created) {
+  function attach(owner,options,source,created,prepare) {
     const id=options.sessionId??options.resumeSessionId;
     if(opening.has(id)||records.has(id)||ctx.agents.get(id))return Promise.reject(Error('Agent is already attached: '+id));
-    const pending=build(owner,options,source,created);
+    // Reserve the Agent before native creation can publish its directory entry.
+    const pending=prepare?Promise.resolve().then(prepare).then(()=>build(owner,options,source,created)):build(owner,options,source,created);
     opening.set(id,pending);
     void pending.finally(()=>{
       opening.delete(id);
@@ -281,29 +282,35 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
   const factory={
     async createAgent(owner,options) {
       const meta={...options.meta},parent=meta.parentSession,id=options.sessionId;
-      if(!parent)throw Error('Native factory creation requires a source Session');
       const supplied=options.seed??[];
-      const seed=nativeForkSeed(parent,supplied,records.get(parent)?.view.session);
+      if(!parent&&(supplied.length||options.parentSource||meta.isSeeded||meta.origin||meta.delegationDepth!==undefined))
+        throw Error('Native seeded or delegated creation requires a source Session');
+      const seed=parent?nativeForkSeed(parent,supplied,records.get(parent)?.view.session):undefined;
       const annotations=snapshotForkAnnotations(supplied,options.inheritedEventCount,snapshotJsonValue);
       if(creating.has(id))throw Error('Agent creation already in progress');
       const receipt=Promise.withResolvers();
       creating.set(id,receipt.promise);
-      try {
-        const result=await scope.create({sessionId:id,fork:{source_session_id:parent,point:seed.point,turns:'all'}},options.signal);
+      const selection=options.agentOptions&&{...options.agentOptions};
+      async function prepare(signal) {
+        owner.fiber.assertActive();signal?.throwIfAborted();
+        const result=seed?await scope.create({sessionId:id,fork:{source_session_id:parent,point:seed.point,turns:'all'}},signal):
+          await scope.claimBlank(id,meta,signal);
         receipt.resolve({meta,annotations,createdAt:result.summary.createdAt});
-        if(seed.context){
-          const catalog=await scope.command(id,{type:'list'},options.signal);
+        if(seed?.context){
+          const catalog=await scope.command(id,{type:'list'},signal);
           const command=catalog.commands.find(command=>command.name==='context-seed');
           if(!command)throw Error('Native Session has no context-seed command');
           await scope.command(id,{type:'execute',invocation:{command:command.id,
-            request_id:'initial-context',expected_revision:catalog.revision,arguments:{text:seed.context}}},options.signal);
+            request_id:'initial-context',expected_revision:catalog.revision,arguments:{text:seed.context}}},signal);
         }
-        if(options.agentOptions?.provider&&options.agentOptions?.model)
-          await scope.selectModel({sessionId:id,...options.agentOptions},options.signal);
-        return await attach(owner,options,'startup',true);
+        if(selection?.provider&&selection?.model)
+          await scope.selectModel({sessionId:id,...selection},signal);
+      }
+      try {
+        return await scope.withCaller(signal=>attach(owner,{...options,signal},'startup',true,()=>prepare(signal)),options.signal);
       }finally{receipt.resolve();creating.delete(id);}
     },
-    resume:(owner,options)=>attach(owner,options,'resume',true),
+    resume:(owner,options)=>scope.withCaller(signal=>attach(owner,{...options,signal},'resume',true),options.signal),
   };
   ctx.agents.setFactory(factory);
   async function sharedBlankChanged(id) {

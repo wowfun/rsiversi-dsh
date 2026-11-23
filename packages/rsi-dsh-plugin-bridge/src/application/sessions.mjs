@@ -12,7 +12,7 @@ export class SidebarBodyError extends Error {}
 
 /** The synchronous DSH lookup is scoped to a native-authorized request.
  * An unknown Session must never trigger the sidebar's cwd/process fallback. */
-export function applicationSessions(send,{capture,owner,agent,attached,select,decorate}={}) {
+export function applicationSessions(send,{capture,owner,agent,registered=agent,attached,select,decorate}={}) {
   const scope=new AsyncLocalStorage();
   const activities=applicationActivities(scope,owner);
   const submissionBodies=requestBodies(8*1024*1024);
@@ -209,9 +209,8 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     return items;
   }
   async function create({workspaceId,cwd,sessionId,agentPreset,fork},signal) {
-    const result=await scoped('application.create',fork?{fresh:sessionId??'session-'+randomUUID(),fork}:
+    return scoped('application.create',fork?{fresh:sessionId??'session-'+randomUUID(),fork}:
       {fresh:'session-'+randomUUID(),requested:sessionId,workspace:workspaceId,cwd,preset:agentPreset},signal);
-    return result;
   }
   const subagents={
     async listChildren(id,signal) {
@@ -246,6 +245,8 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
     workspaceChange:()=>(workspaceChange??=new AbortController()).signal,
     invalidateWorkspaces(){const before=workspaceChange;workspaceChange=undefined;before?.abort();},
     create,prompt,submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
+    claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
+    withCaller:(operation,signal)=>scope.getStore()?operation(requestSignal(signal)):activities.run(operation,signal),
     readSubmission:input=>submissionBodies.read(input),
     runOwned:activities.run,observeOwned:activities.observe,retainDraft,async close(){submissionBodies.close();await activities.close();},
     inbox:applicationInbox((id,operation,signal)=>scoped('application.inbox',{session_id:id,operation},signal)),
@@ -295,7 +296,7 @@ export function applicationSessions(send,{capture,owner,agent,attached,select,de
       const request=activeRequest(),active=scope.getStore();
       if(active.agentLookup?.id===id)return active.agentLookup.value;
       const value=call('application.actor',{request,session_id:id}).then(()=>
-        agent?.(id)??activities.run(signal=>activate(id,signal)));
+        registered?.(id)??activities.run(signal=>activate(id,signal)));
       active.agentLookup={id,value};
       return value;
     },
