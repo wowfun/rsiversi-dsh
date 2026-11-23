@@ -134,11 +134,11 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     const rows=items.concat(heldDrafts.filter(row=>!published.has(row.id)));
     return decorate?decorate(rows):rows;
   }
-  async function prompt({sessionId,requestId,mode,content,attribution},signal) {
+  async function prompt({sessionId,requestId,mode},content,source,signal) {
     if(!['queue','steer'].includes(mode)) throw new Error('Unknown prompt delivery mode');
     await submit(sessionId,{message_id:requestId,
       delivery:mode==='queue'?'next_turn':'steer',content:submissionContent(content),
-      attribution:attribution??{id:requestId,source:{kind:'user',rpcId:requestId}}},signal);
+      attribution:{id:requestId,source}},signal);
     return {accepted:true};
   }
   async function submit(sessionId,input,signal) {

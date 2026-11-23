@@ -25,7 +25,7 @@ function sessionResource({args,parameters}) {
   }
 }
 
-export function sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},scope,history,interactions,activate) {
+export function sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque},scope,history,interactions,activate) {
   return class extends TypertRemoteService {
     claims=new Map();
     static inject=['typert','remoteAccess'];
@@ -94,9 +94,18 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
       return {sessionId:result.id};
     }
     async prompt(request,signal) {
+      signal.throwIfAborted();
+      if(request.content.length && !request.content.some(part=>part.type!=='text'||part.text.trim().length))
+        throw new RemoteError('gateway/bad-request','prompt content must include non-whitespace text or an attachment',{});
+      const clientTimeZone=request.clientTimeZone===undefined?undefined:canonicalClientTimeZone(request.clientTimeZone);
+      if(request.clientTimeZone!==undefined && clientTimeZone===undefined)
+        throw new RemoteError('session/invalid-time-zone','clientTimeZone must be UTC or a valid IANA Area/Location name',{value:request.clientTimeZone});
+      const principal=principalOf(this.ctx.invocation);
+      const source={kind:request.content.length?'user':'retry',rpcId:request.requestId,
+        ...(clientTimeZone===undefined?{}:{clientTimeZone}),...(principal===undefined?{}:{principal})};
       const admit=async content=>{
         if(content.some(part=>part.type==='image'))content=await this.ctx.get('attachments').admitPromptContent(content);
-        return scope.prompt(content===request.content?request:{...request,content},signal);
+        return scope.prompt(request,content,source,signal);
       };
       if(!request.content.some(part=>part.type==='file'))return admit(request.content);
       const receipts=[...new Set(request.content.filter(part=>part.type==='file').map(part=>part.receiptId))];

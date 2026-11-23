@@ -95,7 +95,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       const catalog=await sessionScope.observeOwned(signal=>sessionScope.modelCatalog(signal,true));
       await provideLanguage(ctx,load,catalog,language);
     }
-    const {TypertRemoteService,RemoteError}=await load('@deepseek-ai/dsh-typert-protocol');
+    const {TypertRemoteService,RemoteError,principalOf}=await load('@deepseek-ai/dsh-typert-protocol');
+    const {canonicalClientTimeZone}=await load('@deepseek-ai/dsh-util-time');
     const interactions=workbenchInteractions(ctx,sessionScope,await load('@deepseek-ai/dsh-scope'));
     const api=Object.assign({},await load('@deepseek-ai/dsh-session'),await load('@deepseek-ai/dsh-session/surface'),await load('@deepseek-ai/dsh-util-values'));
     history=workbenchHistory({ctx,api,llm:await load('@deepseek-ai/dsh-llm'),read:sessionScope.history,release:sessionScope.releaseHistory,
@@ -116,7 +117,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     }});
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
     const {Deque}=await load('@deepseek-ai/dsh-deque');
-    hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
+    hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
       (id,signal,source)=>agents.ensure(id,signal,source)));
     ctx.plugin((await load('@deepseek-ai/dsh-api-session-controller')).SessionSkillCatalog);
     const workspaceModule='@deepseek-ai/dsh-api-workspace-controller';

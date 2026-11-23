@@ -1391,6 +1391,11 @@ For `session/prompt`, the DSH request ID is the native durable message ID.
 Queue and steer preserve their respective delivery modes.
 The corresponding committed human message carries that same ID as its DSH
 `source.rpcId`, allowing the composer to settle its local pending bubble.
+For a chat prompt, the controller takes the non-owner principal from the current
+Typert invocation. Owner messages omit the principal. An optional client time
+zone is validated and canonicalized by DSH before attachment admission. These
+fields describe the message. Live Share admission and tool access belong to the
+active share and its source Session.
 The workbench's ordinary Session cancel command sends native Session-wide
 cancellation with `keep_inbox: true`. It cancels the accepted open Turns and
 pauses the inbox atomically, retaining pending input until a new waking input

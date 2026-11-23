@@ -16,6 +16,36 @@ import {catalogObserver} from '../../src/workbench/catalog.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('chat prompts record the Typert caller and canonical time zone before attachment admission',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const {principalOf,RemoteError}=await load('dsh-typert-protocol');
+  const {canonicalClientTimeZone}=await load('dsh-util-time');
+  class Service {constructor(ctx){this.ctx=ctx;}}
+  const calls=[],scope=applicationSessions(async(method,args)=>{
+    assert.equal(method,'application.submit');
+    calls.push(await nativeSubmission(args,scope));
+    return {session_id:args.session_id,message_id:args.message_id,accepted_control_seq:1};
+  });
+  t.after(()=>scope.close());
+  const dispatch=await scope.prepare({url:'/api/session/prompt'},'authorized-test-request');
+  const Controller=sessionController({TypertRemoteService:Service,RemoteError,principalOf,canonicalClientTimeZone},scope);
+  const request={sessionId:'source',requestId:'request',mode:'queue',content:[{type:'text',text:'hello'}],clientTimeZone:'Asia/Chongqing'};
+  const reader={kind:'share-viewer',shareId:'share',actor:{providerId:'fixture',tenantId:'tenant',subjectId:'reader'}};
+  const signal=new AbortController().signal;
+  for(const principal of [{kind:'owner'},reader]){
+    const controller=new Controller({invocation:{peer:{principal}}});
+    assert.deepEqual(await dispatch(()=>controller.prompt(request,signal)),{accepted:true});
+    assert.deepEqual(calls.at(-1).attribution.source,{kind:'user',rpcId:'request',clientTimeZone:canonicalClientTimeZone(request.clientTimeZone),
+      ...(principal===reader?{principal:reader}:{})});
+    await assert.rejects(dispatch(()=>controller.prompt({...request,content:[{type:'image'}],clientTimeZone:'invalid'},signal)),
+      error=>error.code==='session/invalid-time-zone');
+    await assert.rejects(dispatch(()=>controller.prompt({...request,content:[{type:'text',text:'   '}]},signal)),
+      error=>error.code==='gateway/bad-request');
+  }
+  assert.equal(calls.length,2);
+});
+
 test('named creates publish the Agent in arrival order and a rejected claim releases its successor',async()=>{
   const gate=Promise.withResolvers(),entered=Promise.withResolvers(),calls=[],published=[],registry=new Map();
   class Base {constructor(ctx){this.ctx=ctx;}}
@@ -290,8 +320,9 @@ test('base workbench serves authorized cold pages through published Typert witho
   const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
   const app=await createApplication({profile,modules,hostModules,provide:async(ctx,load)=>{
     await provideHttp(ctx,load,key,scope);
-    const {TypertRemoteService,RemoteError}=await load('@deepseek-ai/dsh-typert-protocol');
-    hostModules.set(session,sessionController({TypertRemoteService,RemoteError},scope,
+    const protocol=await load('@deepseek-ai/dsh-typert-protocol');
+    const {TypertRemoteService,RemoteError}=protocol;
+    hostModules.set(session,sessionController({...protocol,...await load('@deepseek-ai/dsh-util-time')},scope,
       {forkTurn:async()=> 'native-turn'},undefined,(id,signal,source)=>{
         signal.throwIfAborted();assert.equal(source,'startup');registered.set(id,{status:'idle',session:{id}});
       }));
