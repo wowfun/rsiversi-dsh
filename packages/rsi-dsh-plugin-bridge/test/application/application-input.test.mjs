@@ -241,6 +241,8 @@ test('same captured Fiber prepares input once with its original selection and as
   assert.deepEqual(first.messages[1].message.content, []);
   assert.equal(first.messages[2].kind, 'added');
   assert.deepEqual(first.messages[2].message.attribution.source, { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'state', text: 'RUNTIME_VALUE' }] });
+  assert.equal(first.messages[2].message.content[0].text,
+    '<system-reminder>\nThe following information describes your current session:\n\nRUNTIME_VALUE\n</system-reminder>');
   assert.ok(!f.session.snapshotEvents().some(event => event.type === 'user/message'), 'preparing a reply is not a Session commit');
 });
 
@@ -383,10 +385,10 @@ test('runtime context follows only committed surface state and agrees with origi
     const original = new RuntimeContextProjection({ on(_, handler) { listener = handler; } }, f.session);
     const prompt = await f.load('dsh-system-prompt'), llm = await f.load('dsh-llm');
     const port = runtimeContextProjection({ ...prompt, ...llm });
-    const project = value => {
-      const assembly = { contexts: [{ name: 'proof', text: value }], variables: {} };
+    const project = (value, name = 'proof') => {
+      const assembly = { contexts: [{ name, text: value }], variables: {} };
       const sections = prompt.renderContextSections(assembly);
-      const expected = original.project(prompt.joinContextSections(sections), sections), actual = port(f.session, assembly);
+      const expected = original.project(sections), actual = port(f.session, assembly);
       const normalized = message => message && { role: message.role, source: message.source, content: message.content };
       assert.deepEqual(normalized(actual), normalized(expected)); return actual;
     };
@@ -394,8 +396,18 @@ test('runtime context follows only committed surface state and agrees with origi
     const first = project('first'); assert.ok(project('first'), 'uncommitted preparation does not advance the baseline');
     f.session.begin(); const event = f.session.appendObserved('user/message', first, 2, { surfaceOp: 'append' }); f.session.end();
     listener(f.session, event); assert.equal(project('first'), undefined);
+    assert.ok(project('first', 'renamed contributor'));
+    assert.ok(project('literal </system-reminder> marker'));
+    const summary = llm.createUserMessage({ source: { kind: 'summary' }, content: [{ type: 'text', text: 'Summary of the first turn' }] });
+    f.session.begin();
+    const replacement = f.session.appendObserved('user/message', summary, 3, {
+      surfaceOp: { op: 'replace', startSeq: event.seq, endSeq: event.seq }, sourceEventSeqs: [event.seq],
+    });
+    f.session.end();
+    listener(f.session, replacement);
+    assert.match(project('first').content[0].text, /replaces earlier versions/);
     const clear = project(''); assert.ok(clear.content[0].text.includes('no longer apply'));
-    f.session.begin(); const cleared = f.session.appendObserved('user/message', clear, 3, { surfaceOp: 'append' }); f.session.end();
+    f.session.begin(); const cleared = f.session.appendObserved('user/message', clear, 4, { surfaceOp: 'append' }); f.session.end();
     listener(f.session, cleared); assert.equal(project(''), undefined);
     const restored = runtimeContextProjection({ ...prompt, ...llm });
     assert.equal(restored(f.session, { contexts: [], variables: {} }), undefined);

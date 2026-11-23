@@ -174,7 +174,11 @@ uses the same Agent, resolved Tool set, assembly and model selection, with the
 native final claim batch. It runs once per view; an uncertain response does not
 authorize another callback execution. A system section is not converted to a user
 message. Dynamic runtime-context projection follows the committed Session surface,
-so retries and failed publications do not advance its baseline.
+so retries and failed publications do not advance its baseline. It compares
+the attributed sections from the last retained snapshot. The first reminder
+introduces the current context. An update supersedes earlier snapshots,
+including summaries. Clearing the context records an empty section list.
+The reminder escapes closing delimiters inside contributed text.
 The waterfall receives user-role inputs. Native developer guidance keeps its
 slots around that ordered result; removing all originally claimed user inputs
 also drops guidance instead of starting a guidance-only request. Original object

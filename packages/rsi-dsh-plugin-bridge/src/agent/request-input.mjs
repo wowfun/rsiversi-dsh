@@ -115,11 +115,10 @@ export async function prepareRows({ ctx, agent, rows, previous, modelSelection, 
 }
 
 /** DSH's committed runtime-context baseline, read incrementally without another event subscriber. */
-export function runtimeContextProjection({ renderContextSections, joinContextSections, createUserMessage }) {
+export function runtimeContextProjection({ renderContextSections, createUserMessage }) {
   const sessions = new WeakMap();
   const owned = event => event?.type === 'user/message' && event.data.source?.kind === 'runtime-context';
-  const retained = event => ({ seq: event.seq, text: event.data.content.length === 1 && event.data.content[0].type === 'text'
-    ? event.data.content[0].text : undefined });
+  const retained = event => ({ seq: event.seq, sections: event.data.source.form === 'snapshot' ? event.data.source.sections : undefined });
   return (session, assembly) => {
     let state = sessions.get(session);
     if (!state) {
@@ -140,11 +139,16 @@ export function runtimeContextProjection({ renderContextSections, joinContextSec
           && event.sourceEventSeqs?.includes(state.retained.seq)) state.retained = null;
       }
     }
-    const sections = renderContextSections(assembly), current = joinContextSections(sections);
-    if (state.retained === undefined && !current.length) return;
-    const snapshot = current.length ? current : 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.';
-    if (state.retained?.text === snapshot) return;
-    return createUserMessage({ content: [{ type: 'text', text: snapshot }], source: sections.length
-      ? { kind: 'runtime-context', form: 'snapshot', sections } : { kind: 'runtime-context' } });
+    const sections = renderContextSections(assembly);
+    if (state.retained === undefined && sections.length === 0) return;
+    if (isDeepStrictEqual(state.retained?.sections, sections)) return;
+    let text = '<system-reminder>\nCurrent runtime context: none. Earlier runtime-context snapshots no longer apply.\n</system-reminder>';
+    if (sections.length) {
+      const intro = state.retained === undefined ? 'The following information describes your current session:'
+        : 'The following information describes your current session. It replaces earlier versions of this context, including any retained in conversation summaries.';
+      const body = sections.map(section => section.text).join('\n\n').replace(/<\/system-reminder\s*>/gi, tag => `<\\${tag.slice(1)}`);
+      text = `<system-reminder>\n${intro}\n\n${body}\n</system-reminder>`;
+    }
+    return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'runtime-context', form: 'snapshot', sections } });
   };
 }
