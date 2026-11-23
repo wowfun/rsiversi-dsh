@@ -215,7 +215,7 @@ test('a successful child returned without joining cannot commit an unreconciled 
   const profile=join(base,'profile'),held=join(base,'held');await mkdir(profile);await mkdir(held);
   await writeFile(join(held,'layout.json'),JSON.stringify({plugins:['fixture'],locations:{'node_modules/fixture':{version:'1.0.0'}}}));
   const roots=rootSet(),entered=Promise.withResolvers(),release=Promise.withResolvers();
-  const market=await createMarketProfile({profile,state:join(base,'state'),modules:{add(){},prepare(){return {directory:()=>held,publish(){}};},directory:()=>held},reconcile:()=>[],
+  const market=await createMarketProfile({profile,state:join(base,'state'),modules:{add(){},prepare(){return {directory:()=>held,publish(){}};},directory:()=>held,installationDependency(){}},reconcile:()=>[],
     boot:{readProfileVersionExemptions:()=>({}),getDshRuntimeVersion:()=>'',readProfileManifest:()=>({dsh:{bundle:{}}}),assertBundlePlatform(){},evaluatePluginCompatibility(){},bundlePatchPaths:()=>[]},
     call:async(method,args)=>{
       if(method==='application.stage.release')return null;
@@ -347,8 +347,9 @@ test('published dshmarket raw runtime resolves explicit installs, restores and r
     const profile=await mkdtemp(join(tmpdir(),'rsi-managed-market-'));
     const held=await mkdtemp(join(tmpdir(),'rsi-managed-lease-'));
     t.after(()=>Promise.all([profile,held].map(path=>rm(path,{force:true,recursive:true}))));
-    const name='dsh-better-sidebar', version='0.28.2', spec=name+'@'+version;
+    const name='dsh-better-sidebar';
     const entry=join(root,'node_modules',name);
+    const {version}=JSON.parse(await readFile(join(entry,'package.json'),'utf8')),spec=name+'@'+version;
     await writeFile(join(held,'layout.json'),JSON.stringify({format:1,plugins:[name],locations:{
       ['node_modules/'+name]:{version}
     }}));
