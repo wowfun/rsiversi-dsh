@@ -26,6 +26,7 @@ function finish(event) {
   }
   const kind = { stop: 'stop', tool_calls: 'tool-calls', max_tokens: 'max-tokens' }[event.reason];
   if (kind) return { kind };
+  if (event.reason === 'content_filter') return { kind: 'error', failure: { code: 'CONTENT_REFUSED', message: 'The provider refused the response under its content policy.' } };
   if (event.reason === 'cancelled') return { kind: 'aborted', failure: { code: 'CANCELLED', message: 'The canonical model attempt was cancelled.' } };
   throw new Error('model finish cannot be represented by DSH');
 }

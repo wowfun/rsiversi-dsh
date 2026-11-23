@@ -87,3 +87,16 @@ test('paged standalone input and large provider batches preserve exact UTF-8 thr
   assert.deepEqual(chunks.map(row=>row.type),['block-start','text-delta','block-end','finish']);
   assert.equal(chunks[2].block.text,text);assert.deepEqual(chunks[3].reason,{kind:'stop'});calls.close();
 });
+
+test('provider content refusal retains usage and ends the standalone plugin stream',async t=>{
+  const calls=languageCalls(async()=>({events:[
+    {type:'usage',usage:{input_tokens:5,output_tokens:2}},
+    {type:'finished',reason:'content_filter'},
+  ]}),'owner');
+  t.after(()=>calls.close());
+  const chunks=await Array.fromAsync(calls.stream(options));
+  assert.deepEqual(chunks.map(chunk=>chunk.type),['usage','finish']);
+  assert.equal(chunks[0].usage.totalTokens,7);
+  assert.equal(chunks[1].reason.kind,'error');
+  assert.equal(chunks[1].reason.failure.code,'CONTENT_REFUSED');
+});

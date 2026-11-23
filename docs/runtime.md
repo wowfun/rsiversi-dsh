@@ -286,6 +286,10 @@ DSH runtime applies that cap when a caller omits `maxTokens`. An explicit
 request cap takes precedence. Standalone calls accept text, reasoning,
 function calls and text tool results. Image input and adapter-private provider
 replay require a corresponding native representation.
+When a native provider ends a response with `content_filter`, the shared
+stream converter emits a DSH error finish with code `CONTENT_REFUSED`.
+Usage chunks and completed content keep their original order. The same
+terminal reason is available to plugins reading the recorded attempt.
 
 A resident observation retains the caller and cancellation lifetime without
 holding one publication open forever. Writes scheduled by its notifications open

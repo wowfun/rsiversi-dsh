@@ -240,10 +240,18 @@ integration('canonical timed attempts survive original stream decoding, receipt,
   stage = await prepare('truncated'); assert.equal(stage.kind, 'staged', stage.diagnostic);
   assert.deepEqual(stage.events.find(event => event.type === 'assistant/message').data.message.content.map(block => block.type), ['reasoning', 'text']);
   await bridge.receipt('history', 'truncated', stage.token, 'committed', 6);
-  add('unsupported', { type: 'finished', reason: 'content_filter', replay: null }, true);
+  add('refused', { type: 'finished', reason: 'content_filter', replay: null }, true);
+  stage = await prepare('refused'); assert.equal(stage.kind, 'staged', stage.diagnostic);
+  const refused = stage.events.find(event => event.type === 'assistant/message');
+  assert.equal(refused.data.interrupted, true);
+  const ending = llm.expandAssistantStream(refused.data.stream).slice(-2).map(item => item.chunk);
+  assert.equal(ending[0].type, 'usage');
+  assert.equal(ending[1].reason.failure.code, 'CONTENT_REFUSED');
+  await bridge.receipt('history', 'refused', stage.token, 'committed', 7);
+  add('unsupported', { type: 'finished', reason: 'stop', replay: { opaque: true } }, true);
   const saved = bridge.canonical('history');
   stage = await prepare('unsupported'); assert.equal(stage.kind, 'rejected');
-  assert.match(stage.diagnostic, /cannot be represented/);
+  assert.match(stage.diagnostic, /provider replay envelope/);
   assert.deepEqual(bridge.canonical('history'), saved);
 });
 
