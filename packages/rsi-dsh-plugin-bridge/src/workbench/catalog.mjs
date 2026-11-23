@@ -36,6 +36,7 @@ export function watchWorkbenchCatalog(ctx,scope,sharedBlankChanged) {
           else {
             if(open)await sharedBlankChanged(null);
             scope.invalidateWorkspaces();
+            await scope.workspaceMetadata?.refresh(signal);
             if(change!=='workspace')invalidate();
           }
           failed=false;

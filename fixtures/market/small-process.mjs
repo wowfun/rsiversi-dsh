@@ -59,7 +59,7 @@ const peer=new Peer({input:process.stdin,output:process.stdout,generation:proces
     const part=api.readSubmission(args);lastRead=args;trace.fragments++;
     trace.largestFragment=Math.max(trace.largestFragment,Buffer.from(part.data,'base64').length);return part;
   }
-  if(method!=='application.open' || args.protocol!==14) throw new Error('Unknown application operation or protocol');
+  if(method!=='application.open' || args.protocol!==15) throw new Error('Unknown application operation or protocol');
   key=args.key;
   api=applicationSessions((method,payload,signal)=>{
     if(method==='application.submit')trace.submissions.push({kind:payload.body.kind,bytes:payload.body.bytes,envelope_bytes:Buffer.byteLength(JSON.stringify(payload))});

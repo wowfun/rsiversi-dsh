@@ -30,6 +30,8 @@ returns the updated projection. Unknown Workspaces produce `workspace/not-found`
 unknown or foreign Session/anchor identities produce `workspace/move-invalid`.
 Activity, archiving and pinning do not rewrite account order. Drafts remain
 unpublished and cannot be moved through this durable account operation.
+The workbench and its trusted plugin registry read account headers and
+partition state from the same paged native Session projection.
 
 Workspace registration IDs are opaque and change when the same directory is
 deleted and registered again. The DSH controller returns `{deleted:true}` after
@@ -266,7 +268,7 @@ Application submissions preserve the native input capacity through request-owned
 
 Agent settlement uses the staged operation's existing identity and receipt lifetime. Event pages normally fit 256 KiB and 4096 events; one larger event may occupy a page within the journal's 64 MiB aggregate bound. `agent.operation-body.read` reads these pages and the separate Tool result body. The result bound is 17 MiB for bridge-produced results with empty enforcement: encoded value and metadata each have a 4 MiB native bound, text expands to at most 8 MiB, contexts occupy 64 KiB, and bounded image descriptors/framing fit the remainder. The 256 MiB generation mirror budget includes output reservations. Before Tool execution, the peer admits the larger of the known event page and the result bound; after staging it reduces that reservation to actual encoded needs. Only the current result or event page is encoded and cached. Exact-token rereads can reconstruct another immutable part without replaying the Tool. Receipt, abandonment and disposal retire output authority and budget. Fork pages use their existing pure-transfer lease and the same generation budget.
 
-Application opening uses protocol 14. The native Host supplies an opaque `owner`
+Application opening uses protocol 15. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -1092,7 +1094,7 @@ fail before entering the writer queue: that callback cannot await its own view's
 release. The management Tool explicitly schedules accepted background work outside
 the callback context and returns its operation receipt.
 
-Application protocol 14 uses `application.stage` and `application.stage.release`. A candidate holds a process-bound Store lease,
+Application package installation uses `application.stage` and `application.stage.release`. A candidate holds a process-bound Store lease,
 not persistent profile roots. Preparing it publishes no profile links, module
 resolver bindings or plugin JavaScript. Candidate payloads and immutable resolver
 maps are prepared once and published at commit. Cancellation drains preparation;
@@ -1340,6 +1342,16 @@ the new registration with its empty account directly from the native commit.
 Reusing an existing registration returns its current visible Session account.
 The same native receipt supplies the selected account for rename, default
 initialization and Session moves. Only the Workspace feed requests the catalog.
+The composed Workspace service exposes Host metadata to enabled, trusted Cordis
+plugins through synchronous `workspaceRegistry.get`, `list`, `archivedSessionIds`
+and `pinnedSessionIds`. Workspace entities retain identity while their registration
+exists and expose its title, directory, timestamps, ordered published member IDs
+and `getSessionHeaders()`. Member discovery uses explicit Navigation membership.
+A model invoking a tool installed by the operator may enumerate other Host
+workspaces and Session metadata. Native grants still govern direct device calls.
+The application reconstructs these read views from the native stores. Plugin
+reads do not open transcripts, start Agents or persist another Workspace catalog.
+
 For `session/prompt`, the DSH request ID is the native durable message ID.
 Queue and steer preserve their respective delivery modes.
 The corresponding committed human message carries that same ID as its DSH

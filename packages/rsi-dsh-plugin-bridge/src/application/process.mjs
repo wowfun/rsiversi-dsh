@@ -14,6 +14,7 @@ import {importRelease} from '../../../rsi-dsh-cordis/src/release/import.mjs';
 import {createMarketProfile} from '../market/market-profile.mjs';
 import {linkProfilePackage} from '../market/profile-files.mjs';
 import {applicationSessions} from './sessions.mjs';
+import {workbenchWorkspaceRegistry} from '../workbench/workspace-registry.mjs';
 import {workspaceController} from '../workbench/workspace-controller.mjs';
 import {sessionController} from '../workbench/session-controller.mjs';
 import {jobController} from '../workbench/job-controller.mjs';
@@ -24,7 +25,7 @@ import {moveRegistryCache,profileState,registryCache,viewNpm} from '../../../rsi
 import {replayableInstalls} from '../market/install-receipts.mjs';
 import {managedBoundary,managementTools} from '../market/management.mjs';
 import {managedPackages} from '../market/managed-packages.mjs';
-import {workbenchHistory} from '../workbench/history.mjs';
+import {historyHeader,workbenchHistory} from '../workbench/history.mjs';
 import {sessionJournalStore} from '../session/session-journal-store.mjs';
 import {workbenchPersistence} from '../workbench/persistence.mjs';
 import {workbenchAgents} from '../workbench/agents.mjs';
@@ -44,7 +45,7 @@ const layout = JSON.parse(await readFile(layoutFile,'utf8'));
 let modules, app, opening, nativeSessions, language;
 async function open({protocol,profile,key,owner,importer,timings=false,tools=false,language:hasLanguage=false}) {
   const start=performance.now();
-  if (protocol !== 14 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
+  if (protocol !== 15 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
   modules=installReleaseResolver(layout,roots,profile);
   const boot = await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   // DSH's own metadata and Typert loaders also use Node lookup from the
@@ -106,6 +107,15 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       retireToolOutcome:(...args)=>retireToolOutcome?.(...args)});
     ctx.effect(()=>()=>history.close(),'flush application Session journals');
     persistence=workbenchPersistence(history,await load('@deepseek-ai/dsh-session-persistence'),sessionScope.storedPages);
+    hostModules.set('@deepseek-ai/dsh-workspace',{async apply(scope){
+      const metadata=workbenchWorkspaceRegistry(sessionScope,async meta=>meta.inherited?(await history.snapshot(meta)).header:historyHeader(meta));
+      await metadata.refresh();
+      scope.effect(()=>{
+        sessionScope.workspaceMetadata=metadata;
+        return ()=>{delete sessionScope.workspaceMetadata;};
+      },'retire native Workspace views');
+      scope.provide('workspaceRegistry',metadata.service);
+    }});
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
     const {Deque}=await load('@deepseek-ai/dsh-deque');
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},sessionScope,history,interactions,

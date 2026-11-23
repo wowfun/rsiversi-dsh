@@ -59,7 +59,8 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
     }
     async claim(request,signal) {
       const result=await scope.create(request,signal);
-      await scope.runOwned(stop=>activate(result.id,stop,result.reused?'resume':'startup'),signal);
+      const agent=await scope.runOwned(stop=>activate(result.id,stop,result.reused?'resume':'startup'),signal);
+      if(request.workspaceId)scope.workspaceMetadata?.attach(request.workspaceId,agent?.session?.header);
       this.ctx.emit('api-session/added',this.summary(result.summary));
       return {sessionId:result.id,agentPreset:result.preset};
     }

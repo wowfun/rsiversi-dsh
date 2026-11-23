@@ -1,15 +1,6 @@
 import {once} from 'node:events';
-import {posix,win32} from 'node:path';
+import {readWorkspaceBaseline,workspaceView} from './workspace-registry.mjs';
 import {isDeepStrictEqual} from 'node:util';
-
-function workspaceView(row, sessionIds = row.sessions ?? [], updated = row.updated ?? row.created) {
-  if (row.created == null) throw new Error('Workspace has no recorded creation time');
-  const path = win32.isAbsolute(row.path) && !posix.isAbsolute(row.path) ? win32 : posix;
-  return {
-    workspaceId: row.id, path: row.path, title: row.title ?? (path.basename(row.path) || path.parse(row.path).root),
-    createdAt: new Date(row.created).toISOString(), updatedAt: new Date(updated).toISOString(), sessionIds,
-  };
-}
 
 function mergeActivity(reported,native) {
   if(!reported.length)return native;
@@ -31,59 +22,20 @@ function mergeActivity(reported,native) {
 
 /** The original Workspace client consumes one baseline per physical follow. */
 export function workspaceController(TypertRemoteService,scope,RemoteError) {
+  function selected(row){
+    const view=workspaceView(row);
+    scope.workspaceMetadata?.record(view);
+    return view;
+  }
   const nativeId = /^[0-9a-f]{64}$/;
   function workspaceNotFound(workspaceId) {
     return new RemoteError('workspace/not-found', `Workspace "${workspaceId}" not found`, {workspaceId});
-  }
-  async function baseline(signal) {
-    const items=[];
-    let after=null,bytes=0,order;
-    do {
-      const page=await scope.workspace({type:'list',after},signal);
-      if(after===null)order=new Map(page.order.map((id,index)=>[id,index]));
-      bytes+=Buffer.byteLength(JSON.stringify(page.items));
-      if(bytes>4*1024*1024)throw new Error('Workspace catalog exceeds response capacity');
-      items.push(...page.items);
-      after=page.next;
-    }while(after);
-    items.sort((a,b)=>order.get(a.id)-order.get(b.id));
-    const drafts = new Map((await scope.drafts(signal)).map(draft => [draft.id, draft]));
-    const {groups,members}=await scope.workspace({type:'membership'},signal);
-    const byWorkspace = new Map(), archives = [], pins = [];
-    for (const member of members) {
-      drafts.delete(member.session);
-      if (member.archived) archives.push(member);
-      if (member.pinned) pins.push(member);
-      const workspace = groups[member.group];
-      if (workspace == null) continue;
-      let rows = byWorkspace.get(workspace);
-      if (!rows) byWorkspace.set(workspace, rows = []);
-      rows[member.account_position] = member;
-    }
-    for (const draft of drafts.values()) {
-      if (draft.workspace == null) continue;
-      let rows = byWorkspace.get(draft.workspace);
-      if (!rows) byWorkspace.set(draft.workspace, rows = []);
-      rows.unshift({session:draft.id,last_activity_ms:draft.updatedAt});
-    }
-    const workspaces = items.map(row => {
-      const members = byWorkspace.get(row.id) ?? [];
-      return workspaceView(row, members.map(member => member.session),
-        members.reduce((latest, member) => Math.max(latest, Number(member.last_activity_ms)), row.created));
-    });
-    return {items:workspaces,
-      archivedSessionIds:archives.sort((a,b)=>compareDecimal(a.partition_revision??"0",b.partition_revision??"0")||
-      (a.session<b.session?-1:a.session>b.session?1:0)).map(row=>row.session),pinnedSessionIds:pins.sort((a,b)=>
-        compareDecimal(b.partition_revision??"0",a.partition_revision??"0")||compareDecimal(b.last_activity_ms,a.last_activity_ms)||
-        (a.session<b.session?1:a.session>b.session?-1:0)).map(row=>row.session)};
-  }
-  function compareDecimal(a,b){
-    return a.length-b.length||(a<b?-1:a>b?1:0);
   }
   async function setPin(sessionId,pinned,signal){
     const result=await scope.workspace({type:'set_pin',session:sessionId,pinned},signal);
     if(result.status==='unknown')throw new RemoteError('session/not-found','Unknown Session',{sessionId});
     if(result.status==='archived')throw new RemoteError('gateway/bad-request','Cannot pin an archived Session',{});
+    scope.workspaceMetadata?.pinned(result.pinnedSessionIds);
     return {pinnedSessionIds:result.pinnedSessionIds};
   }
   let archiveTail=Promise.resolve();
@@ -96,12 +48,12 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     constructor(ctx){super(ctx,'workspaceController',{namespace:'workspace'});}
     async *follow(signal){
       let change=scope.workspaceChange();
-      let value=await baseline(signal);
+      let value=await readWorkspaceBaseline(scope,signal);
       yield {type:'baseline',value};
       while(!signal.aborted){
         if(!change.aborted)await once(change,'abort',{signal});
         change=scope.workspaceChange();
-        const next=await baseline(signal);
+        const next=await readWorkspaceBaseline(scope,signal);
         if(!isDeepStrictEqual(next,value)){value=next;yield {type:'replace',value};}
       }
     }
@@ -121,6 +73,7 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
         const result=await scope.workspace({type:'archive',session:sessionId,stop_activity:stopActivity},signal);
         if(result.status==='unknown')throw unknown();
         if(result.status==='ready')throw active(result.activity);
+        scope.workspaceMetadata?.archived(result.archivedSessionIds,sessionId);
         if(result.changed){
           if(stopActivity){
             try {await this.ctx.parallel('workspace/session-stop',request);}
@@ -137,6 +90,7 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
         const state=await scope.workspace({type:'archive_activity',session:sessionId},signal);
         if(state.status==='applied')await this.ctx.parallel('workspace/session-unarchiving',{sessionId});
         const {archivedSessionIds}=await scope.workspace({type:'unarchive',session:sessionId},signal);
+        scope.workspaceMetadata?.archived(archivedSessionIds);
         return {archivedSessionIds};
       });
     }
@@ -144,19 +98,20 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     unpinSession({sessionId},signal){return setPin(sessionId,false,signal);}
     async initializeDefault(signal){
       const row=await scope.workspace({type:'default'},signal);
-      return row ? {workspace:workspaceView(row)} : undefined;
+      return row ? {workspace:selected(row)} : undefined;
     }
     async create({path},signal){
       const {record,created}=await scope.workspace({type:'create',path},signal);
-      return {workspace:workspaceView(record), created};
+      return {workspace:selected(record), created};
     }
     async rename({workspaceId,title},signal){
       const row=await scope.workspace({type:'rename',id:workspaceId,title},signal);
-      return {workspace:workspaceView(row)};
+      return {workspace:selected(row)};
     }
     async delete({workspaceId},signal){
       if (!nativeId.test(workspaceId) || !await scope.workspace({type:'delete',id:workspaceId},signal))
         throw workspaceNotFound(workspaceId);
+      scope.workspaceMetadata?.remove(workspaceId);
       return {deleted:true};
     }
     async insertBefore({workspaceId,beforeWorkspaceId},signal){
@@ -166,6 +121,7 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       if(unknown!==undefined)throw workspaceNotFound(unknown);
       const result=await scope.workspace({type:'insert_before',id:workspaceId,before:beforeWorkspaceId},signal);
       if(result.status==='unknown')throw workspaceNotFound(result.id);
+      scope.workspaceMetadata?.reorder(result.ids);
       return {workspaceIds:result.ids};
     }
     async insertSessionBefore({workspaceId,sessionId,beforeSessionId},signal){
@@ -174,7 +130,7 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       if(result.status==='unknown')throw workspaceNotFound(workspaceId);
       if(result.status==='invalid_member')throw new RemoteError('workspace/move-invalid','Session or anchor is not in this Workspace',
         {workspaceId,sessionId,...beforeSessionId===undefined?{}:{beforeSessionId}});
-      return {workspace:workspaceView(result.record)};
+      return {workspace:selected(result.record)};
     }
   };
 }

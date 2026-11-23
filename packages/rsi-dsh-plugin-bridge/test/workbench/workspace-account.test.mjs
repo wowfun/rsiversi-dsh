@@ -74,7 +74,7 @@ test('Workspace baseline uses native account order and moves return the updated 
       calls.push(input);
       switch(input.type){
       case 'list':return {items:[{id:workspaceId,path:'/project',created:1}],order:[workspaceId],next:null};
-      case 'membership':return {groups:[workspaceId],members:rows.map(row=>({...row,group:0}))};
+      case 'membership':return {members:rows.map(row=>({...row,workspace:workspaceId})),next:null};
       case 'insert_session_before':
         assert.equal(input.session,'older');assert.equal(input.before,'newer');
         rows[0].account_position=1;rows[1].account_position=0;
@@ -109,15 +109,15 @@ test('Workspace move errors retain DSH business identities',async()=>{
 test('workspace feeds preserve detached pins and exclude promoted drafts without rewriting native rows',async()=>{
   const other='b'.repeat(64);
   const members=Object.freeze([
-    {group:0,session:'a',account_position:1,last_activity_ms:'3'},
-    {group:1,session:'detached',account_position:0,last_activity_ms:'20',pinned:true},
-    {group:0,session:'z',account_position:0,last_activity_ms:'4'},
+    {workspace:workspaceId,session:'a',account_position:1,last_activity_ms:'3'},
+    {session:'detached',last_activity_ms:'20',pinned:true},
+    {workspace:workspaceId,session:'z',account_position:0,last_activity_ms:'4'},
   ]);
   const scope={workspaceChange:()=>new AbortController().signal,
     drafts:async()=>[{id:'detached',workspace:other,updatedAt:1},{id:'private',workspace:workspaceId,updatedAt:6}],
     workspace:async input=>input.type==='list'
       ? {items:[{id:workspaceId,path:'/one',created:1},{id:other,path:'/two',created:1}],order:[workspaceId,other]}
-      : {groups:[workspaceId,null],members}};
+      : {members,next:null}};
   const Controller=workspaceController(class {},scope,RemoteError);
   const frames=new Controller().follow(new AbortController().signal);
   const {value:{value}}=await frames.next();
@@ -128,7 +128,7 @@ test('workspace feeds preserve detached pins and exclude promoted drafts without
 
 test('a draft published between the two workspace reads keeps its durable position', async () => {
   let published = false;
-  const old = {session:'older', group:0, account_position:0, last_activity_ms:'2'};
+  const old = {session:'older', workspace:workspaceId, account_position:0, last_activity_ms:'2'};
   const scope = {
     workspaceChange: () => new AbortController().signal,
     async drafts() {
@@ -138,9 +138,9 @@ test('a draft published between the two workspace reads keeps its durable positi
     },
     async workspace({type}) {
       if (type === 'list') return {items:[{id:workspaceId,path:'/project',created:1}], order:[workspaceId]};
-      const members = published ? [old,{session:'promoting',group:0,account_position:1,last_activity_ms:'3'}] : [old];
+      const members = published ? [old,{session:'promoting',workspace:workspaceId,account_position:1,last_activity_ms:'3'}] : [old];
       published = true;
-      return {groups:[workspaceId], members};
+      return {members,next:null};
     },
   };
   const Controller = workspaceController(class {}, scope, RemoteError);

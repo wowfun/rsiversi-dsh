@@ -6,7 +6,7 @@ import {lastUsedModel} from './model.mjs';
 import {workbenchOwners} from './owner.mjs';
 import {nativeCapture} from '../history/native-pages.mjs';
 
-function historyHeader(meta) {
+export function historyHeader(meta) {
   return {version:4,id:meta.id,createdAt:meta.created_at,...(meta.cwd?{cwd:meta.cwd}:{}),
     ...(meta.preset?{agentPreset:meta.preset}:{}),isSeeded:meta.inherited};
 }
