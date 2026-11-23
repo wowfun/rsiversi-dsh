@@ -54,6 +54,11 @@ DSH hook handlers append their log-only `hook/invoked` and `hook/result`
 records to the same Session. Their turn, point and handler ID survive cold
 replay. Neither record changes the model-visible conversation.
 
+The released title provider appends `session/title-llm-request` with its input
+message positions, route, system prompt, messages and output budget before
+opening its model stream. The same journal retains this log-only evidence
+across reload. It allocates no native turn or mutation receipt.
+
 The original message-feedback service owns rating validation, version comparison
 and no-op detection. Its `feedback/message-put` and `feedback/message-delete`
 events are log-only application events in this same journal. Live writes use

@@ -4,7 +4,7 @@ import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
 
 // Event-local validation is reusable. Position and surface checks belong to each destination.
 const admitted = new WeakMap();
-const journalEvents = new Set(['session/title', 'approval/asked', 'approval/decided', 'approval/policy',
+const journalEvents = new Set(['session/title', 'session/title-llm-request', 'approval/asked', 'approval/decided', 'approval/policy',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
   'feedback/message-put', 'feedback/message-delete', 'feedback/record', 'agent-preset/selected',
   'action-cards/decision']);

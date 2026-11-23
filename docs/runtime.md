@@ -730,6 +730,11 @@ The native actor lookup checks the caller before a resident Agent is reused
 or a cold Agent is resumed. Browser command lifecycle events are log-only
 entries in the application Session journal and survive reopening the workbench.
 
+With Host Language available, the standard workbench enables the release's
+first-prompt title provider. Its auxiliary request uses the logged main model
+route and records the accepted title in the Session. Profiles without Host
+Language use the title service's deterministic fallback.
+
 The frozen command catalog exposes the original DSH command registry's global
 definitions. If a name does not fit RSI's 64-byte lowercase/digit/hyphen Session
 command grammar, native catalog admission rejects that generation. Commands here

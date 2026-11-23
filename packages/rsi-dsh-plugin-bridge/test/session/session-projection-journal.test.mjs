@@ -295,6 +295,11 @@ test('log-only Session events survive cold reload without allocating native muta
   journal.append('approval/asked',{id:'one',toolName:'bash',callId:'native-call'});
   journal.append('approval/decided',{id:'one',outcome:'allowed-once'});
   journal.append('session/title',title);
+  const titleInput=message('title-input','user','Short title');
+  const request={titleProvider:'first-prompt',messageSeqs:[0],route:{provider:'native',model:'chosen'},
+    system:'Name the session',messages:[titleInput],maxTokens:4096};
+  journal.append('session/title-llm-request',request);
+  assert.throws(()=>journal.append('session/title-llm-request',request,{surfaceOp:'append'}),/Log-only/);
   journal.append('command/run',{commandId:'web-export',name:'export',source:{kind:'user'}});
   journal.append('command/done',{commandId:'web-export',kind:'success'});
   const job={jobId:'bash-first',owner:header.id,kind:'bash',label:'sleep 1',startedAt:1,
@@ -306,6 +311,8 @@ test('log-only Session events survive cold reload without allocating native muta
   const restore=document=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(document)});
   const cold=restore(journal.encode());
   assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
+  assert.deepEqual(cold.session.lastEvent('session/title-llm-request').data,request);
+  assert.deepEqual(cold.session.deriveMessages(),[]);
   assert.deepEqual(cold.operations(),[{id:'previous-release',seq:0}]);
   const corrupt=JSON.parse(journal.encode());
   Object.assign(corrupt.events[1],{type:'model/selection',data:selection});

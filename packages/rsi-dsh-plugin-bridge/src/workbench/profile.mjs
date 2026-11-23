@@ -11,7 +11,7 @@ const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@dee
 /** Use the released app's ordered client entries and published dsh.client
  * declarations. A backend requiring a missing service remains pending; third
  * party bundle activation still requires its actual Fiber to be active. */
-export async function workbenchProfile(modules,boot,state,hasImporter=false) {
+export async function workbenchProfile(modules,boot,state,{importer=false,language=false}={}) {
   const patches=['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app'].map(name=>
     boot.loadOverlayPatches('rsi-dsh',join(modules.directory(name),'cordis.patch.yml')));
   const composed=boot.composeEntries(patches);
@@ -25,7 +25,8 @@ export async function workbenchProfile(modules,boot,state,hasImporter=false) {
     if(name==='@deepseek-ai/dsh-client-ui-permission-presets') continue;
     const manifest=JSON.parse(await readFile(join(modules.directory(name),'package.json'),'utf8'));
     const client=manifest.dsh?.client?.platform==='web';
-    if(!client && !hostServices.has(name) && !(hasImporter&&managerServices.has(name))) continue;
+    const optionalHost=importer&&managerServices.has(name)||language&&name==='@deepseek-ai/dsh-session-title-first-prompt-llm';
+    if(!client && !hostServices.has(name) && !optionalHost) continue;
     if(name==='@deepseek-ai/dsh-client-connection')rows.push({id:entry.id,name});
     else if(name==='@deepseek-ai/dsh-storage-json')rows.push({...entry,config:{...entry.config,root:join(state,'storages')}});
     else if(name==='@deepseek-ai/dsh-attachment-local')rows.push({...entry,config:{...entry.config,dshHome:state}});
