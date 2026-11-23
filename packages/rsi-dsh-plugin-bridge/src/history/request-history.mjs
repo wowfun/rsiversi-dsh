@@ -36,11 +36,17 @@ export function requestObserver(readFact) {
 /** Only canonical conversation intents establish what the model has been told. */
 async function observeRequest(session, fact, readFact, mapping, decoded) {
   if (fact.purpose?.kind !== 'conversation') return;
-  const { value: configuration } = await section(fact, 'configuration', readFact, decoded);
-  const toolSection = await section(fact, 'tools', readFact, decoded);
+  let originals;
+  async function originalAt(seq) {
+    originals ??= new Map();
+    if (!originals.has(seq)) originals.set(seq, await readFact(seq));
+    return originals.get(seq);
+  }
+  const { value: configuration } = await section(fact, 'configuration', originalAt, decoded);
+  const toolSection = await section(fact, 'tools', originalAt, decoded);
   const tools = toolSection.value;
   if (mapping) {
-    const { value: system } = await section(fact, 'system', readFact, decoded);
+    const { value: system } = await section(fact, 'system', originalAt, decoded);
     if (!Array.isArray(system) || system.some(message => !['system', 'developer'].includes(message.role))) throw new Error('invalid system request evidence');
     const content = system.filter(message => message.role === 'system').flatMap(message => message.content.map(block => {
       if (block.type !== 'text' || typeof block.content?.text !== 'string') throw new Error('unsupported system request content');

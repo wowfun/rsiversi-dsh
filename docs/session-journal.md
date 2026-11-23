@@ -165,7 +165,9 @@ by event admission and shared across request series. Weak keys follow the
 lifetime of that page's evidence objects, so projection does not retain old
 pages or build a second transcript.
 Each reference still checks its earlier Fact coordinate, section, byte count
-and digest binding. The inline text and digest identify the memoized decode;
+and digest binding. While projecting a single request, sections that point to
+the same earlier Fact share one read of that Fact. Temporary source references
+expire with that request. The inline text and digest identify the memoized decode;
 changed input crosses validation again. Shared schema subtrees become immutable
 at their first event admission. A new projection has a new decoder, with no
 cross-Session or durable evidence cache.

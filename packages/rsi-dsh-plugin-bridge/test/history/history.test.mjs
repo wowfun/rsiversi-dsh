@@ -88,7 +88,8 @@ integration('referenced request schemas share immutable bodies within one projec
   const reference = {...original,seq:2,timestamp_ms:12,evidence:{availability:'available'}};
   for (const name of ['configuration','tools']) reference.evidence[name] = {kind:'reference',seq:1,section:name,
     bytes:Buffer.byteLength(original.evidence[name].text),sha256:original.evidence[name].sha256};
-  const read = async seq => { assert.equal(seq, 1); return original; };
+  let sourceReads=0;
+  const read = async seq => { assert.equal(seq, 1); sourceReads++; return original; };
   const observeRequest = requestObserver(read);
   session.begin();
   try {
@@ -96,6 +97,7 @@ integration('referenced request schemas share immutable bodies within one projec
     const first = session.requestHeader();
     session.appendObserved('step/start', {turn:1,step:1}, 11);
     await observeRequest(session, reference);
+    assert.equal(sourceReads,1,'sections referencing one Fact share a single lookup within this request');
     const second = session.requestHeader();
     assert.deepEqual(second, first);
     assert.equal(second.tools, first.tools, 'a referenced section must share its tool array and wrappers across series');
