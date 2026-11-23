@@ -34,15 +34,15 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       ||modelSelection.reasoningEffort!==undefined&&(typeof modelSelection.reasoningEffort!=='string'||!modelSelection.reasoningEffort))
       throw Error('Tool capture requires the native request model selection');
     if(views.has(view)||views.size>=64)throw Error('Tool capture capacity');
-    const row={session:{id:header.id,header},bindings:new Map(),reserved:new Set(reserved)};
+    const row={bindings:new Map(),reserved:new Set(reserved)};
     row.lease=await boundary.capture(signal,()=>row.selection?.dispose());
     // Capacity and identity can change while reconciliation blocks capture.
     if(views.has(view)||views.size>=64){row.lease.release();throw Error('Tool capture capacity');}
     views.set(view,row);
     const stop=AbortSignal.any([signal,row.lease.signal]);
     return row.lease.run(async()=>{try{
-      const agent=row.agent=await resolveAgent?.(header.id,stop)??{id:header.id,ctx,session:row.session};
-      stop.throwIfAborted();row.session=agent.session;
+      const agent=row.agent=await resolveAgent(header.id,stop);
+      stop.throwIfAborted();
       row.selection=await sessions.withToolAgent(agent,()=>ctx.tools.resolve({agent,modelSelection,signal:stop}));
       if(stop.aborted){
         row.selection.dispose();
@@ -70,7 +70,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   }
   async function prepare({view,session,input},signal) {
     const row=views.get(view);
-    if(!row||row.session.id!==session)throw Error('Input preparation lost its captured Agent');
+    if(!row?.agent||row.agent.id!==session)throw Error('Input preparation lost its captured Agent');
     if(!row.preparation) {
       const stop=AbortSignal.any([signal,row.lease.signal]);
       row.preparation=row.lease.run(()=>sessions.withToolAgent(row.agent,()=>prepareRequestInputs({ctx,agent:row.agent,input,
@@ -85,7 +85,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       const stop=AbortSignal.any([signal,row.lease.signal]);
       row.stopping=row.lease.run(()=>sessions.withToolAgent(row.agent,async()=>{
         // Snapshot the published model/tool result before a listener reads the Session.
-        if(resolveAgent&&await resolveAgent(row.agent.id,stop)!==row.agent)throw Error('Stopping Agent has retired');
+        if(await resolveAgent(row.agent.id,stop)!==row.agent)throw Error('Stopping Agent has retired');
         const turn=row.agent.session.lastEvent('turn/start').data.turn;
         await agentEvents(ctx,row.agent).serial('agent/turn-stopping',{turn,signal:stop});
         stop.throwIfAborted();
@@ -118,7 +118,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       }
       case '/v1/start':{
         const view=views.get(input.view);
-        const admitted=view&&view.session.id===input.session&&view.bindings.get(input.registration)===input.name;
+        const admitted=view?.agent&&view.agent.id===input.session&&view.bindings.get(input.registration)===input.name;
         return ledger.start(input,admitted?stop=>view.lease.run(()=>run(input,AbortSignal.any([stop,view.lease.signal]),view)):undefined);
       }
       case '/v1/outcome':return ledger.outcome(input);

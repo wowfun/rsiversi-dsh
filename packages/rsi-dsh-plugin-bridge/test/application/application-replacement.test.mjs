@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
-import {applicationTools} from '../../src/tools/application-tools.mjs';
+import {fixtureTools} from '../fixtures/tool-host.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {requestBoundary} from '../../src/application/request-boundary.mjs';
 import {randomUUID} from 'node:crypto';
@@ -159,7 +159,7 @@ test('real HTTP capture drains the old response batch before admitting replaceme
   const f=await fixture(t,{boundary,provide:async(ctx,load,directory)=>{
     for(const name of ['dsh-session-projection','dsh-system-prompt','dsh-tools'])
       await ctx.plugin((await load('@deepseek-ai/'+name)).default);
-    listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory:join(directory,'outcomes'),sessions,boundary});
+    listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory:join(directory,'outcomes'),sessions,boundary});
   }});
   t.after(()=>sessions.close());
   const body=version=>`export const inject=['tools'];export function apply(ctx){

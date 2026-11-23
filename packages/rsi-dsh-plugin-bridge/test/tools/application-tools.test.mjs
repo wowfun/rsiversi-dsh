@@ -8,7 +8,7 @@ import {join} from 'node:path';
 import {test} from 'node:test';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
-import {applicationTools} from '../../src/tools/application-tools.mjs';
+import {fixtureTools} from '../fixtures/tool-host.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -25,7 +25,7 @@ test('HTTP cancellation remains admitted when work and slow bodies saturate the 
   ctx.tools.register(tools.defineTool({name:'hold',description:'held tool',parameters:{},
     output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
     async execute(_,exec){entered.resolve();exec.signal.addEventListener('abort',()=>{aborted.resolve();release.resolve();},{once:true});await release.promise;return 'done';}}));
-  const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+  const key=randomUUID(),listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
   t.after(async()=>{release.resolve();await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
   const post=(path,input)=>fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,
     {method:'POST',headers:{authorization:key},body:JSON.stringify(input)});
@@ -64,7 +64,7 @@ test('capture preserves actual optional deadlines and the original timeout wrapp
         output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
         async execute(_,exec){calls++;if(name==='short')await new Promise(resolve=>exec.signal.addEventListener('abort',resolve,{once:true}));settled++;return 'settled '+name;}}));
     }
-    const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+    const key=randomUUID(),listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
     t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
     assert.equal(listener.protocol,16);
     const post=async(path,input,status=200)=>{
@@ -109,7 +109,7 @@ test('replacement processes only query old effects and cannot restart them throu
     ctx.tools.register(tools.defineTool({name:'counter',description:'Count executions',parameters:{},
       output:{schema:{type:'number'},render:(_,value)=>[{type:'text',text:String(value)}]},execute(){return ++calls;}}));
     const sessions=applicationSessions(()=>{throw Error('unexpected native Session access');}),key=randomUUID();
-    const listener=await applicationTools(ctx,{key,generation:randomUUID(),directory,sessions,
+    const listener=await fixtureTools(ctx,{key,generation:randomUUID(),directory,sessions,
       load:async name=>name==='@deepseek-ai/dsh-atomic-write'?{writeFileAtomic:async(...args)=>{
         if(failWrite)throw Error('result write lost');return (await load(name)).writeFileAtomic(...args);
       }}:load(name)});
@@ -174,7 +174,7 @@ test('original application policy allows by default, asks once when requested an
     const countedLoad=async name=>name==='@deepseek-ai/dsh-tools'?{...tools,validateJsonSchemaValue(schema,...args){
       if(schema.type==='number')outputChecks++;return tools.validateJsonSchemaValue(schema,...args);
     }}:load(name);
-    const key=randomUUID(),listener=await applicationTools(ctx,{load:countedLoad,key,generation:randomUUID(),directory,sessions});
+    const key=randomUUID(),listener=await fixtureTools(ctx,{load:countedLoad,key,generation:randomUUID(),directory,sessions});
     t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
     const post=async(path,input)=>{
       const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,{method:'POST',headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input)});
@@ -215,7 +215,8 @@ test('original model-dependent activation uses the native request choice instead
     const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
     for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
     await ctx.plugin(tools.default);
-    const agent={id:'selected',ctx,session:{id:'selected',header:{id:'selected',cwd:directory}},
+    const {Session}=await load('@deepseek-ai/dsh-session');
+    const agent={id:'selected',ctx,session:Session.create('selected',[],{version:4,id:'selected',cwd:directory,createdAt:0,isSeeded:false}),
       options:{provider:'stale',model:'unrelated',reasoningEffort:'low'}};
     const seen=[];
     for(const model of ['first','second'])ctx.tools.register(tools.defineTool({name:'for_'+model,description:'Selected model tool',parameters:{},
@@ -226,7 +227,7 @@ test('original model-dependent activation uses the native request choice instead
       },
     });
     const sessions=applicationSessions(()=>{throw Error('capture must not infer selection from another native request');});
-    const key=randomUUID(),listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions,resolveAgent:async()=>agent});
+    const key=randomUUID(),listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions,resolveAgent:async()=>agent});
     t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
     const post=async input=>{
       const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/capture',{method:'POST',headers:{authorization:key,'content-type':'application/json'},
@@ -254,7 +255,8 @@ test('native tool capture uses the owned Agent scope and waits for its native wr
     assert.equal(method,'application.command');assert.equal(args.request,'native-owner');
     entered.resolve();await released.promise;return {committed:true};
   },{owner:'native-owner'});
-  const agent={id:'owned',session:{id:'owned',header:{id:'owned',cwd:directory}}};
+  const {Session}=await load('@deepseek-ai/dsh-session');
+  const agent={id:'owned',session:Session.create('owned',[],{version:4,id:'owned',cwd:directory,createdAt:0,isSeeded:false})};
   const world=(await load('@deepseek-ai/dsh-scope')).createScope(ctx,agent);agent.ctx=world.ctx;
   let assemblies=0;
   ctx.systemPrompt.section({name:'global-proof',order:100,text:'GLOBAL_SYSTEM_PROOF'});
@@ -279,7 +281,7 @@ test('native tool capture uses the owned Agent scope and waits for its native wr
       assert.equal(exec.agent,agent);assert.equal(exec.agent.ctx,world.ctx);
       sessions.stage(signal=>sessions.command(agent.id,{type:'status'},signal));return 'committed';
     }}));}});
-  const key=randomUUID(),{port}=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions,
+  const key=randomUUID(),{port}=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions,
     resolveAgent:async id=>{assert.equal(id,agent.id);return agent;}});
   t.after(async()=>{released.resolve();await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
   const post=async(path,input)=>{
@@ -321,7 +323,7 @@ test('a captured Cordis registration settles once in its own Session and survive
       for(const name of ['dsh-session-projection','dsh-system-prompt'])
         await ctx.plugin((await load('@deepseek-ai/'+name)).default);
       await (await ctx.plugin(tools.default)).await();
-      const {port}=await applicationTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+      const {port}=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions},id=>join(directory,id));
       return async(operation,payload,headers={})=>{
         const reply=await fetch('http://127.0.0.1:'+port+'/v1/'+operation,{method:'POST',
           headers:{authorization:key,'content-type':'application/json',...headers},body:JSON.stringify(payload)});

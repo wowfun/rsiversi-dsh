@@ -3,7 +3,7 @@ import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {applicationSessions} from '../../src/application/sessions.mjs';
-import {applicationTools} from '../../src/tools/application-tools.mjs';
+import {fixtureTools} from './tool-host.mjs';
 
 const [directory,key]=process.argv.slice(2);
 const require=createRequire(join(process.env.RSI_DSH_MARKET_COHORT,'package.json'));
@@ -24,4 +24,4 @@ ctx.tools.register(tools.defineTool({name:'receipt_probe',description:'Record on
     execution.concludeTurn();
     return id;
   }}));
-process.send(await applicationTools(ctx,{load,key,generation:String(process.pid),directory,sessions}));
+process.send(await fixtureTools(ctx,{load,key,generation:String(process.pid),directory,sessions}));

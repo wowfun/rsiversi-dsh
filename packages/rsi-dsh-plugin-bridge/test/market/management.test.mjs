@@ -9,7 +9,7 @@ import {pathToFileURL} from 'node:url';
 import {createApplication} from '../../src/application/application.mjs';
 import {requestBoundary} from '../../src/application/request-boundary.mjs';
 import {managedBoundary,managementTools} from '../../src/market/management.mjs';
-import {applicationTools} from '../../src/tools/application-tools.mjs';
+import {fixtureTools} from '../fixtures/tool-host.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {packageRunners} from '../../src/market/package-runners.mjs';
 
@@ -86,7 +86,7 @@ test('real manager defers its Tool mutation, preserves siblings and reports its 
         return {warnings,pending:[]};
       }});
       for(const name of ['dsh-session-projection','dsh-system-prompt','dsh-tools'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
-      listener=await applicationTools(ctx,{load,key,generation:randomUUID(),directory:join(profile,'outcomes'),sessions,boundary});
+      listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory:join(profile,'outcomes'),sessions,boundary});
     }});
   t.after(async()=>{await app.close();await sessions.close();});
   await app.reconcile([boot.loadOverlayPatches('rsi-dsh',patch)]);

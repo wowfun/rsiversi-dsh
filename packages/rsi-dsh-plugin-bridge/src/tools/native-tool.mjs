@@ -65,7 +65,7 @@ export function serveNativeTools(server,WebSocketServer,authenticated,views,sess
       const read=async signal=>JSON.parse((await once(socket,'message',{signal}))[0].toString());
       const run=async()=>{
         const input=await read(lifetime.signal),row=views.get(input.view);
-        if(!row||row.session.id!==input.session||!row.reserved.has(input.name))throw Error('Native Tool outside its request capture');
+        if(!row?.agent||row.agent.id!==input.session||!row.reserved.has(input.name))throw Error('Native Tool outside its request capture');
         const signal=AbortSignal.any([lifetime.signal,row.lease.signal]);
         let reviewOpen=true;
         const next=async bodySignal=>{

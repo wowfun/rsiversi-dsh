@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
-import {applicationTools} from '../../src/tools/application-tools.mjs';
+import {fixtureTools} from '../fixtures/tool-host.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -23,7 +23,7 @@ test('original pipeline snapshots plugin values before the receipt write and HTT
     output:{schema:{type:'object',additionalProperties:true},render:(_,value)=>[{type:'text',text:value.text}],presentationMeta:()=>meta},
     execute(){return raw;}}));
   ctx.on('tools/result',(_exec,result)=>{materialized=result;});
-  const key=randomUUID(),listener=await applicationTools(ctx,{key,generation:randomUUID(),directory,sessions,
+  const key=randomUUID(),listener=await fixtureTools(ctx,{key,generation:randomUUID(),directory,sessions,
     load:async name=>name==='@deepseek-ai/dsh-atomic-write'?{writeFileAtomic:async(...args)=>{
       assert.ok(Object.isFrozen(materialized.value));assert.ok(Object.isFrozen(materialized.meta));
       assert.notEqual(materialized.value,raw);assert.notEqual(materialized.meta,meta);

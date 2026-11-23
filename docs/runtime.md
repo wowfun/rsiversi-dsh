@@ -456,7 +456,9 @@ emit the original `session/event` notification for newly projected committed
 events. Published Sessions wait on native Fact/control cursors; unpublished drafts
 wait for native revision changes until publication. Disposal cancels and drains this observer.
 Tool capture ensures an attached Agent and its exact scoped context, including
-setup registrations, even on first contact from native execution. The tool
+setup registrations, even on first contact from native execution. Prompt
+assembly, tool selection and execution all receive that Agent's Session.
+If the Agent cannot be resolved, capture fails and releases its lease. The tool
 callback owns an application activity and drains native writes before publishing
 its result. Opening the mirror does not wake another model request.
 

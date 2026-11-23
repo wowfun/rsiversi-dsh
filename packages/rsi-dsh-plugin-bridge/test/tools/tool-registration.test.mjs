@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
-import {applicationTools} from '../../src/tools/application-tools.mjs';
+import {fixtureTools} from '../fixtures/tool-host.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -60,7 +60,7 @@ test('an admitted application call retains the original structured withdrawal re
   const definition=tools.defineTool({name:'withdrawn',description:'Withdrawn tool',parameters:{},
     output:{schema:{type:'number'},render:(_,value)=>[{type:'text',text:String(value)}]},execute(){return ++calls;}});
   const remove=ctx.tools.register(definition),key=randomUUID();
-  const listener=await applicationTools(ctx,{key,generation:randomUUID(),directory,sessions,load});
+  const listener=await fixtureTools(ctx,{key,generation:randomUUID(),directory,sessions,load});
   const results=[];
   ctx.on('tools/result',(exec,result)=>results.push([exec.callId,result.error?.info?.code]));
   const post=async(operation,input)=>{
