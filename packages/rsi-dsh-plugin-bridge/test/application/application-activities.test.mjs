@@ -89,7 +89,7 @@ test('Cordis retirement cancels and drains the independent catalog observer',asy
     entered.resolve(signal);await release.promise;
     signal.throwIfAborted();throw Error('unreachable');
   },{owner:'application-owner'});
-  watchWorkbenchCatalog(ctx,scope);
+  watchWorkbenchCatalog(ctx,scope,async()=>{});
   const signal=await entered.promise;
   const closing=dispose().then(()=>{stopped=true;});
   await setImmediate();assert.equal(signal.aborted,true);assert.equal(stopped,false);
@@ -117,7 +117,7 @@ test('a native change during capture and local agent changes reach the catalog w
     if(++reads===1){entered.resolve();await release.promise;}
     return {items:[{id:'visible',updatedAt:1,running:false,blank:reads===1}],next:null};
   },{owner:'owner'});
-  watchWorkbenchCatalog(ctx,scope);
+  watchWorkbenchCatalog(ctx,scope,async()=>{});
   try {
     await entered.promise;firstChange.resolve();release.resolve();
     await published.promise;published=Promise.withResolvers();await published.promise;await rearmed.promise;
@@ -200,7 +200,7 @@ test('a Workspace-only change wakes followers while the Session page is blocked'
     if(method==='application.sessions'){reads++;entered.resolve();await page.promise;}
     return {items:[],next:null};
   },{owner:'owner'});
-  watchWorkbenchCatalog({get(){},emit(){},on(){},effect:fn=>{dispose=fn();}},scope);
+  watchWorkbenchCatalog({get(){},emit(){},on(){},effect:fn=>{dispose=fn();}},scope,async()=>{});
   try{
     await entered.promise;const before=scope.workspaceChange();
     change.resolve('workspace');await setImmediate();

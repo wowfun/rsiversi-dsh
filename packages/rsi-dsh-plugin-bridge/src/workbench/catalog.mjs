@@ -18,7 +18,7 @@ export function catalogObserver(ctx) {
   };
 }
 
-export function watchWorkbenchCatalog(ctx,scope) {
+export function watchWorkbenchCatalog(ctx,scope,sharedBlankChanged) {
   ctx.effect(()=>{
     const lifetime=new AbortController(),{signal}=lifetime,publish=catalogObserver(ctx);
     let wake,dirty=false;
@@ -32,11 +32,13 @@ export function watchWorkbenchCatalog(ctx,scope) {
       while(!signal.aborted){
         try{
           const change=await scope.observeOwned(stop=>scope.waitDirectory(open,stop),signal);
-          scope.invalidateWorkspaces();
-          if(change!=='workspace')invalidate();
+          if(change && typeof change==='object')await sharedBlankChanged(change.blank);
+          else {
+            if(open)await sharedBlankChanged(null);
+            scope.invalidateWorkspaces();
+            if(change!=='workspace')invalidate();
+          }
           failed=false;
-          // Workspace revisions are already sampled by the native clock.
-          if(!open&&change!=='workspace')await pause(1000);
           open=false;
         }catch(error){
           if(signal.aborted)break;

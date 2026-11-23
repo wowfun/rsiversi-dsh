@@ -11,6 +11,7 @@ export function sessionSummary(ctx,{id,cwd,updatedAt,blank,running,parent,projec
 
 export function sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},scope,history,interactions,activate) {
   return class extends TypertRemoteService {
+    claims=new Map();
     static inject=['typert'];
     constructor(ctx) {super(ctx,'sessionController',{namespace:'session'});}
     [TypertRemoteService.init]() {
@@ -26,7 +27,17 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
     }
     summary(row) {return sessionSummary(this.ctx,row);}
     async create(request,signal) {
+      const id=request.sessionId;
+      if(id===undefined)return this.claim(request,signal);
+      const result=(this.claims.get(id)??Promise.resolve()).then(()=>this.claim(request,signal));
+      const settled=result.then(()=>{},()=>{});
+      this.claims.set(id,settled);
+      try{return await result;}
+      finally{if(this.claims.get(id)===settled)this.claims.delete(id);}
+    }
+    async claim(request,signal) {
       const result=await scope.create(request,signal);
+      await scope.runOwned(stop=>activate(result.id,stop,result.reused?'resume':'startup'),signal);
       this.ctx.emit('api-session/added',this.summary(result.summary));
       return {sessionId:result.id,agentPreset:result.preset};
     }

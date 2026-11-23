@@ -108,7 +108,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
     const {Deque}=await load('@deepseek-ai/dsh-deque');
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
-      (id,signal)=>agents.ensure(id,signal)));
+      (id,signal,source)=>agents.ensure(id,signal,source)));
     ctx.plugin((await load('@deepseek-ai/dsh-api-session-controller')).SessionSkillCatalog);
     hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,sessionScope,RemoteError));
     const jobName='@deepseek-ai/dsh-api-job-controller';
@@ -182,7 +182,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const warnings=await refresh(candidate,market ? await market.layers(true) : [],{restore:true});
     for(const warning of warnings) console.warn('DSH profile:',warning);
     app = candidate;
-    watchWorkbenchCatalog(app.ctx,sessionScope);
+    watchWorkbenchCatalog(app.ctx,sessionScope,id=>agents.sharedBlankChanged(id));
     return {protocol,port:app.ctx.webServer.port,prefixes:['/document','/plugins','/api','/sidebar','/dsh-market','/rsi-brand'],
       ...(toolListener?{tools:toolListener}:{}),
       ...(timings?{timings:{setup_ms:Math.round(setup-start),composition_ms:Math.round(composed-setup),reconcile_ms:Math.round(performance.now()-composed)}}:{})};

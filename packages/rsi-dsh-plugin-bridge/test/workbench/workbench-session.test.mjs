@@ -16,6 +16,31 @@ import {catalogObserver} from '../../src/workbench/catalog.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('named creates publish the Agent in arrival order and a rejected claim releases its successor',async()=>{
+  const gate=Promise.withResolvers(),entered=Promise.withResolvers(),calls=[],published=[],registry=new Map();
+  class Base {constructor(ctx){this.ctx=ctx;}}
+  const scope={
+    runOwned:run=>run(),
+    async create({sessionId,preset}){
+      calls.push(preset);
+      if(preset==='failed'){entered.resolve();await gate.promise;throw Error('unavailable preset');}
+      return {id:sessionId,reused:registry.has(sessionId),preset,summary:{id:sessionId}};
+    },
+  };
+  const Service=sessionController({TypertRemoteService:Base},scope,undefined,undefined,(id,_signal,source)=>{
+    published.push(source);registry.set(id,{});
+  });
+  const controller=new Service({get:()=>registry,emit:(_event,row)=>assert.ok(row.agentAvailable)});
+  const claim=preset=>controller.create({sessionId:'one',preset});
+  const failed=assert.rejects(claim('failed'),/unavailable preset/);
+  await entered.promise;
+  const created=claim('new'),reused=claim('again');
+  assert.deepEqual(calls,['failed']);
+  gate.resolve();await failed;
+  assert.equal((await created).agentPreset,'new');assert.equal((await reused).agentPreset,'again');
+  assert.deepEqual(calls,['failed','new','again']);assert.deepEqual(published,['startup','resume']);
+});
+
 test('the workbench skill registry discovers and withdraws an original bundle provider',{skip:!root},async t=>{
   const dir=await mkdtemp(join(tmpdir(),'rsi-workbench-skills-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const require=createRequire(join(root,'package.json'));
@@ -117,6 +142,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   await mkdir(join(profile,'node_modules'));
   await symlink(join(root,'node_modules/@deepseek-ai'),join(profile,'node_modules/@deepseek-ai'),process.platform==='win32'?'junction':'dir');
   const require=createRequire(join(root,'package.json')),key=randomBytes(32).toString('hex');
+  const registered=new Map([['mirror',{status:'running'}]]);
   const sent=[],archives=new Set(),activityQueries=[],stops=[],nativeStops=[];
   const scope=applicationSessions(async(method,args)=>{
     const {request,after}=args;
@@ -189,16 +215,18 @@ test('base workbench serves authorized cold pages through published Typert witho
     assert.equal(method,'application.sessions');assert.equal(request,'issued-request');
     const id=after?'two':'one';
     return {items:[{id,cwd:profile,updatedAt:1,blank:false,running:false}],next:after?null:{token:'next'}};
-  });
+  },{owner:'application-owner'});
   const session='@deepseek-ai/dsh-api-session-controller',hostModules=new Map();
   const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
   const app=await createApplication({profile,modules,hostModules,provide:async(ctx,load)=>{
     await provideHttp(ctx,load,key,scope);
     const {TypertRemoteService,RemoteError}=await load('@deepseek-ai/dsh-typert-protocol');
     hostModules.set(session,sessionController({TypertRemoteService,RemoteError},scope,
-      {forkTurn:async()=> 'native-turn'}));
+      {forkTurn:async()=> 'native-turn'},undefined,(id,signal,source)=>{
+        signal.throwIfAborted();assert.equal(source,'startup');registered.set(id,{status:'idle'});
+      }));
     hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,scope,RemoteError));
-    ctx.provide('agents',{get:id=>id==='mirror'?{status:'running'}:undefined});
+    ctx.provide('agents',{get:id=>registered.get(id)});
     ctx.provide('profileContext',{name:'contract',dir:profile,installAnchor:join(root,'package.json')});
     await ctx.plugin((await load('@deepseek-ai/dsh-app-boot')).PluginPackages);
   }});
@@ -240,7 +268,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   const created=await create.json();
   assert.deepEqual(created.result?.value,{sessionId:'blank-draft',agentPreset:'standard'},JSON.stringify(created));
   assert.deepEqual(additions,[{sessionId:'blank-draft',cwd:profile,updatedAt:10,blank:true,running:false,
-    agentAvailable:false,formatStatus:'current'}]);
+    agentAvailable:true,formatStatus:'current'}]);
   for(const observer of observers){
     const {value}=await observer.next();assert.equal(value.event,'api-session/added');
     assert.deepEqual(value.args,[additions[0]]);
@@ -251,7 +279,7 @@ test('base workbench serves authorized cold pages through published Typert witho
       payload:{args:{request:{sessionId:'one'}}}})});
   const forked=await fork.json();assert.ok(forked.result?.ok,JSON.stringify(forked));
   assert.equal(additions.length,2);
-  assert.deepEqual(additions[1],{...additions[0],sessionId:forked.result.value.sessionId,blank:false});
+  assert.deepEqual(additions[1],{...additions[0],sessionId:forked.result.value.sessionId,blank:false,agentAvailable:false});
   for(const observer of observers){
     const {value}=await observer.next();assert.equal(value.event,'api-session/added');
     assert.deepEqual(value.args,[additions[1]]);

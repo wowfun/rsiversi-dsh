@@ -368,6 +368,11 @@ The Workspace feed republishes committed
 order changes, while creation cursors and browser-local view preferences retain
 their own semantics.
 
+Creating a workbench conversation awaits registration of its scoped Agent.
+Plugins see one `agent/created` with source `startup` for a new identity and
+`resume` when reopening a stored identity. Reusing a live blank keeps the
+same Agent. Pristine shared blanks receive native change notifications through
+one application subscription. Their native preparation is acquired on demand.
 The original Agent registry has a native-backed factory. Opening a workbench
 transcript attaches a live mirror without waking a model. Listing remains cold;
 sidebar reads refresh existing Agents and leave unattached side conversations for
@@ -1415,10 +1420,11 @@ the durable history feed. Detaching the Agent cancels its pending wait.
 One opening transaction owns each Session's attachment through setup and
 publication. Concurrent workbench lookups join it; a second factory attachment
 cannot replace its native owner or publish another Agent.
-For an unpublished draft, before publishing or running setup, the Agent acquires a native owner under
-the application callback, independent of the browser request. A captured durable
-Session needs no ownership request. Its Cordis lifetime
-releases that owner on disposal or failed setup. Acquisition cancellation also
+Private drafts and previously changed shared drafts acquire a native owner before
+setup under the application callback. A pristine shared blank acquires that owner
+if it gains a volatile draft revision. A captured durable Session needs no ownership
+request. The Cordis lifetime releases an acquired owner on disposal or failed setup.
+Acquisition cancellation also
 releases a possibly accepted owner using the same key. Explicit native discard
 and Host shutdown remain effective while an Agent owns the draft.
 Pending reads are snapshots, not locks on the scheduler. A withdrawal retains

@@ -93,7 +93,7 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
     throw Error(method);
   },{owner:'owner',agent:id=>agents?.get(id)});
   scope.inbox.capture=async id=>{
-    const state=states.get(id);return structuredClone({kind:'draft',session_id:id,revision:state.revision,
+    const state=states.get(id);return structuredClone({kind:'draft',session_id:id,shared:state.shared,revision:state.revision,
       active_turn_id:state.active_turn_id,pending:state.pending});
   };
   const owners=new Map();
@@ -186,7 +186,9 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
     setupEntered.resolve();await setupRelease.promise;
   }}));
   const rejected=assert.rejects(pending,/disposed|retired|active/);
-  await setupEntered.promise;const retiring=owner2.dispose();setupRelease.resolve();
+  await setupEntered.promise;
+  await agents.sharedBlankChanged(null);
+  const retiring=owner2.dispose();setupRelease.resolve();
   await rejected;await retiring;
   assert.equal(ctx.agents.get('child'),undefined);assert.equal(agents.get('child'),undefined);
   assert.deepEqual([...draftOwners.keys()],['parent'],'failed and interrupted setup release native draft owners');
@@ -202,6 +204,20 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
   await owner3.dispose();await acquisitionRejected;await joined;
   assert.equal(ctx.agents.get('child'),undefined);assert.equal(agents.get('child'),undefined);
   assert.deepEqual([...draftOwners.keys()],['parent'],'disposal cancels acquisition and releases its accepted native owner');
+  retaining=undefined;
+  const shared={...initial('shared'),shared:true,revision:0};states.set('shared',shared);
+  const published=[];
+  ctx.on('agent/created',({agent,source})=>{published.push([agent.id,source,ctx.agents.get(agent.id)===agent]);});
+  const blank=await scope.runOwned(signal=>agents.ensure('shared',signal,'startup'));
+  assert.equal(await scope.runOwned(signal=>agents.ensure('shared',signal,'resume')),blank);
+  assert.deepEqual(published,[['shared','startup',true]]);
+  await agents.sharedBlankChanged(null);
+  const operations=()=>seen.filter(([,args])=>args.session_id==='shared').map(([,args])=>args.operation.type);
+  assert.deepEqual(operations(),[],'an idle shared mirror holds no native wait or owner');
+  shared.revision++;
+  await agents.sharedBlankChanged('shared');
+  await agents.sharedBlankChanged('shared');
+  assert.deepEqual(operations(),['retain_draft','wait_draft']);
 });
 
 test('Agent capture retries draft publication and then reuses the durable inbox history',async()=>{

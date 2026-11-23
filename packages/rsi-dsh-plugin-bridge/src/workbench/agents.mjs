@@ -6,7 +6,7 @@ import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
 /** Original Cordis owns Agent lifetime; native Session services own execution and history. */
 export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget},{agentEvents,AgentModel,modelSelectionProjectionDefinition},snapshotJsonValue) {
   const modelProjection=await ctx.sessionProjections.register(modelSelectionProjectionDefinition);
-  const records=new Map(),opening=new Map(),creating=new Map();
+  const records=new Map(),opening=new Map(),creating=new Map(),changedDuringSetup=new Set();
   function publishEvents(record) {
     const through=record.view.session.seq;
     const events=record.view.session.snapshotEvents(record.notified,through);record.notified=through;
@@ -208,7 +208,12 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     if(opening.has(id)||records.has(id)||ctx.agents.get(id))return Promise.reject(Error('Agent is already attached: '+id));
     const pending=build(owner,options,source,created);
     opening.set(id,pending);
-    void pending.finally(()=>{if(opening.get(id)===pending)opening.delete(id);}).catch(()=>{});
+    void pending.finally(()=>{
+      opening.delete(id);
+      if(changedDuringSetup.delete(id)&&records.get(id)?.passive)return sharedBlankChanged(id);
+    }).catch(error=>{
+      if(records.has(id))ctx.logger.warn('Shared Agent observation failed:',error);
+    });
     return pending;
   }
   async function build(owner,options,source,created) {
@@ -253,7 +258,9 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       })();
     }
     try {
-      if(record.view.inbox.kind==='draft')record.releaseDraft=await scope.retainDraft(id,options.signal?
+      const inbox=record.view.inbox;
+      record.passive=inbox.kind==='draft'&&inbox.shared===true&&inbox.revision===0;
+      if(inbox.kind==='draft'&&!record.passive)record.releaseDraft=await scope.retainDraft(id,options.signal?
         AbortSignal.any([options.signal,retentionStop.signal]):retentionStop.signal);
       owner.fiber.assertActive();options.signal?.throwIfAborted();
       if(record.closing)throw Error('Agent owner retired during draft acquisition');
@@ -266,7 +273,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       detach=ctx.agents.enter(agent,options.parentAgent);
       await ctx.agents.announce(agent,source,options.signal);
       record.dispose=dispose;
-      observe(record);
+      if(!record.passive)observe(record);
       publication.resolve();
       return {agent,dispose};
     }catch(error){publication.resolve();await dispose();throw error;}
@@ -299,6 +306,33 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     resume:(owner,options)=>attach(owner,options,'resume',true),
   };
   ctx.agents.setFactory(factory);
+  async function sharedBlankChanged(id) {
+    // A plugin can hold setup open. Remember changes without blocking the directory.
+    if(id===null) {
+      for(const key of new Set([...opening.keys(),...records.keys()])){
+        // An unavailable or retired Session cannot prevent other mirrors catching up.
+        try{await sharedBlankChanged(key);}
+        catch(error){ctx.logger.warn('Shared Agent observation failed:',error);}
+      }
+      return;
+    }
+    if(opening.has(id)){changedDuringSetup.add(id);return;}
+    const record=records.get(id);
+    if(!record?.passive||record.closing)return;
+    await refresh(record,record.idleStop.signal);
+    if(record.closing||!record.passive)return;
+    const inbox=record.view.inbox;
+    if(inbox.kind==='draft'&&inbox.revision===0)return;
+    record.passive=false;
+    try {
+      if(inbox.kind==='draft'){
+        const release=await scope.retainDraft(id,record.idleStop.signal);
+        if(record.closing){await release?.();return;}
+        record.releaseDraft=release;
+      }
+      observe(record);
+    }catch(error){record.passive=true;throw error;}
+  }
   return {
     async creationMeta(id,createdAt){
       const row=await creating.get(id);
@@ -316,12 +350,13 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       return true;
     },
     refresh:(id,signal)=>refresh(records.get(id),signal),
-    async ensure(id,signal) {
+    sharedBlankChanged,
+    async ensure(id,signal,source='resume') {
       const pending=opening.get(id);
       if(pending)return (await pending).agent;
       const record=records.get(id);
       if(record)return refresh(record,signal);
-      return (await attach(ctx,{resumeSessionId:id,signal},'resume',false)).agent;
+      return (await attach(ctx,{resumeSessionId:id,signal},source,false)).agent;
     },
   };
 }
