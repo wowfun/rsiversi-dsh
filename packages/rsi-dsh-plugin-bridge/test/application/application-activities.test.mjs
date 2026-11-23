@@ -98,15 +98,17 @@ test('Cordis retirement cancels and drains the independent catalog observer',asy
 
 test('a native change during capture and local agent changes reach the catalog with one pending wait',{timeout:10000},async()=>{
   const entered=Promise.withResolvers(),release=Promise.withResolvers(),events=[],listeners=new Map();
-  const firstChange=Promise.withResolvers(),rearmed=Promise.withResolvers();
+  const firstChange=Promise.withResolvers(),rearmed=Promise.withResolvers(),blankChanges=[];
   let dispose,available=false,reads=0,waits=0,opens=0,published=Promise.withResolvers();
   const ctx={get:()=>({get:()=>available}),emit:(name,row)=>{events.push([name,row]);published.resolve();},
     on:(name,handler)=>listeners.set(name,handler),effect:factory=>{dispose=factory();}};
   const scope=applicationSessions(async(method,args,signal)=>{
     if(method==='application.directory.wait'){
       if(args.open){opens++;return;}
-      waits++;const pending=waits===1?firstChange:Promise.withResolvers();
-      if(waits===2)rearmed.resolve();
+      waits++;
+      if(waits===2)return {blank:'visible'};
+      const pending=waits===1?firstChange:Promise.withResolvers();
+      if(waits===3)rearmed.resolve();
       const cancel=()=>pending.reject(signal.reason);
       signal.addEventListener('abort',cancel,{once:true});
       try{await pending.promise;}finally{signal.removeEventListener('abort',cancel);}
@@ -117,15 +119,16 @@ test('a native change during capture and local agent changes reach the catalog w
     if(++reads===1){entered.resolve();await release.promise;}
     return {items:[{id:'visible',updatedAt:1,running:false,blank:reads===1}],next:null};
   },{owner:'owner'});
-  watchWorkbenchCatalog(ctx,scope,async()=>{});
+  watchWorkbenchCatalog(ctx,scope,id=>blankChanges.push(id));
   try {
     await entered.promise;firstChange.resolve();release.resolve();
     await published.promise;published=Promise.withResolvers();await published.promise;await rearmed.promise;
-    assert.equal(events.at(-1)[1].blank,false);assert.equal(waits,2);
+    assert.equal(events.at(-1)[1].blank,false);
+    assert.deepEqual(blankChanges,[null,'visible']);
     published=Promise.withResolvers();available=true;listeners.get('agent/created')();
     listeners.get('rsi/catalog-projection')();await published.promise;
     assert.equal(events.at(-1)[1].agentAvailable,true);
-    assert.equal(reads,3);assert.equal(waits,2);
+    assert.equal(reads,3);assert.equal(waits,3);assert.equal(opens,1);
   } finally {await dispose();await scope.close();}
 });
 

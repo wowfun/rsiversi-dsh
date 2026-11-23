@@ -189,6 +189,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     if(hasLanguage)loopServices.push('llm');
     await ctx.inject(loopServices,async loop=>{
       agents=await workbenchAgents(loop,sessionScope,history,await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue);
+      watchWorkbenchCatalog(loop,sessionScope,agents.sharedBlankChanged);
     }).await();
     if(tools){
       base[0].insert.push({id:'tool-schedule',name:'@deepseek-ai/dsh-tool-schedule'},
@@ -204,7 +205,6 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const warnings=await refresh(candidate,market ? await market.layers(true) : [],{restore:true});
     for(const warning of warnings) console.warn('DSH profile:',warning);
     app = candidate;
-    watchWorkbenchCatalog(app.ctx,sessionScope,id=>agents.sharedBlankChanged(id));
     return {protocol,port:app.ctx.webServer.port,prefixes:['/document','/plugins','/api','/sidebar','/dsh-market','/rsi-brand'],
       ...(toolListener?{tools:toolListener}:{}),
       ...(timings?{timings:{setup_ms:Math.round(setup-start),composition_ms:Math.round(composed-setup),reconcile_ms:Math.round(performance.now()-composed)}}:{})};

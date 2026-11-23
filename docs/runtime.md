@@ -342,7 +342,9 @@ reads no transcript. The observer stops and drains with its Cordis owner.
 Workspace followers share the application change signal. Each reads its own
 authorized baseline before emitting the original Workspace frames. Registration,
 Navigation metadata, grants, drafts and durable Session changes wake followers.
-An idle standard Host samples in-process revisions without periodic directory IPC.
+The Agent registry's Cordis scope owns one native directory observation.
+Opening it reconciles the resident shared drafts. It then waits for native
+commits until that scope retires. The standard Host stays asleep when idle.
 
 The automation page uses the release's Schedule service and its ordinary
 storage, JSON backend and storage-domain plugins. Schedule records live under
