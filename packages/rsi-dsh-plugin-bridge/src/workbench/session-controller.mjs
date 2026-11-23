@@ -9,6 +9,21 @@ export function sessionSummary(ctx,{id,cwd,updatedAt,blank,running,parent,projec
     ...(parent?{parentSessionId:parent,origin:'subagent'}:{})};
 }
 
+// DSH gives an explicit wire ID precedence over the first structured argument.
+function sessionResource({args,parameters}) {
+  const direct=parameters.find(parameter=>parameter.name==='sessionId'||parameter.wire==='sessionId');
+  if(direct)return args[direct.wire];
+  for(const parameter of parameters) {
+    const request=args[parameter.wire];
+    if(!request||typeof request!=='object'||Array.isArray(request))continue;
+    const {sessionId,address}=request;
+    if(sessionId!==undefined&&address!==undefined)
+      throw Error('Session resource request must not contain both sessionId and address');
+    if(address===undefined)return sessionId;
+    return address.kind==='session'?address.sessionId:address.childSessionId;
+  }
+}
+
 export function sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},scope,history,interactions,activate) {
   return class extends TypertRemoteService {
     claims=new Map();
@@ -16,6 +31,13 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
     constructor(ctx) {super(ctx,'sessionController',{namespace:'session'});}
     [TypertRemoteService.init]() {
       const lookup=id=>scope.lookupAgent(id,activate);
+      this.ctx.typert.resources.register('session',{resolve:sessionResource});
+      this.ctx.typert.lookups.register('session',{
+        parameter:'session',wire:'sessionId',resource:'session',
+        hostTypeSymbol:'@deepseek-ai/dsh-session#Session',
+        wireTypeSymbol:'@deepseek-ai/dsh-session/types#SessionId',
+        resolve:async id=>(await lookup(id)).session,
+      });
       this.ctx.typert.lookups.configure('agent',lookup);
       this.ctx.typert.contexts.configureHost('agent',async id=>(await lookup(id)).ctx);
       this.ctx.inject(['fileUploads'],ctx=>ctx.effect(()=>ctx.fileUploads.registerAgentResolver(lookup),

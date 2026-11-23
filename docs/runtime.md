@@ -723,7 +723,9 @@ per message, preserving each original ID and the order of its content blocks.
 The workbench mounts the released DSH command registry. Its browser command
 directory and invocations resolve the addressed Session's real Agent, including
 when the first request arrives before a conversation follow. The Session
-controller owns the Typert lookup shared by commands and the terminal.
+controller supplies Typert's Agent and Session lookups. A typed Session
+parameter resolves to the same Session as its Agent. The Session resource
+uses the release's wire ID or addressed history to identify the target.
 The native actor lookup checks the caller before a resident Agent is reused
 or a cold Agent is resumed. Browser command lifecycle events are log-only
 entries in the application Session journal and survive reopening the workbench.
