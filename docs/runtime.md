@@ -1326,6 +1326,8 @@ It publishes a baseline, observes the native directory subscription, and sends
 a replacement when the visible registrations or Navigation membership change.
 The feed includes the browser owner's native ready drafts until publication
 or expiry. The draft list and the durable navigation seed share Session IDs.
+The feed reads private drafts first and lets a published identity take its
+durable position if it becomes visible during that read.
 Workspace creation, rename and deletion use the native registry. An existing
 directory registered twice returns one creation and one reuse. Creation returns
 the new registration with its empty account directly from the native commit.

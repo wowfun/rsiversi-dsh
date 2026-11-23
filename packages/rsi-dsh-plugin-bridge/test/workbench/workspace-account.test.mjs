@@ -120,3 +120,29 @@ test('workspace feeds preserve detached pins and exclude promoted drafts without
   assert.deepEqual(value.pinnedSessionIds,['detached']);
   await frames.return();
 });
+
+test('a draft published between the two workspace reads keeps its durable position', async () => {
+  let published = false;
+  const old = {session:'older', group:0, account_position:0, last_activity_ms:'2'};
+  const scope = {
+    workspaceChange: () => new AbortController().signal,
+    async drafts() {
+      const rows = published ? [] : [{id:'promoting', workspace:workspaceId, updatedAt:3}];
+      published = true;
+      return rows;
+    },
+    async workspace({type}) {
+      if (type === 'list') return {items:[{id:workspaceId,path:'/project',created:1}], order:[workspaceId]};
+      const members = published ? [old,{session:'promoting',group:0,account_position:1,last_activity_ms:'3'}] : [old];
+      published = true;
+      return {groups:[workspaceId], members};
+    },
+  };
+  const Controller = workspaceController(class {}, scope, RemoteError);
+  const feed = new Controller().follow(new AbortController().signal);
+  try {
+    assert.deepEqual((await feed.next()).value.value.items[0].sessionIds, ['older','promoting']);
+  } finally {
+    await feed.return();
+  }
+});

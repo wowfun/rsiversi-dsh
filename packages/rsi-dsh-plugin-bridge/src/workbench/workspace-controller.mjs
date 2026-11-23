@@ -46,8 +46,8 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       after=page.next;
     }while(after);
     items.sort((a,b)=>order.get(a.id)-order.get(b.id));
-    const {groups,members}=await scope.workspace({type:'membership'},signal);
     const drafts = new Map((await scope.drafts(signal)).map(draft => [draft.id, draft]));
+    const {groups,members}=await scope.workspace({type:'membership'},signal);
     const byWorkspace = new Map(), archives = [], pins = [];
     for (const member of members) {
       drafts.delete(member.session);
