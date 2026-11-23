@@ -1283,7 +1283,10 @@ fallback handlers, so both URLs use the same Session and body rules.
 The original `session/create` opens a native draft. A Workspace ID and an
 explicit local cwd are mutually exclusive. Without either it uses the first
 registered local Workspace visible to the browser owner. A matching blank
-draft can be reused. The first message publishes it into the durable list.
+unarchived draft can be reused after restarting the browser and Host. The Host
+catalog retains the ordinary blank's identity, coordinates and preset. Devices
+with Workspace access can discover it. Its unsent composer text belongs to the
+originating browser. The first accepted input publishes the native Agent history.
 The original `session/fork` uses the native Turn identity on a projected
 `turn/end` event. Accepted create and fork commands publish the native receipt's
 draft summary through DSH's `api-session/added` event to the shared owner Peer.
