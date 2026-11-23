@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
 
-// Only completed admission sets validate; coordinate remaps can establish size alone.
+// Event-local validation is reusable. Position and surface checks belong to each destination.
 const admitted = new WeakMap();
 const journalEvents = new Set(['session/title', 'approval/asked', 'approval/decided', 'approval/policy',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
@@ -166,10 +166,9 @@ export class SessionFacade {
     return cached.messages.slice();
   }
   requestHeader() { return this.#requestHeader; }
-  eventAt(seq) { if (!integer(seq) || seq >= this.seq) throw new RangeError('Session sequence'); return this.#events[seq]; }
+  eventAt(seq) { return this.#events[seq]; }
   lastEvent(type) { return type==='session/title'?this.#titleEvent:this.#events.findLast(event => event.type === type); }
   snapshotEvents(start = 0, end = this.seq) {
-    if (!integer(start) || !integer(end) || end > this.seq || start > end) throw new RangeError('Session interval');
     if (start === 0 && end === this.seq) return this.#eventsSnapshot ??= Object.freeze(this.#events.slice());
     return Object.freeze(this.#events.slice(start, end));
   }
@@ -216,25 +215,45 @@ export class SessionFacade {
     if (!this.#active || this.#retired || !integer(event.time)) throw new Error('observed append outside owning transaction');
     return this.#admit(event, true, true);
   }
+  /** The journal publishes notifications after the entire native suffix commits. */
+  adoptBatch(events) {
+    if(this.#active||this.#retired||this.#announced)throw Error('Only an idle unpublished mirror can accept a batch');
+    if(!events.length)return;
+    let bytes=this.#bytes,header=this.#requestHeader,title=this.#titleEvent;
+    for(const [index,event] of events.entries()){
+      if(!integer(event.time))throw Error('Invalid observed event time');
+      bytes+=this.#prepare(event,this.seq+index,bytes,true);
+      if(event.type==='request/header')header=Object.freeze(this.#api.canonicalHeader(event.data.header));
+      if(event.type==='session/title')title=event;
+    }
+    const commitSurface=this.#surface.prepareBatch(events);
+    for(const event of events)this.#events.push(event);
+    commitSurface();
+    this.#bytes=bytes;this.#requestHeader=header;this.#titleEvent=title;this.#eventsSnapshot=undefined;
+  }
   #admit(input, notify, adopt = false) {
     const event = adopt ? input : this.#api.snapshotJsonValue(input);
     if (!event) throw new Error('event must be lossless JSON');
-    envelope(event, this.seq);
-    const known = adopt ? admitted.get(event) : undefined;
-    const encoded = known ? undefined : JSON.stringify(event);
-    const bytes = known?.bytes ?? Buffer.byteLength(encoded);
-    if (this.#bytes + bytes > 64 * 1024 * 1024 || this.seq >= 100_000) throw new Error('Session mirror capacity');
-    if (!known || known.validate !== this.#api.adoptSessionEvent) this.#api.adoptSessionEvent(event);
+    const bytes=this.#prepare(event,this.seq,this.#bytes,adopt);
     this.#surface.validateNext(event);
-    if (!known) {
-      if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
-    }
-    if (!known || known.validate !== this.#api.adoptSessionEvent)
-      admitted.set(event, {bytes,hash:known?known.hash:encodedDigest(encoded),validate:this.#api.adoptSessionEvent});
     if(event.type==='request/header')this.#requestHeader=Object.freeze(this.#api.canonicalHeader(event.data.header));
     if(event.type==='session/title')this.#titleEvent=event;
     this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;
     if (notify && this.#announced) this.#ctx.emit('session/event', this, event);
     return event;
+  }
+  #prepare(event, seq, usedBytes, adopt) {
+    envelope(event, seq);
+    const known = adopt ? admitted.get(event) : undefined;
+    const encoded = known ? undefined : JSON.stringify(event);
+    const bytes = known?.bytes ?? Buffer.byteLength(encoded);
+    if (usedBytes + bytes > 64 * 1024 * 1024 || seq >= 100_000) throw new Error('Session mirror capacity');
+    if (!known || known.validate !== this.#api.adoptSessionEvent) this.#api.adoptSessionEvent(event);
+    if (!known) {
+      if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
+    }
+    if (!known || known.validate !== this.#api.adoptSessionEvent)
+      admitted.set(event, {bytes,hash:known?known.hash:encodedDigest(encoded),validate:this.#api.adoptSessionEvent});
+    return bytes;
   }
 }

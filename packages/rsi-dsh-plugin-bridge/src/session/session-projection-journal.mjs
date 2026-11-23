@@ -114,11 +114,7 @@ export class SessionProjectionJournal {
       if(event.seq!==this.seq+index)throw Error('Stored event batch does not continue the Session');
     }
     if(!events.length)return;
-    // The common single-event write needs no copy of the retained prefix.
-    const target=events.length===1?this.#session:this.#session.branch();
-    target.begin();
-    try{for(const event of events)target.adoptObserved(event);}finally{target.end();}
-    if(target!==this.#session)this.#session.adoptBranch(target);
+    this.#session.adoptBatch(events);
     for(const event of events)this.#owned.push(event);
     this.#revision++;this.#publish(events);
   }
@@ -221,10 +217,8 @@ export class SessionProjectionJournal {
     if(this.#sources.length&&inherited!==this.#session.inheritedEventCount)
       throw Error('Native inherited prefix changed');
     if(events.length) {
-      const candidate=this.#session.branch();candidate.inheritedEventCount=inherited;
-      candidate.begin();
-      try {for(const event of events)candidate.adoptObserved(event);}finally{candidate.end();}
-      this.#session.adoptBranch(candidate);
+      this.#session.adoptBatch(events);
+      this.#session.inheritedEventCount=inherited;
     }
     for(let index=0;index<preceding.length;index++)this.#owned.push(this.#session.eventAt(start+index));
     for(let index=0;index<annotations.length;index++) {

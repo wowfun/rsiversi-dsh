@@ -22,6 +22,25 @@ async function fixture(t,options={}) {
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
 
+test('live Session position and range reads match the selected release at the log boundary', {skip:!root},async t=>{
+  const {api,journal}=await fixture(t);
+  const original=api.Session.create(header.id);
+  const event=original.append('turn/start',{turn:1});
+  journal.merge([event]);
+  const session=journal.session;
+  for(const position of [0,1,9])assert.deepEqual(session.eventAt(position),original.eventAt(position));
+  for(const [start,end] of [[0,2],[1,1],[1,9],[1,0],[9,12]]){
+    const range=session.snapshotEvents(start,end);
+    assert.deepEqual(range,original.snapshotEvents(start,end));
+    assert.ok(Object.isFrozen(range));
+  }
+  const before=session.snapshotEvents();
+  assert.equal(session.snapshotEvents(),before);
+  journal.merge([event,{seq:1,time:2,type:'turn/end',data:{turn:1,reason:'completed'}}]);
+  assert.equal(before.length,1);
+  assert.equal(session.eventAt(1).type,'turn/end');
+});
+
 test('selection records and the native delta commit together without copying native events into storage', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t);
   const first={seq:0,time:1,type:'turn/start',data:{turn:1}};
@@ -39,6 +58,25 @@ test('selection records and the native delta commit together without copying nat
   assert.deepEqual(stored.sources.map(row=>row.seq),[0,2]);
   const cold=new SessionProjectionJournal(ctx,api,{header},{restore:stored,native:[first,second]});
   assert.equal(cold.encode(),journal.encode());
+});
+
+test('incremental journal publication retains the surface across valid and rejected batches', {skip:!root},async t=>{
+  const {journal}=await fixture(t);
+  const surface=journal.session.surface;
+  const user=(seq,id)=>({seq,type:'user/message',time:1,surfaceOp:'append',data:message(id,'user',id)});
+  journal.advance(0,[user(0,'first')]);
+  assert.equal(journal.session.surface,surface);
+  const before=journal.session.snapshotEvents();
+  const replacement={...user(2,'replacement'),surfaceOp:{op:'replace',startSeq:1,endSeq:1},sourceEventSeqs:[1]};
+  assert.throws(()=>journal.advance(1,[user(1,'second'),{...replacement,surfaceOp:{op:'replace',startSeq:4,endSeq:4}}]));
+  assert.equal(journal.session.snapshotEvents(),before);
+  assert.deepEqual(surface.nodes,[0]);
+  journal.advance(1,[user(1,'second'),replacement]);
+  assert.equal(journal.session.surface,surface);
+  assert.deepEqual(surface.nodes,[0,2]);
+  journal.appendStored([3,4].map(seq=>({type:'approval/policy',seq,time:1,data:{policy:'ask'}})));
+  assert.equal(journal.session.surface,surface);
+  assert.deepEqual(journal.session.deriveMessages().map(item=>item.id),['first','replacement']);
 });
 
 test('preceding records and a full native merge publish or fail as one restorable batch', {skip:!root},async t=>{

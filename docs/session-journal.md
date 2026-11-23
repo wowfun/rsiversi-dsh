@@ -28,6 +28,9 @@ It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
 surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot
 until the log advances. Previously returned arrays retain their original cut.
+On a live Session, `eventAt(seq)` returns `undefined` for an absent position.
+The half-open `snapshotEvents(start, end)` range stops at the current tail
+and returns an empty frozen array when it contains no events.
 
 `session.observeEvent` registers a passive listener before returning `ready`.
 It can subscribe before a Session exists. It reads no baseline and starts no
@@ -94,8 +97,10 @@ validated as a whole before publication.
 Source-map additions and changed mutation records are staged as a delta; a live
 delta does not copy the retained source map, enumerate settled mutations or take
 a full event snapshot. Existing immutable events are read by position. Validation
-failure leaves all three logs unchanged. A batch that only acknowledges existing
-local events does not construct a new Session branch or Surface manager.
+failure leaves all three logs unchanged. The journal validates new events against
+the existing release surface. Its batch preparation includes earlier events in
+the same batch, then commits the complete suffix before observers run. Ordinary
+append-only deltas retain the log and its incremental surface state.
 The native projector transfers deeply frozen event values under an explicit
 `shared-frozen` ownership contract. An event whose coordinates and references
 remain unchanged retains its native object identity through live merge and cold
