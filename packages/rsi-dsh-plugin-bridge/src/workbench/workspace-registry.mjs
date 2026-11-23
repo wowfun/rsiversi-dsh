@@ -1,11 +1,11 @@
 import {posix,win32} from 'node:path';
 
-export function workspaceView(row, sessionIds = row.sessions ?? [], updated = row.updated ?? row.created) {
+export function workspaceView(row, sessionIds = row.sessions ?? []) {
   if (row.created == null) throw new Error('Workspace has no recorded creation time');
   const path = win32.isAbsolute(row.path) && !posix.isAbsolute(row.path) ? win32 : posix;
   return {
     workspaceId: row.id, path: row.path, title: row.title ?? (path.basename(row.path) || path.parse(row.path).root),
-    createdAt: new Date(row.created).toISOString(), updatedAt: new Date(updated).toISOString(), sessionIds,
+    createdAt: new Date(row.created).toISOString(), updatedAt: new Date(row.updated ?? row.created).toISOString(), sessionIds,
   };
 }
 
@@ -40,12 +40,11 @@ export async function readWorkspaceBaseline(scope,signal,header) {
     if (draft.workspace == null) continue;
     let rows = byWorkspace.get(draft.workspace);
     if (!rows) byWorkspace.set(draft.workspace, rows = []);
-    rows.unshift({session:draft.id,last_activity_ms:draft.updatedAt});
+    rows.unshift({session:draft.id});
   }
   const workspaces = items.map(row => {
     const members = byWorkspace.get(row.id) ?? [];
-    return workspaceView(row, members.map(member => member.session),
-      members.reduce((latest, member) => Math.max(latest, Number(member.last_activity_ms)), row.created));
+    return workspaceView(row, members.map(member => member.session));
   });
   return {items:workspaces,
     archivedSessionIds:archives.sort((a,b)=>compareDecimal(a.partition_revision??"0",b.partition_revision??"0")||
@@ -112,11 +111,13 @@ export function workbenchWorkspaceRegistry(scope,headerOf) {
       findOrCreate(row.workspaceId).row=row;
       return row;
     },
-    attach(workspaceId,header){
+    attach(workspaceId,header,updatedAt){
       const entry=entries.get(workspaceId);
-      if(!entry||!header)return;
+      if(!entry||!header||headers.has(header.id)&&entry.row.sessionIds.includes(header.id))return;
       revision++;headers.set(header.id,Object.freeze({...header}));
-      if(!entry.row.sessionIds.includes(header.id))entry.row={...entry.row,sessionIds:[header.id,...entry.row.sessionIds]};
+      if(!entry.row.sessionIds.includes(header.id))entry.row={...entry.row,
+        updatedAt:updatedAt===undefined?entry.row.updatedAt:new Date(updatedAt).toISOString(),
+        sessionIds:[header.id,...entry.row.sessionIds]};
     },
     remove(id){revision++;entries.delete(id);order=order.filter(item=>item!==id);},
     reorder(ids){revision++;order=ids.filter(id=>entries.has(id));},

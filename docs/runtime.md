@@ -1347,6 +1347,8 @@ plugins through synchronous `workspaceRegistry.get`, `list`, `archivedSessionIds
 and `pinnedSessionIds`. Workspace entities retain identity while their registration
 exists and expose its title, directory, timestamps, ordered published member IDs
 and `getSessionHeaders()`. Member discovery uses explicit Navigation membership.
+The modification time follows committed changes to the registration or its member
+account. Chatting in a member Session preserves the Workspace timestamp.
 A model invoking a tool installed by the operator may enumerate other Host
 workspaces and Session metadata. Native grants still govern direct device calls.
 The application reconstructs these read views from the native stores. Plugin

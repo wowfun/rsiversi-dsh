@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {workbenchWorkspaceRegistry,workspaceView} from '../../src/workbench/workspace-registry.mjs';
 
 test('Workspace metadata uses ordered published headers, keeps entity identity and reads no private drafts',async()=>{
-  const row={id:'workspace',path:'/test',created:1};
+  const row={id:'workspace',path:'/test',created:1,updated:3};
   const archived={session:'detached',archived:true,partition_revision:'9'};
   const meta={id:'enrolled',createdAt:4,cwd:'/test',version:4,isSeeded:false};
   let members=[{session:'enrolled',workspace:row.id,account_position:5,last_activity_ms:'4',header:meta}],reads=0;
@@ -19,10 +19,12 @@ test('Workspace metadata uses ordered published headers, keeps entity identity a
   const service=model.service,workspace=service.get(row.id);
   assert.equal(service.list()[0],workspace);assert.deepEqual(workspace.getSessionHeaders(),[meta]);
   assert.deepEqual(workspace.sessionIds,['enrolled']);assert.deepEqual(service.archivedSessionIds,['detached']);
+  assert.equal(workspace.updatedAt,new Date(3).toISOString());
   model.record(workspaceView({...row,title:'Renamed',sessions:['private','enrolled']}));
   assert.equal(service.get(row.id),workspace);assert.equal(workspace.title,'Renamed');
   assert.deepEqual(workspace.sessionIds,['enrolled']);
-  model.attach(row.id,{...meta,id:'new'});
+  model.attach(row.id,{...meta,id:'new'},7);
+  assert.equal(workspace.updatedAt,new Date(7).toISOString());
   assert.deepEqual(workspace.sessionIds,['new','enrolled']);assert.equal(reads,1);
   await model.refresh();assert.equal(reads,1);
   members=[];await model.refresh();
