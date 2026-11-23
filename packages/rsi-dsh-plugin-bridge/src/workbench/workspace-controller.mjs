@@ -31,6 +31,10 @@ function mergeActivity(reported,native) {
 
 /** The original Workspace client consumes one baseline per physical follow. */
 export function workspaceController(TypertRemoteService,scope,RemoteError) {
+  const nativeId = /^[0-9a-f]{64}$/;
+  function workspaceNotFound(workspaceId) {
+    return new RemoteError('workspace/not-found', `Workspace "${workspaceId}" not found`, {workspaceId});
+  }
   async function baseline(signal) {
     const items=[];
     let after=null,bytes=0,order;
@@ -147,22 +151,23 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       return {workspace:workspaceView(row)};
     }
     async delete({workspaceId},signal){
-      return {deleted:await scope.workspace({type:'delete',id:workspaceId},signal)};
+      if (!nativeId.test(workspaceId) || !await scope.workspace({type:'delete',id:workspaceId},signal))
+        throw workspaceNotFound(workspaceId);
+      return {deleted:true};
     }
     async insertBefore({workspaceId,beforeWorkspaceId},signal){
       // Native Workspace identities use opaque lowercase hex. Other DSH strings
       // cannot name a registration; preserve DSH's business error at this seam.
-      const unknown=[workspaceId,beforeWorkspaceId].find(id=>id!==undefined&&!/^[0-9a-f]{64}$/.test(id));
-      if(unknown!==undefined)throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId:unknown});
+      const unknown=[workspaceId,beforeWorkspaceId].find(id=>id!==undefined&&!nativeId.test(id));
+      if(unknown!==undefined)throw workspaceNotFound(unknown);
       const result=await scope.workspace({type:'insert_before',id:workspaceId,before:beforeWorkspaceId},signal);
-      if(result.status==='unknown')throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId:result.id});
+      if(result.status==='unknown')throw workspaceNotFound(result.id);
       return {workspaceIds:result.ids};
     }
     async insertSessionBefore({workspaceId,sessionId,beforeSessionId},signal){
-      if(!/^[0-9a-f]{64}$/.test(workspaceId))
-        throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId});
+      if(!nativeId.test(workspaceId))throw workspaceNotFound(workspaceId);
       const result=await scope.workspace({type:'insert_session_before',id:workspaceId,session:sessionId,before:beforeSessionId},signal);
-      if(result.status==='unknown')throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId});
+      if(result.status==='unknown')throw workspaceNotFound(workspaceId);
       if(result.status==='invalid_member')throw new RemoteError('workspace/move-invalid','Session or anchor is not in this Workspace',
         {workspaceId,sessionId,...beforeSessionId===undefined?{}:{beforeSessionId}});
       return {workspace:workspaceView(result.record)};

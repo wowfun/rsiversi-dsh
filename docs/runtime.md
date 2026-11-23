@@ -32,9 +32,10 @@ Activity, archiving and pinning do not rewrite account order. Drafts remain
 unpublished and cannot be moved through this durable account operation.
 
 Workspace registration IDs are opaque and change when the same directory is
-deleted and registered again. Deletion returns the native `deleted` boolean,
-including false for an already absent registration, as the original DSH service
-does. A retired ID cannot delete its replacement. Native failures still propagate.
+deleted and registered again. The DSH controller returns `{deleted:true}` after
+removal. An unknown or retired ID raises `workspace/not-found` with that ID
+in the error details. A retired ID cannot delete its replacement. Native
+failures propagate.
 
 The Cordis package owns process transport, release loading and package archives.
 The bridge composes these in its application entry. Session history and native

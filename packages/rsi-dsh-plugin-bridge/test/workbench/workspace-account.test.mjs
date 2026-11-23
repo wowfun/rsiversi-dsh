@@ -44,7 +44,7 @@ test('reusing a registered drive root keeps its title and current members', asyn
   assert.equal(result.workspace.updatedAt, new Date(4).toISOString());
 });
 
-test('Workspace deletion preserves the native absent result and failures',async()=>{
+test('Workspace deletion identifies missing and retired registrations and preserves Host failures',async()=>{
   const signal=new AbortController().signal,calls=[];
   let present=true,failure;
   const scope={async workspace(input,received){
@@ -54,7 +54,14 @@ test('Workspace deletion preserves the native absent result and failures',async(
   }};
   const Controller=workspaceController(class {},scope,RemoteError),controller=new Controller();
   assert.deepEqual(await controller.delete({workspaceId},signal),{deleted:true});
-  assert.deepEqual(await controller.delete({workspaceId},signal),{deleted:false});
+  for (const id of [workspaceId, 'unknown-workspace']) {
+    await assert.rejects(controller.delete({workspaceId:id},signal), error => {
+      assert.equal(error.code,'workspace/not-found');
+      assert.equal(error.message,`Workspace "${id}" not found`);
+      assert.deepEqual(error.data,{workspaceId:id});
+      return true;
+    });
+  }
   assert.deepEqual(calls,[{type:'delete',id:workspaceId},{type:'delete',id:workspaceId}]);
   failure=Error('native outcome unknown');
   await assert.rejects(controller.delete({workspaceId},signal),error=>error===failure);
