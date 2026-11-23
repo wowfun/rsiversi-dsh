@@ -1182,6 +1182,8 @@ Bundle layers use the selected DSH app-boot's patch reader and preserve the
 order of all package-relative patch files declared by a bundle.
 Sidebar Session lookup refreshes the authenticated request's native Session and
 working directory; owned live Agent identities also resolve outside requests.
+During plugin startup, synchronous `sessions.get(id)` returns `undefined` for a
+nonresident Session. The plugin can use its saved metadata without resuming an Agent.
 The bridge authorizes the actual Session, child and root
 identities supplied to sidebar RPCs before the published handler runs.
 When a client also sends a working-directory hint, the released sidebar

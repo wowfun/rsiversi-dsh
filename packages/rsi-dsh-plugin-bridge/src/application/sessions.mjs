@@ -10,8 +10,7 @@ import {requestBodies} from '../request-body.mjs';
 
 export class SidebarBodyError extends Error {}
 
-/** The synchronous DSH lookup is scoped to a native-authorized request.
- * An unknown Session must never trigger the sidebar's cwd/process fallback. */
+/** Resident DSH Sessions and the current native-authorized request's views. */
 export function applicationSessions(send,{capture,owner,agent,registered=agent,attached,select,decorate}={}) {
   const scope=new AsyncLocalStorage();
   const activities=applicationActivities(scope,owner);
@@ -52,7 +51,8 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
   const sessions={get(id) {
     const owned=agent?.(id);if(owned)return owned.session;
     const active=scope.getStore();
-    if (!active || active.released) throw new Error('Session outside this request');
+    if (!active) return;
+    if (active.released) throw new Error('Session outside this request');
     if(active.views?.has(id))return active.views.get(id);
     if(active.id===id)return active.agent?.session??active;
     if(active.sidebar)throw new Error('Session outside this request');

@@ -82,6 +82,8 @@ for(const restored of [false,true])test(`the published Live Share Host serves gr
       hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController(protocol,scope,history));
       hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(protocol.TypertRemoteService,scope,protocol.RemoteError));
       ctx.provide('agents',{get:()=>undefined});
+      ctx.provide('sessions',scope.sessions);
+      ctx.provide('sessionTitle',{get:()=>assert.fail('Cold Session has no resident title projection')});
       ctx.provide('workspaceRegistry',{list:()=>[{id:workspace,sessionIds},{id:otherWorkspace,sessionIds:[]}]});
       ctx.provide('profileContext',{name:'share-test',dir:home,installAnchor:join(cohort,'package.json')});
       await ctx.plugin(boot.PluginPackages);
