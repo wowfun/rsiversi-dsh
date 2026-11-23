@@ -85,6 +85,11 @@ node fixtures/market/stage-home.mjs $rsiBinary $marketHome $shards $selection $d
 This Home starts with the original manager and an empty selection of third-party
 plugins. Install a package by name to exercise the same path a user takes.
 
+The market entry document ships its own HTML, JavaScript and hash receipt. It
+uses the selected release's build family and Desktop protocol descriptor. After
+browser authentication, the original DSH WebServer serves the workbench under
+`/document/`.
+
 Open the paired document from the staged market Home (PowerShell):
 
 ```powershell
