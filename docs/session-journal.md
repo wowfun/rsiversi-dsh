@@ -61,6 +61,14 @@ the attached Session; cold writes use the persistence write handle. Both flush
 before reporting success and survive cold replay without another feedback store
 or a copy of the native transcript.
 
+The original action-card service owns the recommendation switch, proposal
+projection and user decisions. Its `action-cards/decision` records share the
+Session journal. A cold reader recovers the same decisions from the assistant
+messages and those records. The decision itself adds no model-visible message.
+Profiles with package management load the released page and plugin
+recommendation providers. Their skills and actions follow the DSH profile
+settings and registered services.
+
 The original `/feedback <text>` command and `sessionFeedback.record` Remote
 append `feedback/record` to this same journal. The event is log-only and does not
 enter model context or trigger a Turn. The Remote accepts a live Session and

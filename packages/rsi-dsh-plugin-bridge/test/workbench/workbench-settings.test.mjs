@@ -28,6 +28,11 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
     directory:name=>dirname(require.resolve(name+'/package.json'))};
   const boot=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')));
   const selected=await workbenchProfile(modules,boot,profile);
+  assert.ok(selected.rows.some(row=>row.id==='action-cards'));
+  const managed=await workbenchProfile(modules,boot,profile,true);
+  const kinds=rows=>rows.filter(row=>['plugin-recommendations','creation-recommendations'].includes(row.id)).map(row=>row.id);
+  assert.deepEqual(kinds(selected.rows),[]);
+  assert.deepEqual(kinds(managed.rows),['creation-recommendations','plugin-recommendations']);
   assert.ok(!selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'),
     'must not offer permission writes without a native authority adapter');
   const names=new Set(['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway',

@@ -22,6 +22,22 @@ async function fixture(t,options={}) {
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
 
+test('the release action-card service recovers decisions from the ordinary Session journal', {skip:!root},async t=>{
+  const {ctx,api,load,journal}=await fixture(t);
+  await ctx.plugin((await load('dsh-session-projection')).default);
+  await ctx.plugin((await load('dsh-agent')).AgentRegistry);
+  ctx.provide('remoteAccess',{allows:()=>true});
+  await (await ctx.plugin((await load('dsh-action-cards')).default,{})).await();
+  const {z}=createRequire(join(root,'package.json'))('zod');
+  ctx.actionCards.register({action:'sample',details:z.object({}),verbs:{},act:async()=>({status:'ok'})});
+  const decision={cardId:'sample-offer',action:'sample',phase:'dismissed'};
+  ctx.actionCards.record({session:journal},decision);
+  assert.deepEqual(ctx.actionCards.view(journal.session).decisions[decision.cardId],decision);
+  assert.deepEqual(journal.session.deriveMessages(),[]);
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode()),native:[]});
+  assert.deepEqual(ctx.actionCards.view(cold.session),ctx.actionCards.view(journal.session));
+});
+
 test('live Session position and range reads match the selected release at the log boundary', {skip:!root},async t=>{
   const {api,journal}=await fixture(t);
   const original=api.Session.create(header.id);

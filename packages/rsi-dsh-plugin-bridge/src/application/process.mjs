@@ -56,7 +56,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     await linkProfilePackage(profile,name,modules.directory(name),modules.setProfileLink);
   }
   let market;
-  const {rows,clientOnly}=await workbenchProfile(modules,boot,profileState(profile));
+  const {rows,clientOnly}=await workbenchProfile(modules,boot,profileState(profile),Boolean(importer));
   const official='@deepseek-ai/dsh-client-ui-brand-official';
   const manifest=JSON.parse(await readFile(join(modules.directory(official),'package.json'),'utf8'));
   const brand=await publishBrand(join(profile,'.rsi-brand'),new URL('../browser/rsiversi.svg',import.meta.url),
