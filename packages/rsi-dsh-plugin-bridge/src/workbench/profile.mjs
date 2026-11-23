@@ -2,7 +2,7 @@ import {mkdir,readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 const hostServices=new Set(['dsh-typert-loader','dsh-config-editor','dsh-settings','dsh-api-settings-controller',
-  'dsh-host-open-in-app','dsh-host-plugin-inventory','dsh-commands','dsh-session-title','dsh-session-stats','dsh-storage',
+  'dsh-host-open-in-app','dsh-host-plugin-inventory','dsh-commands','dsh-session-title','dsh-session-stats','dsh-session-turn-outline','dsh-storage',
   'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy',
   'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env','dsh-jobs-local','dsh-action-cards'].map(name=>'@deepseek-ai/'+name));

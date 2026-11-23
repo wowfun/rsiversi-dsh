@@ -27,6 +27,9 @@ only a successful empty catalog is an empty list.
 The market workbench uses one application-level DSH Web shell and slot tree.
 The original session statistics projection supplies whole-session turn and step
 counts to the chat footer, including after a paginated history load.
+The turn navigator uses DSH's whole-session outline. A reader can preview an
+unloaded turn and jump directly to it. The outline is excluded from Session
+list summaries.
 Enabled bundles may register providers with the original DSH skill registry.
 The Session-addressed skill catalog supplies slash suggestions from those
 providers. Tool-enabled applications expose the original skill loader to the
