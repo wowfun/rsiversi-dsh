@@ -212,7 +212,8 @@ test('base workbench serves authorized cold pages through published Typert witho
         if(session==='archived'&&pinned)return {status:'archived'};
         return {status:'applied',pinnedSessionIds:pinned?[session]:[]};
       }
-      case 'rename': return {id:'a'.repeat(64)};
+      case 'rename': return {id:'a'.repeat(64),path:profile,title:'Renamed',created:1,updated:3,
+        sessions:['fork-native','blank-native','one']};
       case 'list':return {items:[{id:'a'.repeat(64),path:profile,title:'Renamed',created:1}],next:null,order:['a'.repeat(64)]};
       case 'insert_before':return args.operation.id==='a'.repeat(64) && (!args.operation.before || args.operation.before==='a'.repeat(64))
         ?{status:'applied',ids:['a'.repeat(64)]}:{status:'unknown',id:args.operation.id==='a'.repeat(64)?args.operation.before:args.operation.id};

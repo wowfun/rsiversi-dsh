@@ -1332,6 +1332,8 @@ Workspace creation, rename and deletion use the native registry. An existing
 directory registered twice returns one creation and one reuse. Creation returns
 the new registration with its empty account directly from the native commit.
 Reusing an existing registration returns its current visible Session account.
+The same native receipt supplies the selected account for rename, default
+initialization and Session moves. Only the Workspace feed requests the catalog.
 For `session/prompt`, the DSH request ID is the native durable message ID.
 Queue and steer preserve their respective delivery modes.
 The corresponding committed human message carries that same ID as its DSH

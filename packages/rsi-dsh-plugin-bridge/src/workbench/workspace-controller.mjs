@@ -2,15 +2,12 @@ import {once} from 'node:events';
 import {posix,win32} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
 
-function workspaceView(row, members) {
+function workspaceView(row, sessionIds = row.sessions ?? [], updated = row.updated ?? row.created) {
   if (row.created == null) throw new Error('Workspace has no recorded creation time');
   const path = win32.isAbsolute(row.path) && !posix.isAbsolute(row.path) ? win32 : posix;
-  const lastActivity = members.reduce((latest, member) =>
-    Math.max(latest, Number(member.last_activity_ms)), row.created);
   return {
     workspaceId: row.id, path: row.path, title: row.title ?? (path.basename(row.path) || path.parse(row.path).root),
-    createdAt: new Date(row.created).toISOString(), updatedAt: new Date(lastActivity).toISOString(),
-    sessionIds: members.map(member => member.session),
+    createdAt: new Date(row.created).toISOString(), updatedAt: new Date(updated).toISOString(), sessionIds,
   };
 }
 
@@ -65,7 +62,12 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       if (!rows) byWorkspace.set(draft.workspace, rows = []);
       rows.unshift({session:draft.id,last_activity_ms:draft.updatedAt});
     }
-    return {items:items.map(row=>workspaceView(row,byWorkspace.get(row.id)??[])),
+    const workspaces = items.map(row => {
+      const members = byWorkspace.get(row.id) ?? [];
+      return workspaceView(row, members.map(member => member.session),
+        members.reduce((latest, member) => Math.max(latest, Number(member.last_activity_ms)), row.created));
+    });
+    return {items:workspaces,
       archivedSessionIds:archives.sort((a,b)=>compareDecimal(a.partition_revision??"0",b.partition_revision??"0")||
       (a.session<b.session?-1:a.session>b.session?1:0)).map(row=>row.session),pinnedSessionIds:pins.sort((a,b)=>
         compareDecimal(b.partition_revision??"0",a.partition_revision??"0")||compareDecimal(b.last_activity_ms,a.last_activity_ms)||
@@ -79,11 +81,6 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     if(result.status==='unknown')throw new RemoteError('session/not-found','Unknown Session',{sessionId});
     if(result.status==='archived')throw new RemoteError('gateway/bad-request','Cannot pin an archived Session',{});
     return {pinnedSessionIds:result.pinnedSessionIds};
-  }
-  async function selected(id,signal){
-    const value=(await baseline(signal)).items.find(item=>item.workspaceId===id);
-    if(!value)throw new Error('Workspace unavailable to caller');
-    return {workspace:value};
   }
   let archiveTail=Promise.resolve();
   function serializeArchive(operation){
@@ -139,16 +136,15 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     unpinSession({sessionId},signal){return setPin(sessionId,false,signal);}
     async initializeDefault(signal){
       const row=await scope.workspace({type:'default'},signal);
-      return row?selected(row.id,signal):undefined;
+      return row ? {workspace:workspaceView(row)} : undefined;
     }
     async create({path},signal){
       const {record,created}=await scope.workspace({type:'create',path},signal);
-      if (created) return {workspace:workspaceView(record, []), created};
-      return {...await selected(record.id,signal),created};
+      return {workspace:workspaceView(record), created};
     }
     async rename({workspaceId,title},signal){
       const row=await scope.workspace({type:'rename',id:workspaceId,title},signal);
-      return selected(row.id,signal);
+      return {workspace:workspaceView(row)};
     }
     async delete({workspaceId},signal){
       return {deleted:await scope.workspace({type:'delete',id:workspaceId},signal)};
@@ -169,7 +165,7 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       if(result.status==='unknown')throw new RemoteError('workspace/not-found','Unknown Workspace',{workspaceId});
       if(result.status==='invalid_member')throw new RemoteError('workspace/move-invalid','Session or anchor is not in this Workspace',
         {workspaceId,sessionId,...beforeSessionId===undefined?{}:{beforeSessionId}});
-      return selected(workspaceId,signal);
+      return {workspace:workspaceView(result.record)};
     }
   };
 }

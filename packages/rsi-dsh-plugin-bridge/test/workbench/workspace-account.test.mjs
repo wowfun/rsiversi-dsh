@@ -26,16 +26,12 @@ test('creating a new workspace returns its committed empty account without readi
 });
 
 test('reusing a registered drive root keeps its title and current members', async () => {
-  const record = {id:workspaceId, path:'C:\\', created:1};
+  const record = {id:workspaceId, path:'C:\\', created:1, updated:4, sessions:['existing']};
   const scope = {
     drafts: async () => [],
     async workspace(input) {
       switch (input.type) {
       case 'create': return {record, created:false};
-      case 'list': return {items:[record], order:[workspaceId]};
-      case 'membership': return {groups:[workspaceId], members:[
-        {session:'existing', group:0, account_position:0, last_activity_ms:'4'},
-      ]};
       default: throw Error('unexpected operation');
       }
     },
@@ -45,6 +41,7 @@ test('reusing a registered drive root keeps its title and current members', asyn
   assert.equal(result.created, false);
   assert.equal(result.workspace.title, record.path);
   assert.deepEqual(result.workspace.sessionIds, ['existing']);
+  assert.equal(result.workspace.updatedAt, new Date(4).toISOString());
 });
 
 test('Workspace deletion preserves the native absent result and failures',async()=>{
@@ -73,7 +70,8 @@ test('Workspace baseline uses native account order and moves return the updated 
       case 'membership':return {groups:[workspaceId],members:rows.map(row=>({...row,group:0}))};
       case 'insert_session_before':
         assert.equal(input.session,'older');assert.equal(input.before,'newer');
-        rows[0].account_position=1;rows[1].account_position=0;return {status:'applied'};
+        rows[0].account_position=1;rows[1].account_position=0;
+        return {status:'applied',record:{id:workspaceId,path:'/project',created:1,updated:999,sessions:['older','newer']}};
       default:throw Error('unexpected operation');
       }
     }};
