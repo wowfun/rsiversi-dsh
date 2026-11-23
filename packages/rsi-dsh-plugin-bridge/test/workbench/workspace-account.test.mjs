@@ -7,9 +7,37 @@ class RemoteError extends Error {
 }
 const workspaceId='a'.repeat(64);
 
+test('workspace commands trim names and expose only confirmed native rejections as domain errors',async()=>{
+  const calls=[];
+  let receipt={id:workspaceId,path:'/work',title:'Project',created:1};
+  const Controller=workspaceController(class {},{async workspace(input){
+    calls.push(input);
+    if(receipt instanceof Error)throw receipt;
+    return receipt;
+  }},RemoteError);
+  const controller=new Controller();
+  const rename=(title,id=workspaceId)=>controller.rename({workspaceId:id,title});
+  await assert.rejects(rename('  ','missing'),{code:'gateway/bad-request'});
+  await assert.rejects(rename('Title','missing'),{code:'workspace/not-found',data:{workspaceId:'missing'}});
+  assert.deepEqual(calls,[]);
+  assert.equal((await rename(' Project  ')).workspace.title,'Project');
+  assert.deepEqual(calls,[{type:'rename',id:workspaceId,title:'Project'}]);
+  receipt={status:'unknown'};
+  await assert.rejects(rename('Title'),{code:'workspace/not-found',data:{workspaceId}});
+  receipt={status:'name_conflict'};
+  await assert.rejects(rename(' Taken '),{code:'workspace/name-conflict',data:{name:'Taken'}});
+  receipt={status:'invalid_title',message:'workspace name exceeds the byte bound'};
+  await assert.rejects(rename('x'.repeat(257)),{code:'gateway/bad-request',data:{}});
+  receipt={status:'invalid_path',message:'missing directory'};
+  await assert.rejects(controller.create({path:'/absent'}),{code:'workspace/invalid-path',data:{path:'/absent'}});
+  receipt=Error('commit outcome unknown');
+  await assert.rejects(controller.create({path:'/work'}),error=>error===receipt);
+  await assert.rejects(rename('Title'),error=>error===receipt);
+});
+
 test('creating a new workspace returns its committed empty account without reading other accounts', async () => {
   const signal = new AbortController().signal;
-  const record = {id:workspaceId, path:'/work/new', title:null, created:1234};
+  const record = {id:workspaceId, path:'/work/new', title:'new', created:1234};
   const calls = [];
   const scope = {async workspace(input, received) {
     calls.push(input);
@@ -26,7 +54,7 @@ test('creating a new workspace returns its committed empty account without readi
 });
 
 test('reusing a registered drive root keeps its title and current members', async () => {
-  const record = {id:workspaceId, path:'C:\\', created:1, updated:4, sessions:['existing']};
+  const record = {id:workspaceId, path:'C:\\', title:'C:\\', created:1, updated:4, sessions:['existing']};
   const scope = {
     drafts: async () => [],
     async workspace(input) {
@@ -73,12 +101,12 @@ test('Workspace baseline uses native account order and moves return the updated 
     async workspace(input){
       calls.push(input);
       switch(input.type){
-      case 'list':return {items:[{id:workspaceId,path:'/project',created:1}],order:[workspaceId],next:null};
+      case 'list':return {items:[{id:workspaceId,path:'/project',title:'project',created:1}],order:[workspaceId],next:null};
       case 'membership':return {members:rows.map(row=>({...row,workspace:workspaceId})),next:null};
       case 'insert_session_before':
         assert.equal(input.session,'older');assert.equal(input.before,'newer');
         rows[0].account_position=1;rows[1].account_position=0;
-        return {status:'applied',record:{id:workspaceId,path:'/project',created:1,updated:999,sessions:['older','newer']}};
+        return {status:'applied',record:{id:workspaceId,path:'/project',title:'project',created:1,updated:999,sessions:['older','newer']}};
       default:throw Error('unexpected operation');
       }
     }};
@@ -116,7 +144,7 @@ test('workspace feeds preserve detached pins and exclude promoted drafts without
   const scope={workspaceChange:()=>new AbortController().signal,
     drafts:async()=>[{id:'detached',workspace:other,updatedAt:1},{id:'private',workspace:workspaceId,updatedAt:6}],
     workspace:async input=>input.type==='list'
-      ? {items:[{id:workspaceId,path:'/one',created:1},{id:other,path:'/two',created:1}],order:[workspaceId,other]}
+      ? {items:[{id:workspaceId,path:'/one',title:'one',created:1},{id:other,path:'/two',title:'two',created:1}],order:[workspaceId,other]}
       : {members,next:null}};
   const Controller=workspaceController(class {},scope,RemoteError);
   const frames=new Controller().follow(new AbortController().signal);
@@ -137,7 +165,7 @@ test('a draft published between the two workspace reads keeps its durable positi
       return rows;
     },
     async workspace({type}) {
-      if (type === 'list') return {items:[{id:workspaceId,path:'/project',created:1}], order:[workspaceId]};
+      if (type === 'list') return {items:[{id:workspaceId,path:'/project',title:'project',created:1}], order:[workspaceId]};
       const members = published ? [old,{session:'promoting',workspace:workspaceId,account_position:1,last_activity_ms:'3'}] : [old];
       published = true;
       return {members,next:null};

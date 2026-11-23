@@ -268,7 +268,7 @@ Application submissions preserve the native input capacity through request-owned
 
 Agent settlement uses the staged operation's existing identity and receipt lifetime. Event pages normally fit 256 KiB and 4096 events; one larger event may occupy a page within the journal's 64 MiB aggregate bound. `agent.operation-body.read` reads these pages and the separate Tool result body. The result bound is 17 MiB for bridge-produced results with empty enforcement: encoded value and metadata each have a 4 MiB native bound, text expands to at most 8 MiB, contexts occupy 64 KiB, and bounded image descriptors/framing fit the remainder. The 256 MiB generation mirror budget includes output reservations. Before Tool execution, the peer admits the larger of the known event page and the result bound; after staging it reduces that reservation to actual encoded needs. Only the current result or event page is encoded and cached. Exact-token rereads can reconstruct another immutable part without replaying the Tool. Receipt, abandonment and disposal retire output authority and budget. Fork pages use their existing pure-transfer lease and the same generation budget.
 
-Application opening uses protocol 15. The native Host supplies an opaque `owner`
+Application opening uses protocol 16. The native Host supplies an opaque `owner`
 callback whose identity is the shared browser owner and whose lifetime is the
 selected application process. Explicit background activities run through this
 callback; HTTP handlers retain their own authenticated request scope. An activity
@@ -1340,6 +1340,11 @@ Workspace creation, rename and deletion use the native registry. An existing
 directory registered twice returns one creation and one reuse. Creation returns
 the new registration with its empty account directly from the native commit.
 Reusing an existing registration returns its current visible Session account.
+The rename command trims the title. Blank names are bad requests, missing
+registrations return `workspace/not-found`, and a competing visible title
+returns `workspace/name-conflict`. A rejected directory returns
+`workspace/invalid-path` with the requested path. The native registration
+commit serializes competing renames across windows.
 The same native receipt supplies the selected account for rename, default
 initialization and Session moves. Only the Workspace feed requests the catalog.
 The composed Workspace service exposes Host metadata to enabled, trusted Cordis

@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {workbenchWorkspaceRegistry,workspaceView} from '../../src/workbench/workspace-registry.mjs';
 
 test('Workspace metadata uses ordered published headers, keeps entity identity and reads no private drafts',async()=>{
-  const row={id:'workspace',path:'/test',created:1,updated:3};
+  const row={id:'workspace',path:'/test',title:'test',created:1,updated:3};
   const archived={session:'detached',archived:true,partition_revision:'9'};
   const meta={id:'enrolled',createdAt:4,cwd:'/test',version:4,isSeeded:false};
   let members=[{session:'enrolled',workspace:row.id,account_position:5,last_activity_ms:'4',header:meta}],reads=0;
@@ -34,7 +34,7 @@ test('Workspace metadata uses ordered published headers, keeps entity identity a
 
 test('a directory read already in flight cannot overwrite a newer registration receipt',async()=>{
   const started=Promise.withResolvers(),release=Promise.withResolvers();
-  const first={id:'first',path:'/first',created:1},second={id:'second',path:'/second',created:2};
+  const first={id:'first',path:'/first',title:'first',created:1},second={id:'second',path:'/second',title:'second',created:2};
   let scans=0;
   const scope={observeOwned:op=>op(),workspace:async op=>{
     if(op.type==='membership')return {members:[],next:null};

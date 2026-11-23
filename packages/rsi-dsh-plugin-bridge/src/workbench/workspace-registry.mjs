@@ -1,10 +1,7 @@
-import {posix,win32} from 'node:path';
-
 export function workspaceView(row, sessionIds = row.sessions ?? []) {
   if (row.created == null) throw new Error('Workspace has no recorded creation time');
-  const path = win32.isAbsolute(row.path) && !posix.isAbsolute(row.path) ? win32 : posix;
   return {
-    workspaceId: row.id, path: row.path, title: row.title ?? (path.basename(row.path) || path.parse(row.path).root),
+    workspaceId: row.id, path: row.path, title: row.title,
     createdAt: new Date(row.created).toISOString(), updatedAt: new Date(row.updated ?? row.created).toISOString(), sessionIds,
   };
 }

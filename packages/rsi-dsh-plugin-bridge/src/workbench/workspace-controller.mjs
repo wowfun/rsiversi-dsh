@@ -101,11 +101,19 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       return row ? {workspace:selected(row)} : undefined;
     }
     async create({path},signal){
-      const {record,created}=await scope.workspace({type:'create',path},signal);
-      return {workspace:selected(record), created};
+      const result=await scope.workspace({type:'create',path},signal);
+      if(result.status==='invalid_path')throw new RemoteError('workspace/invalid-path',
+        `cannot create a Workspace at "${path}": ${result.message}`,{path});
+      return {workspace:selected(result.record),created:result.created};
     }
     async rename({workspaceId,title},signal){
+      title=title.trim();
+      if(!title)throw new RemoteError('gateway/bad-request','Workspace rename requires a non-blank title',{});
+      if(!nativeId.test(workspaceId))throw workspaceNotFound(workspaceId);
       const row=await scope.workspace({type:'rename',id:workspaceId,title},signal);
+      if(row.status==='unknown')throw workspaceNotFound(workspaceId);
+      if(row.status==='name_conflict')throw new RemoteError('workspace/name-conflict',`Workspace name '${title}' is already in use`,{name:title});
+      if(row.status==='invalid_title')throw new RemoteError('gateway/bad-request',row.message,{});
       return {workspace:selected(row)};
     }
     async delete({workspaceId},signal){

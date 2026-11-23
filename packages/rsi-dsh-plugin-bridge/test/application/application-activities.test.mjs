@@ -137,7 +137,7 @@ test('Workspace pin order uses lossless revisions and falls back to native activ
   members.push(...[['second','1','9007199254740993'],['first','2','9007199254740992'],['old-b','9'],['old-a','1']].map(([session,last_activity_ms,partition_revision])=>({group:0,session,last_activity_ms,partition_revision,archived:true})));
   members.forEach((member,index)=>{member.account_position=index;});
   const Workspace=workspaceController(class {},{workspaceChange:()=>new AbortController().signal,drafts:async()=>[],
-    workspace:async({type})=>type==='list'?{items:[{id:'ws',path:'/work',created:1}],order:['ws']}:{groups:['ws'],members}});
+    workspace:async({type})=>type==='list'?{items:[{id:'ws',path:'/work',title:'work',created:1}],order:['ws']}:{groups:['ws'],members}});
   const frames=new Workspace().follow(new AbortController().signal);
   const {value:{value}}=await frames.next();
   assert.deepEqual(value.pinnedSessionIds,['newest-pin','second-pin','z','Z','older']);
@@ -155,7 +155,7 @@ test('Workspace baseline preserves Host display order across creation-order page
       requests.push(operation);
       if(operation.type==='membership')return {groups:[],members:[]};
       const ids=operation.after?['third']:['first','second'];
-      return {items:ids.map(id=>({id,path:'/work/'+id,created:1})),
+      return {items:ids.map(id=>({id,path:'/work/'+id,title:id,created:1})),
         next:operation.after?null:{after_order:2},order:operation.after?null:['third','first','second']};
     },
   });
