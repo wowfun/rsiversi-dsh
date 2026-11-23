@@ -15,7 +15,7 @@ import {createMarketProfile} from '../market/market-profile.mjs';
 import {linkProfilePackage} from '../market/profile-files.mjs';
 import {applicationSessions} from './sessions.mjs';
 import {workbenchWorkspaceRegistry} from '../workbench/workspace-registry.mjs';
-import {hostHomePicker,ownerDirectoryPicker,workspaceController} from '../workbench/workspace-controller.mjs';
+import {hostHomePicker,workspaceController} from '../workbench/workspace-controller.mjs';
 import {sessionController} from '../workbench/session-controller.mjs';
 import {jobController} from '../workbench/job-controller.mjs';
 import {workbenchProfile} from '../workbench/profile.mjs';
@@ -76,9 +76,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     }
     return candidate.reconcile(layers,options);
   };
-  // RSI supplies the authenticated carrier. Its original JS client export
-  // still resolves through the release layout for the browser module graph.
-  const hostModules=new Map([['@deepseek-ai/dsh-client-connection',{inject:['connection'],apply(){}}]]);
+  const hostModules=new Map();
   const setup=performance.now();
   let toolListener,retireToolOutcome,sessionScope;
   const boundary=requestBoundary();
@@ -128,9 +126,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       hostModules.set(browse,hostHomePicker((await load(browse)).default,process.env.RSI_HOST_HOME));
     }
     const Workspace=workspaceController(TypertRemoteService,sessionScope,RemoteError);
-    const Picker=ownerDirectoryPicker(DirectoryPickerController,sessionScope,RemoteError);
     hostModules.set(workspaceModule,class extends Workspace {
-      constructor(scope){super(scope);scope.plugin(Picker);}
+      constructor(scope){super(scope);scope.plugin(DirectoryPickerController);}
     });
     const jobName='@deepseek-ai/dsh-api-job-controller';
     if(rows.some(row=>row.name===jobName))hostModules.set(jobName,jobController((await load(jobName)).default,history));

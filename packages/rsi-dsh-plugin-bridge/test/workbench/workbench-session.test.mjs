@@ -8,7 +8,7 @@ import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
-import {provideHttp} from '../../src/application/http.mjs';
+import {provideHttp} from '../fixtures/application-http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workspaceController} from '../../src/workbench/workspace-controller.mjs';
 import {sessionController} from '../../src/workbench/session-controller.mjs';
@@ -308,12 +308,12 @@ test('base workbench serves authorized cold pages through published Typert witho
   const additions=[];app.ctx.on('api-session/added',row=>additions.push(row));
   const lifetime=new AbortController();t.after(()=>lifetime.abort());
   const host=new URL(app.ctx.webServer.getOrigin()).host;
-  const peer=app.ctx.connection.admit({headers:{host,'x-rsi-upstream-key':key}}).peer;
+  const peer=app.ctx.connection.admit({headers:{host,'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key}}).peer;
   assert.equal(peer.principal.kind,'owner');
   const observers=[0,1].map(()=>app.ctx.typertGateway.openRemoteEvents({args:{}},lifetime.signal,peer));
   for(const observer of observers)await observer.next();
   const result=await fetch(app.ctx.webServer.getOrigin()+'/api/session/list',{method:'POST',
-    headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+    headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
     body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'session/list',payload:{args:{_request:{}}}})});
   const text=await result.text();
   assert.equal(result.status,200,text);
@@ -323,7 +323,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   for(const reasoningEffort of [undefined,'high']){
     const selection={provider:'native',model:'chosen',...(reasoningEffort?{reasoningEffort}:{})};
     const reply=await fetch(app.ctx.webServer.getOrigin()+'/api/session/selectModel',{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
       body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'session/selectModel',
         payload:{args:{request:{sessionId:'one',...selection}}}})});
     const result=await reply.json();
@@ -332,7 +332,7 @@ test('base workbench serves authorized cold pages through published Typert witho
       ...(reasoningEffort?{reasoning_effort:reasoningEffort}:{})});
   }
   const create=await fetch(app.ctx.webServer.getOrigin()+'/api/session/create',{method:'POST',
-    headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+    headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
     body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'session/create',payload:{args:{request:{
       sessionId:'blank-draft',cwd:profile,agentPreset:'standard'}}}})});
   const created=await create.json();
@@ -355,7 +355,7 @@ test('base workbench serves authorized cold pages through published Typert witho
     assert.deepEqual(value.args,[additions[0]]);
   }
   const fork=await fetch(app.ctx.webServer.getOrigin()+'/api/session/fork',{method:'POST',
-    headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+    headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
     body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'session/fork',
       payload:{args:{request:{sessionId:'one'}}}})});
   const forked=await fork.json();assert.ok(forked.result?.ok,JSON.stringify(forked));
@@ -416,7 +416,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   ]){
     const method='workspace/'+action;
     const res=await fetch(app.ctx.webServer.getOrigin()+'/api/'+method,{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
       body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method,payload:{args:{request:{sessionId,stopActivity}}}})});
     const {result}=await res.json();
     if(expected.ok)assert.deepEqual(result,expected);
@@ -427,7 +427,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   assert.deepEqual(nativeStops,['working','mirror']);
   assert.deepEqual(archivedEvents,['idle','working','mirror']);
   const rename=await fetch(app.ctx.webServer.getOrigin()+'/api/workspace/rename',{method:'POST',
-    headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+    headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
     body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'workspace/rename',payload:{args:{request:{workspaceId:'a'.repeat(64),title:'Renamed'}}}})});
   const renamed=await rename.json();
   assert.deepEqual(renamed.result?.value.workspace.sessionIds,['fork-native','blank-native','one'],JSON.stringify(renamed));
@@ -441,7 +441,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   ]){
     const method='workspace/insertBefore';
     const response=await fetch(app.ctx.webServer.getOrigin()+'/api/'+method,{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
       body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method,payload:{args:{request}}})});
     const {result}=await response.json();
     if(expected.ok)assert.deepEqual(result,expected);
@@ -450,7 +450,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   for(const mode of ['queue','steer']) {
     const requestId=randomUUID();
     const reply=await fetch(app.ctx.webServer.getOrigin()+'/api/session/prompt',{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
       body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'session/prompt',payload:{args:{request:{
         sessionId:'one',requestId,mode,content:[{type:'text',text:'hello'}]}}}})});
     const result=await reply.json();
@@ -460,7 +460,7 @@ test('base workbench serves authorized cold pages through published Typert witho
       attribution:{id:requestId,source:{kind:'user',rpcId:requestId}}});
   }
   const cancel=await fetch(app.ctx.webServer.getOrigin()+'/api/session/cancel',{method:'POST',
-    headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
+    headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued-request','content-type':'application/json'},
     body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'session/cancel',payload:{args:{request:{sessionId:'one'}}}})});
   const cancellation=await cancel.json();
   assert.deepEqual(cancellation.result?.value,{accepted:true},JSON.stringify(cancellation));

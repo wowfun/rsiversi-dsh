@@ -7,6 +7,21 @@ test('a changed baseline at an already delivered cursor does not manufacture a S
   assert.equal(projectionFrame(baseline,{...baseline,values:{...baseline.values,newPlugin:true}}),undefined);
 });
 
+test('queued projections use the reader grant in force when each value is delivered',async()=>{
+  const service=workbenchControl(()=>assert.fail('reader grants belong to DSH'));
+  const visible=new Set(['first','second']),signal=new AbortController().signal;
+  const snapshot=seq=>({asOfSeq:seq,values:{count:seq}});
+  const first=service.open('first',snapshot(0)),second=service.open('second',snapshot(0));
+  const stream=service.control(signal,id=>visible.has(id));
+  try{
+    assert.deepEqual(Object.keys((await stream.next()).value.value.projections),['first','second']);
+    first.publish(snapshot(1));first.publish(snapshot(2));second.publish(snapshot(1));
+    assert.equal((await stream.next()).value.sessionId,'first');
+    visible.delete('first');
+    assert.equal((await stream.next()).value.sessionId,'second');
+  }finally{await stream.return();service.close();}
+});
+
 test('slow receivers get every changed event with its ordered replacements in one frame',async()=>{
   let checks=0;
   const service=workbenchControl(async()=>{checks++;}),life=new AbortController();

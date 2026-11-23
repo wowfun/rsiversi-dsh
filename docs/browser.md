@@ -3,11 +3,14 @@
 The leased process answers `application.open` over the existing extension
 channel. Every registered HTTP, fallback and upgrade handler checks the private
 forwarder's key before giving the request to the original DSH server.
-The market shell is a local operator application. Better Sidebar follows the
-native Session cwd for relative files and can open explicit host paths as the
-operator. A Session selects its default directory. Only the native browser
-device issued to the local operator can enter this shell or run its package
-operations.
+The native browser device issued to the local operator enters the owner
+workbench. Better Sidebar follows the native Session cwd for relative files and
+can open explicit Host paths as that operator. Other paired devices enter a
+page for opening the original DSH Live Share link. The browser navigates to
+the link directly. The Relay authenticates the reader and the original
+Live Share plugin owns share membership, expiry and permissions. Pairing
+confers no DSH Session grant. Operator routes and upgrades require the native
+owner credential. The Host neither receives nor stores the link from the entry form.
 The workspace sidebar uses the shipped DSH directory picker. Its adaptive
 plugin mounts a matching browser surface and Host backend. The browse picker
 can enter any directory accessible to the Host account, follow directory links,
@@ -22,10 +25,13 @@ same snapshot, including plugins enabled later from the market.
 An upgraded socket carries its authorized Session through subsequent data
 events. Its underlying TCP resource predates the HTTP request context.
 The original client connection and module services own their endpoint and
-manifest semantics. RSI owns browser authentication at the outer listener.
+manifest semantics. The profile mounts the original Connection plugin with
+the private listener's defaults and its normal Cordis lifetime. Native authentication attaches
+to that service whenever it is active. RSI owns browser authentication at the outer listener.
 The private connection registers its forwarding credential with DSH's
-`connection.authentication`. DSH passes the admitted owner Peer to HTTP,
-resource and upgrade handlers. In-process resource reads retain their caller.
+`connection.authentication` together with the native owner's role. DSH
+passes the admitted owner Peer to direct HTTP, resource and upgrade handlers.
+In-process resource reads from Live Share retain their reader Peer.
 The private HTTP carrier uses the shipped DSH Web preset's gzip policy:
 level 1, with a 1024-byte threshold. The original WebServer owns negotiation,
 streaming and exclusions, including SSE, ranges and already encoded content.
@@ -34,6 +40,14 @@ The original Typert session list reads the native visible catalog through
 the active HTTP or mux request. Native pages are collected into the bounded
 DSH list response. An unavailable page or an overflow rejects the read;
 only a successful empty catalog is an empty list.
+When the Live Share Host dispatches a reader call, the DSH Gateway retains
+the reader's Peer. Session summaries, control projections and workspace
+membership follow the release's per-resource `remoteAccess.allows` decisions,
+including on subsequent stream frames. Workspace discovery, pins and archives
+use the same reader policy as the workspace sidebar.
+An admitted Live Share read uses the application's native callback for the
+duration of the call or stream. Its cancellation follows the DSH reader.
+The reader identity stays on the Gateway invocation when opening Session history.
 
 The market workbench uses one application-level DSH Web shell and slot tree.
 The original session statistics projection supplies whole-session turn and step

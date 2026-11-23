@@ -23,8 +23,7 @@ test('the selected original Cordis host runner serves the client inventory and i
   assert.ok(selected.rows.some(row=>row.name==='@deepseek-ai/dsh-command-feedback'),'the Session feedback dialog needs its original Host Remote and command');
   assert.ok(runner,'the client face needs its original host service');
   const connection=selected.rows.find(row=>row.name==='@deepseek-ai/dsh-client-connection');
-  const hostModules=new Map([[connection.name,{inject:['connection'],apply(){}}]]);
-  const app=await createApplication({profile,modules,hostModules,provide:async(ctx,load)=>{
+  const app=await createApplication({profile,modules,provide:async(ctx,load)=>{
     await provideHttp(ctx,load,key);
     ctx.provide('profileContext',{name:'runner',dir:profile,installAnchor:join(root,'package.json')});
     await ctx.plugin(boot.PluginPackages);
@@ -34,7 +33,7 @@ test('the selected original Cordis host runner serves the client inventory and i
   await app.reconcile([{insert:[...entries.map(id=>({id,name:'@deepseek-ai/'+id})),runner,connection]}]);
   for(const [method,args,expected] of [['inventory',{},[]],['syncInspectManifest',{providers:[]},null]]){
     const remote='dynamicCordisRunner/'+method,response=await fetch(app.ctx.webServer.getOrigin()+'/api/'+remote,{
-      method:'POST',headers:{'x-rsi-upstream-key':key,'content-type':'application/json'},
+      method:'POST',headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'content-type':'application/json'},
       body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:remote,payload:{args}})});
     assert.equal(response.status,200);
     assert.deepEqual((await response.json()).result,{ok:true,value:expected});

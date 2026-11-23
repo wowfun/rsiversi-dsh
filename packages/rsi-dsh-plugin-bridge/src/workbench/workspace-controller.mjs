@@ -2,20 +2,6 @@ import {once} from 'node:events';
 import {readWorkspaceBaseline,workspaceView} from './workspace-registry.mjs';
 import {isDeepStrictEqual} from 'node:util';
 
-export function ownerDirectoryPicker(Controller,scope,RemoteError) {
-  function admit(method) {
-    if(scope.isHostOwner())return;
-    const action='directoryPicker/'+method;
-    throw new RemoteError('remote-access/denied',`remote access: ${action}: access denied (no-allow)`,
-      {action,reason:'no-allow'});
-  }
-  return class extends Controller {
-    pick(signal){admit('pick');return super.pick(signal);}
-    list(path,signal){admit('list');return super.list(path,signal);}
-    createDirectory(path,name){admit('createDirectory');return super.createDirectory(path,name);}
-  };
-}
-
 /** The process home belongs to the package cache. The picker displays the operator's home. */
 export function hostHomePicker(Browse,home) {
   return class extends Browse {
@@ -74,15 +60,33 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     return result;
   }
   return class extends TypertRemoteService {
+    static inject=['typert','remoteAccess'];
     constructor(ctx){super(ctx,'workspaceController',{namespace:'workspace'});}
+    [TypertRemoteService.init]() {
+      this.ctx.typert.resources.register('workspace',{field:'workspaceId'});
+    }
     async *follow(signal){
+      const peer=this.ctx?.invocation?.peer;
+      const reader=peer && peer.principal.kind!=='owner';
+      const read=async()=>{
+        if(!reader)return readWorkspaceBaseline(scope,signal);
+        const value=await scope.observeOwned(stop=>readWorkspaceBaseline(scope,stop),signal);
+        const access=this.ctx.remoteAccess;
+        const sessions=ids=>ids.filter(id=>access.allows({kind:'session',id}));
+        return {
+          items:value.items.filter(row=>access.allows({kind:'workspace',id:row.workspaceId}))
+            .map(row=>({...row,sessionIds:sessions(row.sessionIds)})),
+          archivedSessionIds:sessions(value.archivedSessionIds),
+          pinnedSessionIds:sessions(value.pinnedSessionIds),
+        };
+      };
       let change=scope.workspaceChange();
-      let value=await readWorkspaceBaseline(scope,signal);
+      let value=await read();
       yield {type:'baseline',value};
       while(!signal.aborted){
         if(!change.aborted)await once(change,'abort',{signal});
         change=scope.workspaceChange();
-        const next=await readWorkspaceBaseline(scope,signal);
+        const next=await read();
         if(!isDeepStrictEqual(next,value)){value=next;yield {type:'replace',value};}
       }
     }

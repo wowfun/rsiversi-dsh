@@ -9,7 +9,7 @@ import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {createApplication} from '../../src/application/application.mjs';
-import {provideHttp} from '../../src/application/http.mjs';
+import {provideHttp} from '../fixtures/application-http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {historyCapture} from '../fixtures/history-page.mjs';
@@ -75,7 +75,7 @@ test('original sidebar resolves each file and Git request through its authentica
   const patch=join(root,'node_modules/dsh-better-sidebar/cordis.patch.yml');
   await app.reconcile([boot.loadOverlayPatches('rsi-dsh',patch)]);
   const origin=app.ctx.webServer.getOrigin();
-  const request=(id,url,body,extra={})=>fetch(origin+url,{method:'POST',headers:{'x-rsi-upstream-key':key,
+  const request=(id,url,body,extra={})=>fetch(origin+url,{method:'POST',headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,
     'x-rsi-upstream-request':id,'content-type':'application/json',...extra},body});
   const settings=await request('one','/sidebar/api/settings.get','   ');
   assert.equal(settings.status,200,await settings.text());
@@ -141,7 +141,7 @@ test('original sidebar resolves each file and Git request through its authentica
   assert.ok(JSON.stringify(await explicit.json()).includes('changed-two'));
   const WebSocket=require('ws');
   const notifications=new WebSocket(origin.replace('http:','ws:')+'/sidebar/ws/sidechat',{
-    origin,headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'one'}});
+    origin,headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'one'}});
   try {
     await once(notifications,'open',{signal:AbortSignal.timeout(5000)});
     notifications.send(JSON.stringify({op:'watch',threadIds:['one']}));
@@ -153,7 +153,7 @@ test('original sidebar resolves each file and Git request through its authentica
   }finally{notifications.terminate();}
   for(const id of ['one','two']) {
     const socket=new WebSocket(origin.replace('http:','ws:')+'/sidebar/ws/fs-watch?sessionId='+id,{
-      origin,headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':id}});
+      origin,headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':id}});
     try {
       await once(socket,'open',{signal:AbortSignal.timeout(5000)});
       const message=once(socket,'message',{signal:AbortSignal.timeout(5000)});

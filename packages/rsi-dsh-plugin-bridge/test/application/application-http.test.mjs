@@ -9,10 +9,41 @@ import {pathToFileURL} from 'node:url';
 import {get} from 'node:http';
 import {gunzipSync} from 'node:zlib';
 import {createApplication} from '../../src/application/application.mjs';
-import {provideHttp} from '../../src/application/http.mjs';
+import {provideHttp} from '../fixtures/application-http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('a paired browser opens a share link and the original Host retains its reader Peer',{skip:!root},async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-share-entry-'));
+  t.after(()=>rm(profile,{recursive:true,force:true}));
+  const key=randomBytes(32).toString('hex'),require=createRequire(join(root,'package.json'));
+  const app=await createApplication({profile,modules:{entry:n=>require.resolve(n)},provide:(ctx,load)=>provideHttp(ctx,load,key)});
+  t.after(()=>app.close());
+  const {connection,webServer}=app.ctx,origin=webServer.getOrigin();
+  const paired={'x-rsi-upstream-key':key},owner={...paired,'x-rsi-upstream-owner':'1'};
+  const admit=headers=>connection.admit({headers:{host:new URL(origin).host,...headers}});
+  assert.equal(admit(paired).rejection,401);
+  assert.equal(admit(owner).peer.principal.kind,'owner');
+  assert.equal(admit({'x-rsi-upstream-owner':'1'}).rejection,401);
+  const seen=[];
+  webServer.register({kind:'exact',path:'/sample',resource:(_request,peer)=>{
+    seen.push(peer);
+    return new Response('sample');
+  }});
+  const page=await fetch(origin+'/document/',{headers:{...paired,'accept-language':'zh-CN'}});
+  assert.equal(page.status,200);
+  assert.equal(page.headers.get('referrer-policy'),'no-referrer');
+  assert.match(await page.text(),/<html lang="zh-CN">/);
+  const js=await fetch(origin+'/document/open-share.js',{headers:paired});
+  assert.match(js.headers.get('content-type'),/javascript/);
+  assert.equal((await fetch(origin+'/document/sample',{headers:paired})).status,403);
+  assert.equal(seen.length,0);
+  const actor={providerId:'fixture',tenantId:'tenant',subjectId:'reader'};
+  const reader=connection.createPeer({principal:{kind:'share-viewer',shareId:'fixture',actor}});
+  const sample=await webServer.readResource(new Request(origin+'/document/sample'),reader);
+  assert.equal(await sample.text(),'sample');
+  assert.equal(seen[0],reader);
+});
 test('admitted handler failures retain the original WebServer error path', {skip:!root}, async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-handler-errors-'));
   t.after(()=>rm(profile,{recursive:true,force:true}));
@@ -24,7 +55,7 @@ test('admitted handler failures retain the original WebServer error path', {skip
   const handler=()=>{throw Error('plugin handler failure');};
   app.ctx.webServer.register({kind:'exact',path:'/failure',handler});
   app.ctx.webServer.registerFallback(handler);
-  const origin=app.ctx.webServer.getOrigin(),headers={'x-rsi-upstream-key':key,'x-rsi-upstream-request':'admitted'};
+  const origin=app.ctx.webServer.getOrigin(),headers={'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'admitted'};
   for(const prefix of ['','/document']) {
     assert.equal((await fetch(origin+prefix+'/failure')).status,403);
     const malformed=await fetch(origin+prefix+'/sidebar/api/failure',{method:'POST',headers,body:'{'});
@@ -61,8 +92,8 @@ test('Fetch resources preserve the admitted Peer and original path on both HTTP 
   for(const path of ['/named','/fallback'])for(const prefix of ['','/document']){
     const url=origin+prefix+path+'?q=1';
     assert.equal((await fetch(url)).status,403);
-    assert.equal((await fetch(url,{headers:{'x-rsi-upstream-key':key}})).status,403);
-    const headers={'x-rsi-upstream-key':key,'x-rsi-upstream-request':'admitted'};
+    assert.equal((await fetch(url,{headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key}})).status,403);
+    const headers={'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'admitted'};
     const res=await fetch(url,{headers}); assert.deepEqual(await res.json(),[path+'?q=1',false]);
     assert.deepEqual(scoped.at(-1),[path,'admitted']);
     const head=await fetch(url,{method:'HEAD',headers});assert.equal(head.status,200);assert.equal(await head.text(),'');
@@ -88,7 +119,7 @@ test('released web server admits the native proxy and serves its original compos
   const origin=app.ctx.webServer.getOrigin();
   const url=origin+'/document/';
   assert.equal((await fetch(url)).status,403);
-  const headers={'x-rsi-upstream-key':key};
+  const headers={'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key};
   const doc=await fetch(url,{headers});
   assert.equal(doc.status,200);
   const html=await doc.text();

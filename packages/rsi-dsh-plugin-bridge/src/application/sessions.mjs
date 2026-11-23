@@ -59,9 +59,8 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
   }, list:()=>attached?.()??[]};
   async function prepare(req,request=req.headers['x-rsi-upstream-request']) {
     const url=new URL(req.url,'http://localhost');
-    const ownerMarker=req.headers instanceof Headers?req.headers.get('x-rsi-upstream-owner'):req.headers['x-rsi-upstream-owner'];
     if (!url.pathname.startsWith('/sidebar/') || url.pathname.startsWith('/sidebar/bundle/') ||
-        url.pathname==='/sidebar/bundle') return handler=>scope.run({request,hostOwner:ownerMarker==='1'},()=>handler(req));
+        url.pathname==='/sidebar/bundle') return handler=>scope.run({request},()=>handler(req));
     let id=url.searchParams.get('sessionId'), cwd=url.searchParams.get('cwd'), input=req;
     let otherIds=[];
     if(url.pathname.startsWith('/sidebar/api/') && req.method==='POST') {
@@ -243,14 +242,13 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     }
   }
   return {sessions,subagents,prepare,list,drafts,storedPages:signal=>durablePages(signal,true),waitDirectory:(open,signal)=>scoped('application.directory.wait',{open},signal),
-    isHostOwner:()=>scope.getStore()?.hostOwner===true&&!scope.getStore().released,
     workspaceChange:()=>(workspaceChange??=new AbortController()).signal,
     invalidateWorkspaces(){const before=workspaceChange;workspaceChange=undefined;before?.abort();},
     create,prompt,submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
     claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
     withCaller:(operation,signal)=>scope.getStore()?operation(requestSignal(signal)):activities.run(operation,signal),
     readSubmission:input=>submissionBodies.read(input),
-    runOwned:activities.run,observeOwned:activities.observe,retainDraft,async close(){submissionBodies.close();await activities.close();},
+    runOwned:activities.run,observeOwned:activities.observe,observeStream:activities.observeStream,retainDraft,async close(){submissionBodies.close();await activities.close();},
     inbox:applicationInbox((id,operation,signal)=>scoped('application.inbox',{session_id:id,operation},signal)),
     command:(id,operation,signal)=>scoped('application.command',{session_id:id,operation},signal),
     stage(operation) {

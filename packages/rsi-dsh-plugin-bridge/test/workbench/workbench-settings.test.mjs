@@ -8,7 +8,7 @@ import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
-import {provideHttp} from '../../src/application/http.mjs';
+import {provideHttp} from '../fixtures/application-http.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -64,23 +64,23 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   }
   async function rpc(method,args={}){
     const res=await fetch(app.ctx.webServer.getOrigin()+'/api/'+method,{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'content-type':'application/json'},
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'content-type':'application/json'},
       body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method,payload:{args}})});
     const body=await res.text();assert.equal(res.status,200,body);return JSON.parse(body).result;
   }
   await start();
   const listener=app.ctx.webServer.getOrigin();
-  const coordinates=await fetch(listener+'/fixture/listener',{headers:{'x-rsi-upstream-key':key,
+  const coordinates=await fetch(listener+'/fixture/listener',{headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,
     'x-rsi-upstream-peer':'[2001:db8::9]:1414','x-rsi-upstream-origin':'https://workbench.example'}});
   assert.deepEqual(await coordinates.json(),['https://workbench.example','2001:db8::9',1414,'IPv6']);
     for(const path of ['/fixture/upgrade','/document/fixture/upgrade']){
       const code=await new Promise((resolve,reject)=>get(listener+path,{headers:{connection:'Upgrade',upgrade:'fixture',
-        'x-rsi-upstream-key':key,'x-rsi-upstream-peer':'[2001:db8::9]:1414','x-rsi-upstream-origin':'https://workbench.example'}},
+        'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-peer':'[2001:db8::9]:1414','x-rsi-upstream-origin':'https://workbench.example'}},
         res=>{res.resume();resolve(res.statusCode);}).on('error',reject));
       assert.equal(code,204,path);
     }
   assert.equal(app.ctx.webServer.getOrigin(),listener);
-  const apps=await fetch(app.ctx.webServer.getOrigin()+'/open-in-app/apps',{headers:{'x-rsi-upstream-key':key}});
+  const apps=await fetch(app.ctx.webServer.getOrigin()+'/open-in-app/apps',{headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key}});
   assert.equal(apps.status,200);assert.ok(Array.isArray((await apps.json()).apps));
   const before=await rpc('settings/describe');assert.equal(before.ok,true,JSON.stringify(before));
   assert.equal(before.value.writable,true);assert.ok(!JSON.stringify(before).includes('isolated-test-secret'));

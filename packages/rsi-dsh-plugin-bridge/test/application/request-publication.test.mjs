@@ -8,7 +8,7 @@ import {createRequire} from 'node:module';
 import {setImmediate} from 'node:timers/promises';
 import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
-import {provideHttp} from '../../src/application/http.mjs';
+import {provideHttp} from '../fixtures/application-http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -52,7 +52,7 @@ test('a notification from a sealed HTTP publication starts independent owner wor
     res.end('accepted');
   }});
   const response=fetch(app.ctx.webServer.getOrigin()+'/notify',{method:'POST',
-    headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'browser'}});
+    headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'browser'}});
   while(!seen.length)await setImmediate();first.resolve();await followed.promise;
   assert.equal(await (await response).text(),'accepted');
   assert.deepEqual(seen,[['browser','first'],['owner','notification']]);
@@ -78,7 +78,7 @@ test('overlapping sidebar requests capture after prior publication while indepen
   }});
   const request=async(request,id)=>{
     const response=await fetch(app.ctx.webServer.getOrigin()+'/sidebar/api/mutate',{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':request,'x-test-session':id,'content-type':'application/json'},
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':request,'x-test-session':id,'content-type':'application/json'},
       body:JSON.stringify({sessionId:id})});
     assert.equal(response.status,200);return response.json();
   };
@@ -119,7 +119,7 @@ test('original HTTP response waits for serial native writes and contains their f
     res.end('refused');
   }});
   const request=(id,path='/mutate',signal)=>fetch(app.ctx.webServer.getOrigin()+path,{method:'POST',signal,
-    headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':id}});
+    headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':id}});
   const gate=id=>{const value={entered:Promise.withResolvers(),release:Promise.withResolvers(),aborted:Promise.withResolvers()};gates.set(id,value);return value;};
   const one=gate('one'),two=gate('two');
   let oneReplied=false;

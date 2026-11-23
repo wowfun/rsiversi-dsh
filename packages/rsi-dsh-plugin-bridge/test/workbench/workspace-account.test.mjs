@@ -1,41 +1,11 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {hostHomePicker,ownerDirectoryPicker,workspaceController} from '../../src/workbench/workspace-controller.mjs';
-import {applicationSessions} from '../../src/application/sessions.mjs';
+import {hostHomePicker,workspaceController} from '../../src/workbench/workspace-controller.mjs';
 
 class RemoteError extends Error {
   constructor(code,message,data){super(message);Object.assign(this,{code,data});}
 }
 const workspaceId='a'.repeat(64);
-
-test('the native owner can use each directory picker operation in its own request',async()=>{
-  const scope=applicationSessions(),signal=new AbortController().signal,calls=[];
-  class Backend {
-    list(...args){calls.push(args);return 'listing';}
-    pick(...args){calls.push(args);return 'choice';}
-    createDirectory(...args){calls.push(args);return 'directory';}
-  }
-  const Picker=ownerDirectoryPicker(Backend,scope,RemoteError),picker=new Picker();
-  const route='/api/directoryPicker/list';
-  const owner=await scope.prepare(new Request('http://localhost'+route,{headers:{'x-rsi-upstream-owner':'1'}}),'owner-request');
-  const shared=await scope.prepare({url:route,headers:{'x-rsi-upstream-request':'paired-request'}});
-  await Promise.all([
-    owner(async()=>{
-      await Promise.resolve();
-      assert.equal(picker.list('/mounted',signal),'listing');
-      assert.equal(picker.pick(signal),'choice');
-      assert.equal(picker.createDirectory('/mounted','Project'),'directory');
-    }),
-    shared(async()=>{
-      await Promise.resolve();
-      for(const method of ['list','pick','createDirectory']){
-        assert.throws(()=>picker[method](),{code:'remote-access/denied',data:{action:'directoryPicker/'+method,reason:'no-allow'}});
-      }
-    }),
-  ]);
-  assert.deepEqual(calls,[['/mounted',signal],[signal],['/mounted','Project']]);
-  assert.equal(scope.isHostOwner(),false);
-});
 
 test('the picker uses the operator home and retains the upstream listing, creation and cancellation',async()=>{
   const requests=[],signal=new AbortController().signal;

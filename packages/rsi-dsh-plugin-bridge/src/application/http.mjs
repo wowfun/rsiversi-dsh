@@ -2,16 +2,19 @@ import {timingSafeEqual} from 'node:crypto';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {isIP} from 'node:net';
 import {SidebarBodyError} from './sessions.mjs';
+import {serveShareEntry} from './share-entry.mjs';
 
 // Wrap the public route seats. Cordis still owns ordering, matching, index
 // transforms, disposal, and termination of upgraded sockets.
 export async function provideHttp(ctx,load,key,sessionScope) {
   const {WebServer} = await load('@deepseek-ai/dsh-host-webserver');
-  const connectionPlugin = await load('@deepseek-ai/dsh-client-connection');
   const inProcess = new AsyncLocalStorage();
   const publicRequest = new AsyncLocalStorage();
   const projectedSockets = new WeakSet();
   const expected = Buffer.from(key);
+  function nativeOwner(req) {
+    return (req.headers instanceof Headers ? req.headers.get('x-rsi-upstream-owner') : req.headers['x-rsi-upstream-owner']) === '1';
+  }
   function authenticated(req) {
     const value = req.headers instanceof Headers ? req.headers.get('x-rsi-upstream-key') : req.headers['x-rsi-upstream-key'];
     return typeof value === 'string' && value.length === 64 && Buffer.byteLength(value) === expected.length &&
@@ -88,7 +91,7 @@ export async function provideHttp(ctx,load,key,sessionScope) {
     }
     registerUpgrade(route) {
       const handler=async(req,socket,head,peer)=>{
-        if (!authenticated(req)) {socket.destroy(); return;}
+        if (!authenticated(req) || !nativeOwner(req)) {socket.destroy(); return;}
         req.url=documentPath(req.url);
         if(sessionScope) {
           let scoped;
@@ -106,7 +109,7 @@ export async function provideHttp(ctx,load,key,sessionScope) {
         return withPublicPeer(req,()=>route.handler(req,socket,head,peer));
       };
       const auth=typeof route.auth==='function'?facts=>{
-        if(!authenticated(facts))return 'deny';
+        if(!authenticated(facts) || !nativeOwner(facts))return 'deny';
         return withPublicPeer(facts,()=>{
           if(facts.url.pathname===route.path)return route.auth(facts);
           const url=new URL(facts.url);url.pathname=route.path;
@@ -125,11 +128,11 @@ export async function provideHttp(ctx,load,key,sessionScope) {
   ctx.on('webserver/request',(req,res,next)=>{
     if(!authenticated(req)){res.writeHead(403).end();return;}
     req.url=documentPath(req.url);
+    if(!nativeOwner(req))return serveShareEntry(req,res);
     return withPublicPeer(req,next);
   });
-  await (await ctx.plugin(connectionPlugin)).await();
-  const connection=ctx.connection;
-  const owner=connection.createPeer({principal:{kind:'owner'}});
-  connection.authentication.register({authenticate:req=>authenticated(req)?owner:undefined});
-  return connection;
+  ctx.inject(['connection','connection.authentication'],scope=>{
+    const owner=scope.connection.createPeer({principal:{kind:'owner'}});
+    scope.connection.authentication.register({authenticate:req=>nativeOwner(req)&&authenticated(req)?owner:undefined});
+  });
 }

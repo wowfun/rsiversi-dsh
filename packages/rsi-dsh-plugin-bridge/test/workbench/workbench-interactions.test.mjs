@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createApplication} from '../../src/application/application.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
-import {provideHttp} from '../../src/application/http.mjs';
+import {provideHttp} from '../fixtures/application-http.mjs';
 import {workbenchInteractions} from '../../src/workbench/interactions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -38,7 +38,7 @@ test('authenticated browser windows share the original owner Peer and settle one
   await app.reconcile([{insert:['dsh-typert-registry','dsh-api-remote-access','dsh-api-gateway','dsh-api-remotes'].map(id=>({id,name:'@deepseek-ai/'+id}))}]);
   const bridge=app.ctx.typertGateway;
   const host=new URL(app.ctx.webServer.getOrigin()).host;
-  const admission=()=>app.ctx.connection.admit({headers:{host,'x-rsi-upstream-key':'a'.repeat(64)}});
+  const admission=()=>app.ctx.connection.admit({headers:{host,'x-rsi-upstream-owner':'1','x-rsi-upstream-key':'a'.repeat(64)}});
   const peer=admission().peer,other=admission().peer;
   assert.equal(peer,other);
   assert.equal(peer.principal.kind,'owner');

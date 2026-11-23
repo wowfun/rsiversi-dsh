@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
-import {provideHttp} from '../../src/application/http.mjs';
+import {provideHttp} from '../fixtures/application-http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {sessionController} from '../../src/workbench/session-controller.mjs';
 import {terminalController} from '../../src/terminal/controller.mjs';
@@ -114,7 +114,7 @@ test('published commands and terminals share the authorized Agent and preserve t
     .map(id=>({name:'@deepseek-ai/'+id,id}))}]);
   async function invoke(method,args) {
     const res=await fetch(app.ctx.webServer.getOrigin()+'/api/'+method,{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/json'},
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/json'},
       body:JSON.stringify({type:'client-request',method,rpcId:randomUUID(),payload:{args}})});
     const body=await res.text();
     assert.equal(res.status,200,method+' '+body.slice(0,400));

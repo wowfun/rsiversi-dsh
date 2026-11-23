@@ -40,7 +40,7 @@ export function workbenchControl(authorize) {
       if(--entry.references===0)sessions.delete(id);
     }};
   }
-  async function* observe(signal,sessionId){
+  async function* observe(signal,sessionId,allows){
     signal.throwIfAborted();
     let pending=[],wake,closed=false;
     const listener={
@@ -59,7 +59,7 @@ export function workbenchControl(authorize) {
       if(sessionId===undefined){
         const projections=Object.create(null);
         const initial=Array.from(sessions,([id,entry])=>[id,entry.value]);
-        for(const [id,value] of initial)if(await visible(id))projections[id]=value;
+        for(const [id,value] of initial)if(allows?allows(id):await visible(id))projections[id]=value;
         yield {type:'baseline',value:{projections}};
       }else yield {type:'ready'};
       while(!closed){
@@ -71,6 +71,8 @@ export function workbenchControl(authorize) {
           if(sessionId!==undefined){
             const {sessionId:_,...change}=frame;
             yield change;
+          }else if(allows){
+            if(allows(frame.sessionId))yield frame;
           }else{
             if(frame.sessionId!==lastId){lastId=frame.sessionId;admitted=await visible(lastId);}
             if(admitted&&!closed)yield frame;
@@ -79,7 +81,7 @@ export function workbenchControl(authorize) {
       }
     }finally{listener.close();}
   }
-  return {open,control:signal=>observe(signal),
+  return {open,control:(signal,allows)=>observe(signal,undefined,allows),
     observeProjections:({sessionId},signal)=>observe(signal,sessionId),
     close(){for(const listener of listeners)listener.close();listeners.clear();sessions.clear();},
   };

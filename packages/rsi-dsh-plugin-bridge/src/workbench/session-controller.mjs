@@ -27,7 +27,7 @@ function sessionResource({args,parameters}) {
 export function sessionController({TypertRemoteService,RemoteError,SessionTitleInvalidError,Deque},scope,history,interactions,activate) {
   return class extends TypertRemoteService {
     claims=new Map();
-    static inject=['typert'];
+    static inject=['typert','remoteAccess'];
     constructor(ctx) {super(ctx,'sessionController',{namespace:'session'});}
     [TypertRemoteService.init]() {
       const lookup=id=>scope.lookupAgent(id,activate);
@@ -64,7 +64,14 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
       this.ctx.emit('api-session/added',this.summary(result.summary));
       return {sessionId:result.id,agentPreset:result.preset};
     }
-    modelCatalog() {return scope.modelCatalog();}
+    get readerAccess() {
+      const peer=this.ctx.invocation?.peer;
+      if(peer && peer.principal.kind!=='owner')return this.ctx.remoteAccess;
+    }
+    read(operation,signal) {
+      return this.readerAccess?scope.observeOwned(operation,signal):operation(signal);
+    }
+    modelCatalog() {return this.read(stop=>scope.modelCatalog(stop),this.ctx.invocation?.signal);}
     selectModel(request,signal) {return scope.selectModel(request,signal);}
     async rename({sessionId,title}) {
       const agent=await scope.lookupAgent(sessionId,activate);
@@ -106,7 +113,10 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
         return result;
       } finally {binding[Symbol.dispose]();}
     }
-    async attachment(request,signal) {
+    attachment(request,signal) {
+      return this.read(stop=>this.readAttachment(request,stop),signal);
+    }
+    async readAttachment(request,signal) {
       const ref=request.attachment??await history.imageReference(request.sessionId,request.attachmentId,signal);
       const {ref:attachment,data}=await this.ctx.get('attachments').readImage(ref,signal);
       return {attachment,data:Buffer.from(data.buffer,data.byteOffset,data.byteLength).toString('base64')};
@@ -120,7 +130,11 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
       }
       return {accepted:true};
     }
-    async *follow(request,signal) {
+    follow(request,signal) {
+      const open=stop=>this.followHistory(request,stop);
+      return this.readerAccess?scope.observeStream(open,signal):open(signal);
+    }
+    async *followHistory(request,signal) {
       const lifetime=new AbortController();
       const stop=AbortSignal.any([signal,lifetime.signal]);
       let observation;
@@ -142,16 +156,22 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
       }
       finally{lifetime.abort();await observation;}
     }
-    events(request,signal) {return history.page(request,signal);}
+    events(request,signal) {return this.read(stop=>history.page(request,stop),signal);}
     page(request,signal) {return this.events(request,signal);}
     observeEvent({address},signal) {
       return observeSessionEvents(this.ctx,address.kind==='subagent'?address.childSessionId:address.sessionId,signal,{RemoteError,Deque});
     }
-    projections(request,signal) {return history.projections(request,signal);}
+    projections(request,signal) {return this.read(stop=>history.projections(request,stop),signal);}
     observeProjections(request,signal) {return history.observeProjections(request,signal);}
-    control(signal) {return history.control(signal);}
+    control(signal) {
+      const access=this.readerAccess;
+      return history.control(signal,access && (id=>access.allows({kind:'session',id})));
+    }
     async list(_request,signal) {
-      const rows=await scope.list(signal);
+      const access=this.readerAccess;
+      const rows=access
+        ? (await scope.observeOwned(scope.list,signal)).filter(row=>access.allows({kind:'session',id:row.id}))
+        : await scope.list(signal);
       return {items:rows.map(row=>this.summary(row))};
     }
   };

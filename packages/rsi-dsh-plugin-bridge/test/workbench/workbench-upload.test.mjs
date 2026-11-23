@@ -7,7 +7,7 @@ import {join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
-import {provideHttp} from '../../src/application/http.mjs';
+import {provideHttp} from '../fixtures/application-http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {sessionController} from '../../src/workbench/session-controller.mjs';
 import {dshImage} from '../../src/agent/file-input.mjs';
@@ -50,7 +50,7 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   const data=Buffer.alloc(1024*1024+17,0x5a);
   const upload=async (id,body)=>{
     const response=await fetch(app.ctx.webServer.getOrigin()+'/document/api/session/uploadFileBinary?'+new URLSearchParams({sessionId:id,name:'receipt.bin'}),{
-      method:'POST',headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/octet-stream'},body});
+      method:'POST',headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/octet-stream'},body});
     assert.equal(response.status,200);return response.json();
   };
   const receipt=await upload('cold',data);assert.equal(receipt.ok,true,JSON.stringify(receipt));
@@ -72,7 +72,7 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   const requestId=randomUUID();
   const prompt=async(content=[{type:'file',receiptId:receipt.value.receiptId}],id=requestId)=>{
     const response=await fetch(app.ctx.webServer.getOrigin()+'/api/session/prompt',{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/json'},
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/json'},
       body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'session/prompt',payload:{args:{request:{
         sessionId:'cold',requestId:id,mode:'queue',content}}}})});
     return response.json();
@@ -105,7 +105,7 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   if(typeof app.ctx.fileUploads.uploadImageStream==='function'){
     const response=await fetch(app.ctx.webServer.getOrigin()+'/document/api/session/uploadFileBinary?'+
       new URLSearchParams({sessionId:'cold',name:'staged.jpg',mediaType:'image/jpeg'}),{method:'POST',
-      headers:{'x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/octet-stream'},body:jpeg});
+      headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key,'x-rsi-upstream-request':'issued','content-type':'application/octet-stream'},body:jpeg});
     const staged=await response.json();assert.equal(staged.ok,true,JSON.stringify(staged));
     const part={type:'file',receiptId:staged.value.receiptId};
     const excessive=await prompt(Array(app.ctx.attachments.imageLimits.maxImagesPerMessage+1).fill(part),randomUUID());
