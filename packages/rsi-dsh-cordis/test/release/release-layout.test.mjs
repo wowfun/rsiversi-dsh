@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
-import {packageLocation, releaseLayout, runtimePayloads, splitPayloads} from '../../src/release/layout.mjs';
+import {packageLocation, releaseLayout, splitPayloads} from '../../src/release/layout.mjs';
 import {installReleaseResolver} from '../../src/release/resolver.mjs';
 
 test('Office uses the target engine while separately requested engines remain installable',async t=>{
@@ -39,28 +39,45 @@ test('Office uses the target engine while separately requested engines remain in
   await assert.rejects(build('win32'),/Missing dependency @deepseek-ai\/libreoffice-kit-win32-x64/);
 });
 
-test('two large independent plugins partition at a package boundary',()=>{
-  const group = n=>({location:'node_modules/pkg'+n,files:Array.from({length:9000},(_,i)=>({path:'node_modules/pkg'+n+'/'+i,bytes:1}))});
-  assert.deepEqual(splitPayloads([group(1),group(2)]).map(part=>part.length),[1,1]);
+test('files and shared directories use the native entry budget',()=>{
+  const group = n=>({location:'node_modules/pkg'+n,dependencies:{},files:Array.from({length:32766},(_,i)=>({path:'node_modules/pkg'+n+'/'+i,bytes:1}))});
+  const packages=[group(1),group(2)];
+  packages[0].files.push({path:'node_modules/pkg1/extra',bytes:1});
+  assert.deepEqual(splitPayloads(packages).map(part=>part.length),[2]);
+  packages[0].files.push({path:'node_modules/pkg1/another',bytes:1});
+  assert.deepEqual(splitPayloads(packages).map(part=>part.length),[1,1]);
   assert.throws(()=>packageLocation('node_modules/pkg/../../secrets'));
 });
 
-test('child runners and Office workers keep transitive npm dependencies in their own physical payload',()=>{
+test('transitive, cyclic and shared dependencies stay together when their physical tree fits',()=>{
   const pkg=(name,bytes,dependencies={})=>({location:'node_modules/'+name,dependencies,
     files:[{path:'node_modules/'+name+'/index.js',bytes}]});
-  const helper=pkg('helper',100),library=pkg('library',100,{helper:helper.location});
-  const runner=pkg('@deepseek-ai/dsh-subprocess-local',100,{library:library.location});
-  const acl=pkg('host/node_modules/@deepseek-ai/dsh-sandbox-windows-acl',100,{helper:helper.location});
-  const font=pkg('fontkit',100,{helper:helper.location});
-  const office=pkg('@deepseek-ai/libreoffice-kit',100,{fontkit:font.location});
-  const large=pkg('independent',4*1024**3-200);
-  const packages=[runner,large,acl,library,helper,office,font];
-  assert.ok(!splitPayloads(packages)[0].includes(helper));
-  const [first,second]=runtimePayloads(packages);
-  assert.deepEqual(new Set(first),new Set([runner,library,helper,acl,office,font]));
+  const helper=pkg('helper',1),library=pkg('library',1,{helper:helper.location});
+  const runner=pkg('new-plugin',2*1024**3,{library:library.location});
+  const sibling=pkg('another-plugin',1,{helper:helper.location,peer:'node_modules/host-peer'});
+  helper.dependencies.library=library.location;
+  const large=pkg('independent',3*1024**3);
+  const packages=[runner,large,sibling,library,helper];
+  const [first,second]=splitPayloads(packages);
+  assert.deepEqual(new Set(first),new Set([runner,library,helper,sibling]));
   assert.deepEqual(second,[large]);
   runner.dependencies.large=large.location;
-  assert.throws(()=>runtimePayloads(packages),/exceed one runtime payload/);
+  const overflow=splitPayloads(packages);
+  assert.equal(overflow.length,2);
+  assert.deepEqual(new Set(overflow.flat()),new Set(packages));
+  large.files[0].bytes=4*1024**3;
+  assert.throws(()=>splitPayloads(packages),/Package exceeds a payload/);
+});
+
+test('the native container budget includes its prefix and encoded index',()=>{
+  const maximum=4*1024**3,path='node_modules/example/document.txt';
+  const record={path,bytes:maximum,digest:'0'.repeat(64),executable:false};
+  const indexBytes=12+Buffer.byteLength(JSON.stringify({format:1,files:[record]}));
+  const file={path,bytes:maximum-indexBytes};
+  const pkg={location:'node_modules/example',dependencies:{},files:[file]};
+  assert.deepEqual(splitPayloads([pkg]),[[pkg]]);
+  file.bytes++;
+  assert.throws(()=>splitPayloads([pkg]),/Package exceeds a payload/);
 });
 
 test('installation bundle lookup keeps the runtime dependency across a market shadow',async t=>{

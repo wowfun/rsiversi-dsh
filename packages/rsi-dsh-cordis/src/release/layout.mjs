@@ -1,9 +1,9 @@
 import { lstat, readFile, realpath } from 'node:fs/promises';
-import { dirname, join, relative, resolve, sep } from 'node:path';
-import { walkFiles } from '../archive/tree.mjs';
+import { join, posix, relative, resolve, sep } from 'node:path';
+import { maximumBytes, maximumEntries, walkFiles } from '../archive/tree.mjs';
+import { maximumHeaderBytes } from '../archive/payload.mjs';
 
 const packageName = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
-const treeLimit = 16384, entryLimit = 65536, byteLimit = 4 * 1024 ** 3;
 
 // A lock location is also the package's Node lookup ancestry. Never turn a
 // key from an external package-lock into a path before validating every name.
@@ -110,42 +110,83 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {ho
   return groups;
 }
 
-/** Pack whole npm packages together, preserving all package-private files. */
-export function splitPayloads(packages) {
-  const shards = [];
-  let current, count, bytes, directories;
-  function reset() { current=[]; count=0; bytes=0; directories=new Set(); }
-  reset();
+function* dependencyComponents(packages) {
+  const byLocation = new Map(packages.map(pkg => [pkg.location, pkg]));
+  const neighbors = new Map(packages.map(pkg => [pkg, new Set()]));
   for (const pkg of packages) {
-    const dirs = new Set(), size = pkg.files.reduce((sum,f)=>sum+f.bytes,0);
-    for (const file of pkg.files) {
-      for (let parent=dirname(file.path).replaceAll('\\','/'); parent!=='.'; parent=dirname(parent).replaceAll('\\','/')) dirs.add(parent);
+    for (const location of Object.values(pkg.dependencies)) {
+      const dependency = byLocation.get(location);
+      if (dependency) {
+        neighbors.get(pkg).add(dependency);
+        neighbors.get(dependency).add(pkg);
+      }
     }
-    if (!pkg.files.length || pkg.files.length>treeLimit || size>byteLimit || dirs.size+pkg.files.length>entryLimit)
-      throw new Error('Package exceeds a payload: '+pkg.location);
-    if (current.length && (count+pkg.files.length>treeLimit || bytes+size>byteLimit ||
-      count+pkg.files.length+directories.size+dirs.size>entryLimit)) {
-      shards.push(current); reset();
-    }
-    current.push(pkg); count+=pkg.files.length; bytes+=size;
-    for(const dir of dirs) directories.add(dir);
   }
-  if(current.length) shards.push(current);
-  return shards;
+  for (const root of neighbors.keys()) {
+    const component = new Set([root]);
+    for (const pkg of component) {
+      for (const dependency of neighbors.get(pkg)) component.add(dependency);
+      neighbors.delete(pkg);
+    }
+    yield component;
+  }
 }
 
-/** Child processes and Office workers resolve their dependencies on disk. */
-export function runtimePayloads(packages) {
-  const byLocation=new Map(packages.map(pkg=>[pkg.location,pkg]));
-  const children=new Set(packages.filter(({location})=>
-    location.endsWith('/@deepseek-ai/dsh-subprocess-local') ||
-    location.endsWith('/@deepseek-ai/dsh-sandbox-windows-acl') ||
-    location.endsWith('/@deepseek-ai/libreoffice-kit')));
-  // Set iteration visits newly added packages and terminates on shared or cyclic edges.
-  for(const pkg of children)
-    for(const location of Object.values(pkg.dependencies))children.add(byLocation.get(location));
-  const shards=splitPayloads([...children,...packages.filter(pkg=>!children.has(pkg))]);
-  if(children.size && shards[0].length<children.size)
-    throw new Error('The DSH child runtimes and their dependencies exceed one runtime payload');
+const digestPlaceholder = '0'.repeat(64);
+const emptyHeaderBytes = Buffer.byteLength(JSON.stringify({ format: 1, files: [] }));
+
+function footprint(packages) {
+  const directories = new Set();
+  let files = 0, body = 0, records = 0;
+  for (const pkg of packages) {
+    if (!pkg.files.length) throw new Error('Empty release package: '+pkg.location);
+    for (const {path, bytes} of pkg.files) {
+      files++;
+      body += bytes;
+      // Digest and executable encodings have fixed lengths in the archive.
+      records += Buffer.byteLength(JSON.stringify({path, bytes, digest:digestPlaceholder, executable:false})) + 1;
+      for (let parent = posix.dirname(path); parent !== '.' && !directories.has(parent); parent = posix.dirname(parent)) {
+        directories.add(parent);
+      }
+    }
+  }
+  return { directories, files, body, records };
+}
+
+function fits(files, directories, records, body) {
+  const header = emptyHeaderBytes + records - 1; // The first record has no leading comma.
+  return files + directories <= maximumEntries && header <= maximumHeaderBytes && 12 + header + body <= maximumBytes;
+}
+
+/** Pack connected npm dependencies into the same ordinary on-disk lookup tree. */
+export function splitPayloads(packages) {
+  const shards = [];
+  let shard, used;
+  function pack(group) {
+    const part = footprint(group);
+    if (!fits(part.files, part.directories.size, part.records, part.body)) {
+      if (group.length === 1) throw new Error('Package exceeds a payload: '+group[0].location);
+      for (const pkg of group) pack([pkg]);
+      return;
+    }
+    if (used) {
+      let directories = used.directories.size;
+      for (const directory of part.directories) {
+        if (!used.directories.has(directory)) directories++;
+      }
+      if (fits(used.files + part.files, directories, used.records + part.records, used.body + part.body)) {
+        for (const pkg of group) shard.push(pkg);
+        used.files += part.files;
+        used.records += part.records;
+        used.body += part.body;
+        for (const dir of part.directories) used.directories.add(dir);
+        return;
+      }
+    }
+    used = part;
+    shard = group;
+    shards.push(shard);
+  }
+  for (const component of dependencyComponents(packages)) pack([...component]);
   return shards;
 }

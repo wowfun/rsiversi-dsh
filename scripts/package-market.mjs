@@ -21,4 +21,4 @@ await mkdir(destination,{recursive:false});
 
 const {artifacts,locations}=await writeShards(destination,groups,version,targetOS+'-'+targetCPU);
 await writeSelection(destination,version,targetOS+'-'+targetCPU,plugins,locations,artifacts);
-console.log('Packaged',Object.keys(locations).length,'npm instances into',artifacts.length,'leased objects.');
+console.log('Packaged',Object.keys(locations).length,'npm instances into',artifacts.length,artifacts.length===1?'leased object.':'leased objects.');

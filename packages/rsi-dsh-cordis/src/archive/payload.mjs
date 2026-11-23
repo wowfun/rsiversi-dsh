@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { open } from 'node:fs/promises';
-import { walkFiles, readDigest } from './tree.mjs';
+import { walkFiles, readDigest, maximumEntries } from './tree.mjs';
 import { join } from 'node:path';
+
+export const maximumHeaderBytes = 16 * 1024 ** 2;
 
 /** Emit only regular files. Rust repeats path/type/digest checks before publication. */
 export async function writePayload(root, destination, { prefix: archivePrefix = '', exclude = () => false, signal } = {}) {
@@ -14,14 +16,14 @@ export async function writePayload(root, destination, { prefix: archivePrefix = 
 
 /** Pack already enumerated regular files from distinct npm package roots. */
 export async function writePayloadFiles(entries, destination, signal) {
-  if (!entries.length || entries.length > 16384) throw new Error('Payload file capacity');
+  if (!entries.length || entries.length > maximumEntries) throw new Error('Payload file capacity');
   const files = [];
   for (const entry of entries) {
     const digest = await readDigest(entry.source, entry.bytes, undefined, signal);
     files.push({...entry, digest, executable:false});
   }
   const header = Buffer.from(JSON.stringify({ format: 1, files: files.map(({ source, ...record }) => record) }));
-  if (header.length > 16 * 1024 ** 2) throw new Error('payload header capacity');
+  if (header.length > maximumHeaderBytes) throw new Error('payload header capacity');
   const prefix = Buffer.alloc(12); prefix.write('RSITREE1'); prefix.writeUInt32LE(header.length, 8);
   const output = await open(destination, 'wx');
   const digest = createHash('sha256'); let bytes = 0;

@@ -683,7 +683,7 @@ are supplied as local archives from the leased cohort. Imports cannot replace
 them. Packaging checks their complete files; nested copies of a shared peer are
 rejected after installation. The importer checks the original engines.dsh rule
 first, otherwise the DSH peer ranges, including prereleases. Its tree reader caps
-files at 16,384, total entries at 65,536, path depth at 128 and total bytes at
+total entries at 65,536, path depth at 128 and total bytes at
 4 GiB; file content is read in bounded chunks. The recorded npm lockfile binds the resolved dependency tree;
 Git/HTTP dependency specifications are refused at every depth. Local tarballs
 and directories are admitted only as explicit root inputs, including the pinned
@@ -932,10 +932,12 @@ Other targets require the WASM engine. An independent dependency on another
 engine keeps its own package in the npm closure. Plugins installed from the
 registry retain their declared dependencies.
 
-The release packer keeps the managed subprocess runner, Windows ACL runner
-and LibreOffice Kit with their transitive installed dependencies in one
-runtime payload. Their child processes and workers use ordinary Node
-resolution against the installed directories.
+Within a release ownership group, the packer keeps each connected set of npm
+dependencies in one physical payload when it fits. Its children and workers
+then use ordinary Node resolution. Larger sets span payloads at whole-package
+boundaries. The application resolves imports across payloads and separately
+installed host peers as described below. A standalone Node child can resolve
+only dependencies reachable in its physical npm tree.
 Registry metadata and npm staging use the Host's HTTP(S) proxy and bypass
 settings. The generated application profile and npm subprocess omit proxy
 URLs with user information and keep their private package configuration.

@@ -2,16 +2,17 @@ import { createHash } from 'node:crypto';
 import { lstat, opendir, open } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const maximumBytes = 4 * 1024 ** 3;
+export const maximumBytes = 4 * 1024 ** 3;
+export const maximumEntries = 65536;
 
 // Bounds also cover empty directories and the temporary per-directory sort.
 export async function walkFiles(root, visit, { exclude = () => false, signal } = {}) {
-  let entries = 0, files = 0, bytes = 0;
+  let entries = 0, bytes = 0;
   async function walk(prefix, depth) {
     const names = [];
     for await (const dirent of await opendir(join(root, prefix))) {
       signal?.throwIfAborted();
-      if (++entries > 65536) throw new Error('Tree entry capacity');
+      if (++entries > maximumEntries) throw new Error('Tree entry capacity');
       names.push(dirent.name);
     }
     for (const name of names.sort()) {
@@ -23,7 +24,7 @@ export async function walkFiles(root, visit, { exclude = () => false, signal } =
       if (stat.isDirectory()) await walk(path, depth + 1);
       else if (stat.isFile()) {
         bytes += stat.size;
-        if (++files > 16384 || bytes > maximumBytes) throw new Error('Tree file capacity');
+        if (bytes > maximumBytes) throw new Error('Tree file capacity');
         await visit(path, stat.size);
       } else throw new Error('Tree refuses special file');
     }
