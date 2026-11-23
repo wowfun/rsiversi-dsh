@@ -7,6 +7,46 @@ class RemoteError extends Error {
 }
 const workspaceId='a'.repeat(64);
 
+test('creating a new workspace returns its committed empty account without reading other accounts', async () => {
+  const signal = new AbortController().signal;
+  const record = {id:workspaceId, path:'/work/new', title:null, created:1234};
+  const calls = [];
+  const scope = {async workspace(input, received) {
+    calls.push(input);
+    assert.equal(received, signal);
+    if (input.type === 'create') return {record, created:true};
+    throw Error('unrelated account unavailable');
+  }};
+  const Controller = workspaceController(class {}, scope, RemoteError);
+  const result = await new Controller().create({path:record.path}, signal);
+  const time = new Date(record.created).toISOString();
+  assert.deepEqual(result, {created:true, workspace:{workspaceId, path:record.path,
+    title:'new', createdAt:time, updatedAt:time, sessionIds:[]}});
+  assert.deepEqual(calls, [{type:'create', path:record.path}]);
+});
+
+test('reusing a registered drive root keeps its title and current members', async () => {
+  const record = {id:workspaceId, path:'C:\\', created:1};
+  const scope = {
+    drafts: async () => [],
+    async workspace(input) {
+      switch (input.type) {
+      case 'create': return {record, created:false};
+      case 'list': return {items:[record], order:[workspaceId]};
+      case 'membership': return {groups:[workspaceId], members:[
+        {session:'existing', group:0, account_position:0, last_activity_ms:'4'},
+      ]};
+      default: throw Error('unexpected operation');
+      }
+    },
+  };
+  const Controller = workspaceController(class {}, scope, RemoteError);
+  const result = await new Controller().create({path:record.path}, new AbortController().signal);
+  assert.equal(result.created, false);
+  assert.equal(result.workspace.title, record.path);
+  assert.deepEqual(result.workspace.sessionIds, ['existing']);
+});
+
 test('Workspace deletion preserves the native absent result and failures',async()=>{
   const signal=new AbortController().signal,calls=[];
   let present=true,failure;

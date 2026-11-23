@@ -1319,13 +1319,17 @@ requires a separate interrupted-history seed and is refused explicitly.
 The Workspace feed uses the native registration's explicit Session membership.
 An Agent created with only a cwd stays accessible by ID and is excluded from
 that Workspace's chat list and blank reuse. An explicit Workspace chat joins
-that registration. A fork follows the source's membership. The workspace feed\nplaces each attached Session at its native account position. Pins and archives\ninclude visible detached Sessions independently of workspace placement.
+that registration. A fork follows the source's membership. The workspace feed
+places each attached Session at its native account position. Pins and archives
+include visible detached Sessions independently of workspace placement.
 It publishes a baseline, observes the native directory subscription, and sends
 a replacement when the visible registrations or Navigation membership change.
 The feed includes the browser owner's native ready drafts until publication
 or expiry. The draft list and the durable navigation seed share Session IDs.
 Workspace creation, rename and deletion use the native registry. An existing
-directory registered twice returns one creation and one reuse.
+directory registered twice returns one creation and one reuse. Creation returns
+the new registration with its empty account directly from the native commit.
+Reusing an existing registration returns its current visible Session account.
 For `session/prompt`, the DSH request ID is the native durable message ID.
 Queue and steer preserve their respective delivery modes.
 The corresponding committed human message carries that same ID as its DSH

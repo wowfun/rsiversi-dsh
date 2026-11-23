@@ -1,5 +1,18 @@
 import {once} from 'node:events';
+import {posix,win32} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
+
+function workspaceView(row, members) {
+  if (row.created == null) throw new Error('Workspace has no recorded creation time');
+  const path = win32.isAbsolute(row.path) && !posix.isAbsolute(row.path) ? win32 : posix;
+  const lastActivity = members.reduce((latest, member) =>
+    Math.max(latest, Number(member.last_activity_ms)), row.created);
+  return {
+    workspaceId: row.id, path: row.path, title: row.title ?? (path.basename(row.path) || path.parse(row.path).root),
+    createdAt: new Date(row.created).toISOString(), updatedAt: new Date(lastActivity).toISOString(),
+    sessionIds: members.map(member => member.session),
+  };
+}
 
 function mergeActivity(reported,native) {
   if(!reported.length)return native;
@@ -52,15 +65,8 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
       if (!rows) byWorkspace.set(draft.workspace, rows = []);
       rows.unshift({session:draft.id,last_activity_ms:draft.updatedAt});
     }
-    return {items:items.map(row=>{
-      if(row.created==null)throw new Error('Workspace has no recorded creation time');
-      const members=byWorkspace.get(row.id)??[];
-      const createdAt=new Date(row.created).toISOString();
-      const lastActivity=members.reduce((latest,member)=>Math.max(latest,Number(member.last_activity_ms)),row.created);
-      const updatedAt=new Date(lastActivity).toISOString();
-      return {workspaceId:row.id,path:row.path,title:row.title??row.path.split(/[/\\]/).filter(Boolean).at(-1)??row.path,
-        createdAt,updatedAt,sessionIds:members.map(m=>m.session)};
-    }),archivedSessionIds:archives.sort((a,b)=>compareDecimal(a.partition_revision??"0",b.partition_revision??"0")||
+    return {items:items.map(row=>workspaceView(row,byWorkspace.get(row.id)??[])),
+      archivedSessionIds:archives.sort((a,b)=>compareDecimal(a.partition_revision??"0",b.partition_revision??"0")||
       (a.session<b.session?-1:a.session>b.session?1:0)).map(row=>row.session),pinnedSessionIds:pins.sort((a,b)=>
         compareDecimal(b.partition_revision??"0",a.partition_revision??"0")||compareDecimal(b.last_activity_ms,a.last_activity_ms)||
         (a.session<b.session?1:a.session>b.session?-1:0)).map(row=>row.session)};
@@ -137,6 +143,7 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
     }
     async create({path},signal){
       const {record,created}=await scope.workspace({type:'create',path},signal);
+      if (created) return {workspace:workspaceView(record, []), created};
       return {...await selected(record.id,signal),created};
     }
     async rename({workspaceId,title},signal){
