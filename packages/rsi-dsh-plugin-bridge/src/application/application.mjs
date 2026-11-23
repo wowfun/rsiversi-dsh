@@ -50,14 +50,17 @@ export async function createApplication({modules, profile, provide,hostModules=n
     sources.set(value,file);
     return value;
   };
-  const [cordis, {default:Loader}, boot] = await Promise.all([
+  const [cordis, {default:Loader}, boot, environment] = await Promise.all([
     load('@deepseek-ai/cordis'), load('@deepseek-ai/cordis-plugin-loader'), load('@deepseek-ai/dsh-app-boot'),
+    load('@deepseek-ai/dsh-launch-environment'),
   ]);
   const ctx = new cordis.Context();
   const document=join(profile,'cordis.yml');
   ctx.baseUrl = pathToFileURL(document).href;
   let base=[], rootInclude, mounted=false, retired = false, last = Promise.resolve();
   try {
+    ctx.provide(environment.DSH_LAUNCH_ENVIRONMENT_KEY,
+      environment.createLaunchEnvironmentSnapshot([{source:'process',values:process.env}]));
     await ctx.plugin(Loader);
     ctx.loader.internal = {
       import: async name => restoringImports.get(name) ?? hostModules.get(name) ?? load(name),

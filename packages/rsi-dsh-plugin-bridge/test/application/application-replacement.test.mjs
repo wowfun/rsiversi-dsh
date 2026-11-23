@@ -35,6 +35,23 @@ const implementation=version=>`export function apply(ctx,config){
   ctx.effect(()=>()=>ctx.testEvents.push('dispose ${version}'));
 }`;
 
+test('plugins enabled later receive the same immutable launch environment as the root',{skip:!root},async t=>{
+  const key='RSI_DSH_LAUNCH_FIXTURE';
+  const previous=process.env[key];
+  t.after(()=>{if(previous===undefined)delete process.env[key];else process.env[key]=previous;});
+  process.env[key]='at boot';
+  const f=await fixture(t);
+  process.env[key]='after boot';
+  await f.code('probe','v1',`export const inject=['launchEnvironment'];
+    export function apply(ctx){ctx.provide('fixtureEnvironment',ctx.launchEnvironment);}`);
+  await f.app.reconcile(f.rows);
+  const snapshot=f.app.ctx.get('fixtureEnvironment');
+  assert.ok(snapshot);
+  assert.equal(snapshot,f.app.ctx.get('launchEnvironment'));
+  assert.deepEqual(snapshot.getFrom(key,['process']),{value:'at boot',source:'process'});
+  assert.equal(snapshot.getFrom(key,['project-env','user-env']),undefined);
+});
+
 test('replacement may remove an obsolete export before the next composition mounts',{skip:!root},async t=>{
   const f=await fixture(t);
   await f.code('probe','v1',implementation('v1'));await f.app.reconcile(f.rows);

@@ -8,6 +8,10 @@ native Session cwd for relative files and can open explicit host paths as the
 operator. A Session selects its default directory. Only the native browser
 device issued to the local operator can enter this shell or run its package
 operations.
+At application startup the launcher publishes the release's immutable
+`launchEnvironment` service. Its process layer contains the environment
+admitted to the package process. Plugins in the same generation read the
+same snapshot, including plugins enabled later from the market.
 An upgraded socket carries its authorized Session through subsequent data
 events. Its underlying TCP resource predates the HTTP request context.
 The original client connection and module services own their endpoint and
