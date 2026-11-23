@@ -250,6 +250,24 @@ test('intervening external model selection requires a new effective event withou
     assert.deepEqual(effectiveModelSelection(session.snapshotEvents()),{...base,reasoningEffort:'high'});
   });
 
+test('a request accepted during a native read cannot claim an earlier model control',
+  {skip:!root},async t=>{
+    const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session);
+    const started=Promise.withResolvers(),resume=Promise.withResolvers();
+    const selection={...base,model:'next'};
+    f.change({selection:native(selection),invocation:{request_id:'late'}});
+    const update=owner.apply(f.meta(),async operation=>{
+      started.resolve();await resume.promise;return f.options.read('one',operation);
+    },async()=>{});
+    await started.promise;
+    try {owner.journal.accept('late','model/selection',selection,{},2);}
+    finally {resume.resolve();}
+    await update;
+    assert.equal(owner.journal.operation('late').source,undefined);
+    assert.equal(owner.journal.sourceAt(1).operation,undefined);
+    assert.deepEqual(session.snapshotEvents(1).map(row=>row.data),[selection,selection]);
+  });
+
 test('failed native batches and stale readers cannot partially publish or rewind the shared owner',
   {skip:!root},async t=>{
     const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session),old=f.meta();

@@ -91,6 +91,9 @@ before publication so every accepted layout can be restored.
 Already prepared invocation metadata is installed before synchronous observers
 see its event. Readiness walks the journal's event-position index only through
 the boundary captured by the calling mutation, retaining progress across calls.
+Native model controls correlate only with requests accepted before the
+observation started. An intervening local acceptance cannot claim a control
+from a page already in flight.
 Observer errors cannot undo acceptance or prevent later events, and reentrant
 mutations are rejected before modifying the log. Native observation batches are
 validated as a whole before publication.

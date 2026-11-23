@@ -91,10 +91,9 @@ export function modelObservationCorrelations(journal,driver,events,origins) {
       return [[event.seq,source.seq===journal.operation(source.operation).seq?source.operation:{id:source.operation,reconcile:true}]];
     }));
   }
-  const operations=new Map(journal.operations().map(row=>[row.seq,row]));
   const correlations=new Map();let pending,lastUsed,pendingOperation;
-  function fold(event,operation) {
-    if(event.type==='model/selection') {pending=event.data;pendingOperation=operation;}
+  function fold(event,stored=false) {
+    if(event.type==='model/selection') {pending=event.data;pendingOperation=stored?journal.operationAt(event.seq):undefined;}
     if(event.type==='request/header') {
       const {config,adapterDefaults}=event.data.header;
       lastUsed={provider:config.provider,model:config.model,
@@ -102,7 +101,7 @@ export function modelObservationCorrelations(journal,driver,events,origins) {
       if(isDeepStrictEqual(pending,lastUsed)){pending=undefined;pendingOperation=undefined;}
     }
   }
-  for(const event of journal.session.snapshotEvents())fold(event,operations.get(event.seq));
+  for(const event of journal.session.snapshotEvents())fold(event,true);
   for(const event of events) {
     const previous=journal.sourceAt(event.seq);
     if(previous) {

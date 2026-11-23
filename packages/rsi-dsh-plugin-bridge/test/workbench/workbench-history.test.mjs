@@ -84,13 +84,13 @@ test('native controls split observation without splitting the captured Fact page
       facts:{through:mode==='partial'?2:6,value:mode==='partial'?facts.slice(0,2):facts},
       controls:{through:mode==='partial'?1:3,events:mode==='partial'?controls.slice(0,1):controls}};
     if(mode==='advanced'){
-      const prefix=await fresh.stage(read,async()=>{},undefined,2,1,new Set(),0,{
+      const prefix=await fresh.stage(read,async()=>{},undefined,2,1,undefined,0,{
         ...first,cut:{fact_seq:2,control_seq:1},facts:{through:2,value:facts.slice(0,2)},
         controls:{through:1,events:controls.slice(0,1)},
       });
       prefix.commit();assert.equal(calls.length,0);
     }
-    const result=await fresh.stage(read,async()=>{},undefined,6,3,new Set(),0,first);
+    const result=await fresh.stage(read,async()=>{},undefined,6,3,undefined,0,first);
     assert.deepEqual(result.value.session.snapshotEvents(),source.current.session.snapshotEvents());
     if(mode==='complete')assert.deepEqual(calls,[],'captured bodies need no additional reads');
     else assert.deepEqual(calls.sort(),[['controls',1,3],['fact',2,6]],

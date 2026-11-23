@@ -35,8 +35,12 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     if(header.origin&&source.current.session.header.parentSession!==declared.parentSession)
       throw Error('Declared fork parent differs from its native seed');
     const newOrigin=!persisted&&header.origin!==undefined;
-    let initial=restore?await source.stage(call,release,signal,meta.through,cut(meta).control_seq??0,
-      new Set(restore.operations.map(row=>row.id)),restore.inboxSlotFrom,first):undefined;
+    let initial;
+    if(restore) {
+      const ids=new Set(restore.operations.map(row=>row.id));
+      initial=await source.stage(call,release,signal,meta.through,initialCut.control_seq??0,
+        id=>ids.has(id),restore.inboxSlotFrom,first);
+    }
     const listeners=new Set(),waiters=new Set();let version=0,batch,tail=Promise.resolve();
     const report=error=>ctx.logger.warn('Application Session observer failed:',error);
     const changed=()=>{version++;for(const wake of waiters)wake();};
@@ -84,9 +88,10 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
             if(journal.hasLocalEvents||persisted)await journal.flush();return;
           }
           const nextCut=cut(meta),through=meta.through,controlThrough=nextCut.control_seq??0;
-          const localRequests=new Set(journal.operations().map(row=>row.id));
+          const acceptedThrough=journal.seq;
           const staged=initial&&compare(nextCut,initialCut)===0?initial:
-            await source.stage(call,release,signal,through,controlThrough,localRequests,journal.inboxSlotFrom,first);
+            await source.stage(call,release,signal,through,controlThrough,
+              id=>journal.operation(id)?.seq<acceptedThrough,journal.inboxSlotFrom,first);
           const native=staged.value;
           if(nextCut.kind==='draft')native.model=workbenchModel(meta.model_selection);
           const saveCreation=!row.merged&&newOrigin;
