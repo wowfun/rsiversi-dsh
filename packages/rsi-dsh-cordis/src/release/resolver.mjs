@@ -23,7 +23,7 @@ export function installReleaseResolver(layout, roots, profile) {
   const byDirectory=new Map(), rootsByName=new Map();
   const profileURL=profile&&pathToFileURL(resolve(profile)+sep).href;
   const profileModules=profile&&join(resolve(profile),'node_modules');
-  const profileLinks=new Map();
+  const profileLinks=new Map(),marketLinks=new Map();
   let release, lastParent, lastOwner;
   function releaseBinding(location,version) {
     const row=layout.locations[location];
@@ -135,14 +135,25 @@ export function installReleaseResolver(layout, roots, profile) {
   function setProfileLink(name,directory) {
     if(directory===undefined) profileLinks.delete(name);
     else profileLinks.set(name,directory);
+    const binding=directory&&packageAt(directory);
+    if(binding && binding.local!==release)marketLinks.set(name,directory);
+    else marketLinks.delete(name);
+  }
+  function hoistedProfilePackage(name) {
+    for(const root of marketLinks.values()){
+      const row=packageAt(root)?.local.get('node_modules/'+name);
+      if(row)return row;
+    }
   }
   function profileBinding(name,parentURL) {
+    if(!profileURL || !parentURL?.startsWith(profileURL))return;
     const linked=profileLinks.get(name);
-    if(!linked || !parentURL?.startsWith(profileURL))return;
-    if(parentURL.lastIndexOf('/')===profileURL.length-1)return packageAt(linked);
+    const target=linked?packageAt(linked):hoistedProfilePackage(name);
+    if(!target)return;
+    if(parentURL.lastIndexOf('/')===profileURL.length-1)return target;
     // An editable caller can shadow the published root with a nearer package.
     for(const lookup of createRequire(parentURL).resolve.paths(name)) {
-      if(lookup===profileModules)return packageAt(linked);
+      if(lookup===profileModules)return target;
       const candidate=join(lookup,name);
       if(statSync(candidate,{throwIfNoEntry:false})?.isDirectory())return packageAt(realpathSync.native(candidate));
     }
@@ -183,7 +194,7 @@ export function installReleaseResolver(layout, roots, profile) {
       return path;
     }
     const name = barePackageName(specifier);
-    const target = release.get(installation?.dependencies[name]) ?? rootsByName.get(name);
+    const target = release.get(installation?.dependencies[name]) ?? rootsByName.get(name) ?? hoistedProfilePackage(name);
     if (!target) throw new Error('Not a profile package: '+name);
     return createRequire(target.parent).resolve(specifier);
   }

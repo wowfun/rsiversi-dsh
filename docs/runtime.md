@@ -661,7 +661,12 @@ submitted contents. DSH resolves its activation patch from the installation
 first, and removing the profile dependency leaves the shipped package available.
 Runtime services and shared libraries retain their leased identities.
 The importer uses npm for remaining transitive dependencies. Edges into the
-admitted runtime reuse its selected graph. A
+admitted runtime reuse its selected graph. Profile entries and their package
+metadata can resolve a dependency placed at the top level of a linked market
+selection, as they can from a flat DSH profile installation. Direct roots take
+precedence. The first linked selection supplying that placement owns the lookup
+until it is removed. Dependencies installed only under a package remain private
+to its issuers. A
 market install therefore does not need to reinstall the DSH umbrella package
 unless the plugin requests it.
 The bundled npm resolves in an empty work directory with an explicit registry,

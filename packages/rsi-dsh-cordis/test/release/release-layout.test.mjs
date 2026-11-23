@@ -53,6 +53,31 @@ test('installation bundle lookup keeps the runtime dependency across a market sh
   assert.equal(resolver.directory('bundle'),join(roots.get('release'),nested));
 });
 
+test('profile entries and public metadata resolve hoisted market dependencies for the life of their link',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'rsi-profile-hoisting-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const profile=join(root,'profile'),base=pathToFileURL(join(profile,'cordis.yml')).href;
+  const roots=new Map([['host',join(root,'host')],['market',join(root,'market')]]);
+  const resolver=installReleaseResolver({format:1,locations:{}},roots,profile);t.after(()=>resolver.close());
+  const locations={};
+  for(const name of ['bundle','tool','bundle/node_modules/private-tool']){
+    const location='node_modules/'+name,directory=join(roots.get('market'),location);
+    await mkdir(directory,{recursive:true});await writeFile(join(directory,'index.js'),'module.exports={}');
+    locations[location]={package:'market',dependencies:{}};
+  }
+  const bundle=resolver.prepare({format:1,locations},roots,['bundle']);
+  const retire=bundle.publish();
+  assert.throws(()=>resolver.entry('tool'),/Not a profile package/);
+  resolver.setProfileLink('bundle',bundle.directory('bundle'));
+  assert.equal(resolver.entry('tool'),join(bundle.directory('tool'),'index.js'));
+  assert.equal(resolver.bindingFor('tool',base).directory,bundle.directory('tool'));
+  assert.equal(resolver.bindingFor('private-tool',base),undefined);
+  assert.throws(()=>resolver.entry('private-tool'),/Not a profile package/);
+  resolver.setProfileLink('bundle',undefined);
+  assert.equal(resolver.bindingFor('tool',base),undefined);
+  assert.throws(()=>resolver.entry('tool'),/Not a profile package/);
+  retire();
+});
+
 test('a repacked host owns a captured peer and its internal dependencies even after hoisting',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'rsi-repacked-peer-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const shared='node_modules/shared',ext='node_modules/ext',oldShared=ext+'/node_modules/shared';
