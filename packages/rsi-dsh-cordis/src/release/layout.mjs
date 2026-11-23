@@ -28,7 +28,21 @@ function lookup(records, parent, name) {
   return records.has(root) ? root : undefined;
 }
 
-export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {hostPeers,build}={}) {
+// The standalone DSH release selects one engine for its Office provider.
+// Other packages keep their own dependency edges, including explicit WASM use.
+function selectOfficeEngine(kit, {platform, arch}) {
+  const optional = kit.item.optionalDependencies ?? {};
+  const prefix = kit.name+'-';
+  const native = prefix+platform+'-'+arch;
+  const selected = Object.hasOwn(optional,native) ? native : prefix+'wasm';
+  if (!Object.hasOwn(kit.dependencies,selected))
+    throw new Error('Missing dependency '+selected+' at '+kit.location);
+  for (const name of Object.keys(optional)) {
+    if (name.startsWith(prefix) && name !== selected) delete kit.dependencies[name];
+  }
+}
+
+export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {hostPeers,build,runtimeTarget}={}) {
   root = await realpath(root);
   const lockPath = join(root,'package-lock.json');
   if ((await lstat(lockPath)).size > 64*1024**2) throw new Error('npm lock capacity');
@@ -69,6 +83,8 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {ho
       if (!record) throw new Error('Unresolved profile root: '+rootName);
       if (record.owners.has(owner)) continue;
       record.owners.add(owner);
+      if(runtimeTarget && owner==='runtime' && record.name==='@deepseek-ai/libreoffice-kit')
+        selectOfficeEngine(record,runtimeTarget);
       for(const dependency of Object.values(record.dependencies))if(records.has(dependency))todo.push(dependency);
     }
   }
@@ -77,7 +93,7 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {ho
   if(build) {
     const builds=[...records.values()].filter(row=>row.owners.size && !row.owners.has('runtime')
       && !row.item.inBundle && row.item.hasInstallScript);
-    if(await build(builds)) return releaseLayout(root,runtimeRoots,pluginRoots,signal,{hostPeers});
+    if(await build(builds)) return releaseLayout(root,runtimeRoots,pluginRoots,signal,{hostPeers,runtimeTarget});
   }
   const groups = new Map();
   for (const record of [...records.values()].sort((a,b)=> a.location < b.location ? -1 : 1)) {
@@ -118,16 +134,18 @@ export function splitPayloads(packages) {
   return shards;
 }
 
-/** A separately launched Node runner uses ordinary on-disk npm resolution. */
+/** Child processes and Office workers resolve their dependencies on disk. */
 export function runtimePayloads(packages) {
   const byLocation=new Map(packages.map(pkg=>[pkg.location,pkg]));
-  const runners=new Set(packages.filter(pkg=>pkg.location.endsWith('/@deepseek-ai/dsh-subprocess-local') ||
-    pkg.location.endsWith('/@deepseek-ai/dsh-sandbox-windows-acl')));
+  const children=new Set(packages.filter(({location})=>
+    location.endsWith('/@deepseek-ai/dsh-subprocess-local') ||
+    location.endsWith('/@deepseek-ai/dsh-sandbox-windows-acl') ||
+    location.endsWith('/@deepseek-ai/libreoffice-kit')));
   // Set iteration visits newly added packages and terminates on shared or cyclic edges.
-  for(const pkg of runners)
-    for(const location of Object.values(pkg.dependencies))runners.add(byLocation.get(location));
-  const shards=splitPayloads([...runners,...packages.filter(pkg=>!runners.has(pkg))]);
-  if(runners.size && shards[0].length<runners.size)
-    throw new Error('The DSH subprocess runners and their dependencies exceed one runtime payload');
+  for(const pkg of children)
+    for(const location of Object.values(pkg.dependencies))children.add(byLocation.get(location));
+  const shards=splitPayloads([...children,...packages.filter(pkg=>!children.has(pkg))]);
+  if(children.size && shards[0].length<children.size)
+    throw new Error('The DSH child runtimes and their dependencies exceed one runtime payload');
   return shards;
 }

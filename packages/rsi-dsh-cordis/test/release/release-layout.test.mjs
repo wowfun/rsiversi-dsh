@@ -5,8 +5,39 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
-import {packageLocation, runtimePayloads, splitPayloads} from '../../src/release/layout.mjs';
+import {packageLocation, releaseLayout, runtimePayloads, splitPayloads} from '../../src/release/layout.mjs';
 import {installReleaseResolver} from '../../src/release/resolver.mjs';
+
+test('Office uses the target engine while separately requested engines remain installable',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'rsi-office-engines-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const provider='@deepseek-ai/dsh-office-kit',kit='@deepseek-ai/libreoffice-kit';
+  const native=kit+'-win32-x64',wasm=kit+'-wasm';
+  const graph={
+    [provider]:{dependencies:{[kit]:'1'}},
+    [kit]:{optionalDependencies:{[native]:'1',[wasm]:'1',helper:'1'}},
+    [native]:{optional:true},[wasm]:{optional:true},helper:{optional:true},
+    extension:{dependencies:{[wasm]:'1'}},
+  };
+  const packages={};
+  for(const [name,fields] of Object.entries(graph)){
+    const location='node_modules/'+name,directory=join(root,location);
+    await mkdir(directory,{recursive:true});
+    await writeFile(join(directory,'package.json'),JSON.stringify({name,version:'1',...fields}));
+    packages[location]={version:'1',...fields};
+  }
+  await writeFile(join(root,'package-lock.json'),JSON.stringify({lockfileVersion:3,packages}));
+  const build=(platform,plugins=[])=>releaseLayout(root,[provider],plugins,undefined,{runtimeTarget:{platform,arch:'x64'}});
+  const names=rows=>rows.map(row=>row.location.slice(13)).sort();
+  const windows=await build('win32',['extension']);
+  assert.deepEqual(names(windows.get('runtime')),[provider,kit,native,'helper'].sort());
+  assert.deepEqual(names(windows.get('extension')),['extension',wasm].sort());
+  assert.deepEqual(names((await build('linux')).get('runtime')),[provider,kit,wasm,'helper'].sort());
+  const independent=await releaseLayout(root,['helper'],[kit],undefined,{runtimeTarget:{platform:'win32',arch:'x64'}});
+  assert.deepEqual(names(independent.get(kit)),[kit,native,wasm].sort());
+  await rm(join(root,'node_modules',native),{recursive:true});
+  await assert.rejects(build('win32'),/Missing dependency @deepseek-ai\/libreoffice-kit-win32-x64/);
+});
 
 test('two large independent plugins partition at a package boundary',()=>{
   const group = n=>({location:'node_modules/pkg'+n,files:Array.from({length:9000},(_,i)=>({path:'node_modules/pkg'+n+'/'+i,bytes:1}))});
@@ -14,17 +45,19 @@ test('two large independent plugins partition at a package boundary',()=>{
   assert.throws(()=>packageLocation('node_modules/pkg/../../secrets'));
 });
 
-test('child runners keep transitive npm dependencies in their own physical payload',()=>{
+test('child runners and Office workers keep transitive npm dependencies in their own physical payload',()=>{
   const pkg=(name,bytes,dependencies={})=>({location:'node_modules/'+name,dependencies,
     files:[{path:'node_modules/'+name+'/index.js',bytes}]});
   const helper=pkg('helper',100),library=pkg('library',100,{helper:helper.location});
   const runner=pkg('@deepseek-ai/dsh-subprocess-local',100,{library:library.location});
   const acl=pkg('host/node_modules/@deepseek-ai/dsh-sandbox-windows-acl',100,{helper:helper.location});
+  const font=pkg('fontkit',100,{helper:helper.location});
+  const office=pkg('@deepseek-ai/libreoffice-kit',100,{fontkit:font.location});
   const large=pkg('independent',4*1024**3-200);
-  const packages=[runner,large,acl,library,helper];
+  const packages=[runner,large,acl,library,helper,office,font];
   assert.ok(!splitPayloads(packages)[0].includes(helper));
   const [first,second]=runtimePayloads(packages);
-  assert.deepEqual(new Set(first),new Set([runner,library,helper,acl]));
+  assert.deepEqual(new Set(first),new Set([runner,library,helper,acl,office,font]));
   assert.deepEqual(second,[large]);
   runner.dependencies.large=large.location;
   assert.throws(()=>runtimePayloads(packages),/exceed one runtime payload/);

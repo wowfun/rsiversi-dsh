@@ -926,10 +926,16 @@ staging tree. The importer
 declares that toolchain as a strong dependency and resolves the application
 layout and runtime shards from its own lease.
 
-The release packer keeps DSH's managed subprocess runner and Windows ACL
-runner with their transitive installed dependencies in one runtime payload.
-Their child Node processes resolve packages directly from the npm tree on
-disk. The application process's resolver only serves its own process.
+The DSH application release includes the LibreOffice engine selected by its
+Office provider. A target with a declared native engine requires that package.
+Other targets require the WASM engine. An independent dependency on another
+engine keeps its own package in the npm closure. Plugins installed from the
+registry retain their declared dependencies.
+
+The release packer keeps the managed subprocess runner, Windows ACL runner
+and LibreOffice Kit with their transitive installed dependencies in one
+runtime payload. Their child processes and workers use ordinary Node
+resolution against the installed directories.
 Registry metadata and npm staging use the Host's HTTP(S) proxy and bypass
 settings. The generated application profile and npm subprocess omit proxy
 URLs with user information and keep their private package configuration.
