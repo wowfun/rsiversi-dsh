@@ -29,7 +29,8 @@ test('the selected original Cordis host runner serves the client inventory and i
     ctx.provide('profileContext',{name:'runner',dir:profile,installAnchor:join(root,'package.json')});
     await ctx.plugin(boot.PluginPackages);
   }});t.after(()=>app.close());
-  const entries=['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway','dsh-api-remotes','dsh-system-prompt','dsh-tools'];
+  const entries=['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway','dsh-api-remotes',
+    'dsh-session-projection','dsh-system-prompt','dsh-tools'];
   await app.reconcile([{insert:[...entries.map(id=>({id,name:'@deepseek-ai/'+id})),runner,connection]}]);
   for(const [method,args,expected] of [['inventory',{},[]],['syncInspectManifest',{providers:[]},null]]){
     const remote='dynamicCordisRunner/'+method,response=await fetch(app.ctx.webServer.getOrigin()+'/api/'+remote,{
