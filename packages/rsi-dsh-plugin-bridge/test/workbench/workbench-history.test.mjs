@@ -226,8 +226,8 @@ test('reconnect opens inside a real prefix, emits dense subsequent chunks and cl
   let reads=0,closed;
   const page=events=>{const json=JSON.stringify(events);return {json,offset:0,next_offset:Buffer.byteLength(json),
     total_bytes:Buffer.byteLength(json),revision:reads,complete:true,status:{state:'streaming'}};};
-  const view={session,mapping,through:10,async advance(){mapping.model=null;
-    return {kind:'committed',eventType:event.type,seq:event.seq};},
+  const view={session,mapping,through:10,async advance(){mapping.model=null;},
+    watchSettlement:()=>()=>({kind:'committed',eventType:event.type,seq:event.seq}),
   call(op){
     if(op.type==='wait')return durable.promise;
     if(op.type==='model_open'){assert.equal(op.effect,'effect-1');return Promise.resolve();}

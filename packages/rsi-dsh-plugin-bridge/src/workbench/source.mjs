@@ -12,15 +12,19 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
   const session=new SessionFacade(ctx,api,seed,false);
   let current={session,mapping:seed.mapping??restoreMapping(null),controlThrough:0,
     model:workbenchModel(meta.selection_cursor?.kind==='durable'?meta.model_baseline:meta.model_selection),
-    inbox:workbenchInbox(),spawning:new Set(),spawned:new Map(),settled:new Map(),origins:new Map()};
+    inbox:workbenchInbox(),spawning:new Set(),spawned:new Map(),origins:new Map()};
+  let observed;
   return {
     get current(){return current;},
+    watchSettlement(){return observed??={};},
     async stage(call,release,signal,through,controlThrough,hasLocalRequest,inboxSlotFrom=0,first) {
       const original=current;
+      const originalEffect=original.mapping.model?.effectId;
+      let settlement;
       const next={...original,session:session.branch(),mapping:cloneMapping(original.mapping),
         model:original.model.branch(),inbox:original.inbox.branch(),
         spawning:new Set(original.spawning),spawned:new Map(original.spawned),
-        settled:new Map(original.settled),origins:new Map()};
+        origins:new Map()};
       const loadFacts=nativeFactPages(call,release,signal);
       let firstControl=first?.after.control_seq===next.controlThrough&&first.cut.control_seq===controlThrough?first.controls:undefined;
       let firstFact=first?.after.fact_seq===next.mapping.factCursor&&first.cut.fact_seq===through?first.facts:undefined;
@@ -40,10 +44,10 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
       const project=factProjector(next.session,next.mapping,fetch,through,signal,llm,fact=>{
         if(fact.type==='model_started'&&next.mapping.model?.effectId===fact.effect_id)
           next.mapping.model.startedAfterSeq=next.session.seq-1;
-        if(fact.type==='model_attempt_settled') {
+        if(fact.type==='model_attempt_settled'&&fact.effect_id===originalEffect) {
           const event=next.session.seq?next.session.eventAt(next.session.seq-1):undefined;
           if(['assistant/message','assistant/attempt'].includes(event?.type))
-            next.settled.set(fact.effect_id,{kind:'committed',eventType:event.type,seq:event.seq});
+            settlement={kind:'committed',eventType:event.type,seq:event.seq};
         }
         if(fact.type==='tool_intent'&&fact.name==='spawn_agent')next.spawning.add(fact.effect_id);
         if(fact.type==='tool_result'&&next.spawning.delete(fact.effect_id)&&!fact.result.is_error) {
@@ -77,6 +81,8 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
       return {value:next,commit() {
         if(current!==original)throw Error('Native projection batch lost its original source');
         session.adoptBranch(next.session);next.session=session;next.origins.clear();current=next;
+        if(observed&&settlement)observed.outcome=settlement;
+        if(next.mapping.model?.effectId!==originalEffect)observed=undefined;
       }};
     },
   };

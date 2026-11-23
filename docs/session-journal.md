@@ -368,6 +368,9 @@ after the entire batch is projected successfully. Each caller supplies its own
 authorized read function and cancellation signal; a retained projector does not
 retain a browser request. Source positions remain separate from application
 positions, including assistant-start and settlement cursors.
+Live readers of the same model attempt share its settlement coordinate. The
+coordinate becomes visible at commit and stays with each reader through its
+terminal frame. Replaying settled history needs no per-attempt lookup table.
 When both captured streams have unread data, the first Fact and control pages
 load concurrently within the existing two-transfer budget. Projection still
 interleaves controls at their Fact anchors. Both reads settle before the stage

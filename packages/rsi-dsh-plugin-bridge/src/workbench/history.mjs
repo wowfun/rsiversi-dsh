@@ -85,10 +85,10 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       get through(){return owner.cursor().fact_seq;},get controlThrough(){return owner.cursor().control_seq;},
       get mapping(){return owner.mapping();},
       releaseModel:key=>release({type:'model_close',key}),
-      async advance(through,observedEffect,controlThrough) {
+      watchSettlement:owner.watchSettlement,
+      async advance(through,controlThrough) {
         await owner.apply({...owner.meta,through,selection_cursor:{kind:'durable',fact_seq:through,control_seq:controlThrough}},call,release,signal);
         if(view.publish)view.publish(await projections(),intermediate);
-        return owner.settled(observedEffect);
       },
       async wait(cursor,after,observer=signal) {
         if(session.seq>after)return owner.cursor();
@@ -226,7 +226,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
         const next=await view.wait(cursor,after);
         if(next.fact_seq<cursor.fact_seq||next.control_seq<cursor.control_seq)throw new Error('Session observation moved backwards');
         const start=after;
-        await advance(next.fact_seq,undefined,next.control_seq);
+        await advance(next.fact_seq,next.control_seq);
         cursor=next;
         const events=session.snapshotEvents(start);after=session.seq;
         for(const event of events)yield {type:'event',event};

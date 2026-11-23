@@ -128,9 +128,12 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
         return {...mapping,model:mapping.model?{...mapping.model,
           ...(mapping.model.startedAfterSeq===undefined?{}:{startedAfterSeq:row.applicationSeq(mapping.model.startedAfterSeq)})}:null};
       },
-      settled(effect){
-        const event=source.current.settled.get(effect);
-        return event?{...event,seq:row.applicationSeq(event.seq)}:undefined;
+      watchSettlement(){
+        const attempt=source.watchSettlement();
+        return ()=>{
+          const event=attempt.outcome;
+          return event&&{...event,seq:row.applicationSeq(event.seq)};
+        };
       },
       model(){
         const value=source.current.model.snapshot(journal.session),chosen=journal.session.lastEvent('model/selection');

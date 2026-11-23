@@ -30,8 +30,8 @@ export async function* followAssistant(view,llm,signal,snapshot){
     if(current?.startedAt==null)return;
     const key=randomUUID(),identity={attemptId:current.effectId,turn:mapping.turn,step:mapping.step,
       startedAfterSeq:current.startedAfterSeq};
+    const attempt={key,identity,index:0,frames:[],projection:null,settlement:view.watchSettlement()};
     await call({type:'model_open',key,effect:current.effectId});
-    const attempt={key,identity,index:0,frames:[],projection:null};
     attempt.projection=modelProjection(llm,current.startedAt,({time,chunk})=>{
       const frame={type:'chunk',attemptId:identity.attemptId,revision:++revision,index:attempt.index++,time,chunk};
       if(!opening)attempt.frames.push(frame);
@@ -59,9 +59,10 @@ export async function* followAssistant(view,llm,signal,snapshot){
       }
       cursor=next.value;
       const first=after;
-      const committed=await advance(cursor.fact_seq,active?.identity.attemptId,cursor.control_seq);
+      await advance(cursor.fact_seq,cursor.control_seq);
       const events=session.snapshotEvents(first);after=session.seq;
       const ended=active&&view.mapping.model?.effectId!==active.identity.attemptId;
+      const committed=ended&&active.settlement();
       if(!opening&&ended&&committed) {
         const stream=llm.expandAssistantStream(session.eventAt(committed.seq).data.stream);
         if(stream.length<active.index)throw Error('Committed assistant stream lost its live prefix');

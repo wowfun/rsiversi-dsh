@@ -119,6 +119,9 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
     await until(()=>frames.filter(frame=>frame.type==='start').length===2&&buffer.chunksFor('thread').length===modelEvents.length);
     assert.equal(captures,3,'reconnection refreshes only its opening snapshot');
     assert.equal(releaseCount,1);
+    const observer=history.owner(await scope.observeOwned(signal=>history.capture('thread',metadata(),signal)));
+    const slowReader=observer.watchSettlement();
+    assert.equal(slowReader(),undefined);
     const settled=[...modelEvents,[8,{type:'content_delta',index:0,delta:{type:'text',value:' final'}}],
       [9,{type:'content_finished',index:0}],[10,{type:'finished',reason:'stop'}]];
     add({type:'model_attempt_settled',effect_id:current,purpose:'conversation',attempt:{retain_context:true,events:settled}});
@@ -136,6 +139,8 @@ test('original Side Chat receives dense Agent frames across attach, reconnect, d
     assert.deepEqual(buffer.chunksFor('thread'),[]);assert.equal(readers.size,0);
     active='turn-2';current='effect-2';modelEvents=modelEvents.slice(0,2);begin();wake();
     await until(()=>buffer.chunksFor('thread').length===2);
+    assert.deepEqual(slowReader(),end.outcome,'later attempts preserve settlement for an older reader');
+    assert.equal(observer.watchSettlement()(),undefined);
     assert.equal(agent.status,'running');
     await adapterOwner.dispose();
     assert.equal(frames.at(-1).outcome.kind,'abandoned');assert.deepEqual(buffer.chunksFor('thread'),[]);
