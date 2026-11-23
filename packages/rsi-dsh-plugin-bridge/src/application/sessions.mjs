@@ -36,6 +36,16 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     if(!request)throw new Error('Session access requires an active native request');
     return request;
   }
+  function lookupAgent(id,activate,registry=false) {
+    const active=scope.getStore();
+    if(registry&&!active)return activities.observe(()=>lookupAgent(id,activate));
+    const request=activeRequest();
+    if(active.agentLookup?.id===id)return active.agentLookup.value;
+    const value=call('application.actor',{request,session_id:id}).then(()=>
+      registered?.(id)??activities.run(signal=>activate(id,signal)));
+    active.agentLookup={id,value};
+    return value;
+  }
   function writablePublication(active) {
     if(!active||active.released)return;
     const response=active.response;
@@ -292,14 +302,7 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     fork:(id,turn,signal)=>scoped('application.create',{fresh:'session-'+randomUUID(),
       fork:{source_session_id:id,point:{kind:'through_turn',turn_id:turn},turns:'all'}},signal),
     workspace:(operation,signal)=>scoped('application.workspaces',{operation},signal),
-    lookupAgent(id,activate) {
-      const request=activeRequest(),active=scope.getStore();
-      if(active.agentLookup?.id===id)return active.agentLookup.value;
-      const value=call('application.actor',{request,session_id:id}).then(()=>
-        registered?.(id)??activities.run(signal=>activate(id,signal)));
-      active.agentLookup={id,value};
-      return value;
-    },
+    lookupAgent,
     terminal:(id,operation,signal)=>scoped('application.terminal',{session_id:id,operation},signal),
     waitTerminal:(id,key,signal)=>scoped('application.terminal.wait',{session_id:id,key},signal),
     releaseTerminal:attachment=>scoped('application.terminal.release',{attachment})};

@@ -31,7 +31,7 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
     static inject=['typert','remoteAccess'];
     constructor(ctx) {super(ctx,'sessionController',{namespace:'session'});}
     [TypertRemoteService.init]() {
-      const lookup=id=>scope.lookupAgent(id,activate);
+      const lookup=id=>scope.lookupAgent(id,activate,true);
       this.ctx.typert.resources.register('session',{resolve:sessionResource});
       this.ctx.typert.lookups.register('session',{
         parameter:'session',wire:'sessionId',resource:'session',
@@ -41,7 +41,7 @@ export function sessionController({TypertRemoteService,RemoteError,SessionTitleI
       });
       this.ctx.typert.lookups.configure('agent',lookup);
       this.ctx.typert.contexts.configureHost('agent',async id=>(await lookup(id)).ctx);
-      this.ctx.inject(['fileUploads'],ctx=>ctx.effect(()=>ctx.fileUploads.registerAgentResolver(lookup),
+      this.ctx.inject(['fileUploads'],ctx=>ctx.effect(()=>ctx.fileUploads.registerAgentResolver(id=>scope.lookupAgent(id,activate)),
         'file-upload Agent resolver'));
     }
     async resolveAgent(id) {

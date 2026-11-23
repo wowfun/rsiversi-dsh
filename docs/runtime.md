@@ -741,7 +741,12 @@ controller supplies Typert's Agent and Session lookups. A typed Session
 parameter resolves to the same Session as its Agent. The Session resource
 uses the release's wire ID or addressed history to identify the target.
 The native actor lookup checks the caller before a resident Agent is reused
-or a cold Agent is resumed. Browser command lifecycle events are log-only
+or a cold Agent is resumed. An enabled Host plugin can resolve an Agent from
+the Typert registry during its own lifecycle. Outside a native request that
+lookup uses the application caller for the addressed Agent. Within a request
+it retains the request's authority and lifetime. The Gateway checks a remote
+caller's action and resources before resolving its typed parameters.
+Browser command lifecycle events are log-only
 entries in the application Session journal and survive reopening the workbench.
 
 With Host Language available, the standard workbench enables the release's
