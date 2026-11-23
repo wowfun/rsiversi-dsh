@@ -28,7 +28,7 @@ function lookup(records, parent, name) {
   return records.has(root) ? root : undefined;
 }
 
-export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, reuseRuntime = false, build) {
+export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {hostPeers,build}={}) {
   root = await realpath(root);
   const lockPath = join(root,'package-lock.json');
   if ((await lstat(lockPath)).size > 64*1024**2) throw new Error('npm lock capacity');
@@ -54,6 +54,9 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, reu
     for (const name of Object.keys({...item.dependencies,...item.optionalDependencies,...item.peerDependencies})) {
       const found = lookup(records,record.location,name);
       if (found) record.dependencies[name] = found;
+      else if (pluginRoots.length && Object.hasOwn(item.peerDependencies ?? {},name) && !Object.hasOwn(item.dependencies ?? {},name)) {
+        if(hostPeers && Object.hasOwn(hostPeers,name))record.dependencies[name]='node_modules/'+name;
+      }
       else if (!Object.hasOwn(item.optionalDependencies ?? {},name) && !item.peerDependenciesMeta?.[name]?.optional)
         throw new Error('Missing dependency '+name+' at '+record.location);
     }
@@ -65,7 +68,8 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, reu
       const record = records.get(todo.pop());
       if (!record) throw new Error('Unresolved profile root: '+rootName);
       if (record.owners.has(owner)) continue;
-      record.owners.add(owner); todo.push(...Object.values(record.dependencies));
+      record.owners.add(owner);
+      for(const dependency of Object.values(record.dependencies))if(records.has(dependency))todo.push(dependency);
     }
   }
   for (const name of runtimeRoots) mark(name,'runtime');
@@ -73,14 +77,14 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, reu
   if(build) {
     const builds=[...records.values()].filter(row=>row.owners.size && !row.owners.has('runtime')
       && !row.item.inBundle && row.item.hasInstallScript);
-    if(await build(builds)) return releaseLayout(root,runtimeRoots,pluginRoots,signal,reuseRuntime);
+    if(await build(builds)) return releaseLayout(root,runtimeRoots,pluginRoots,signal,{hostPeers});
   }
   const groups = new Map();
   for (const record of [...records.values()].sort((a,b)=> a.location < b.location ? -1 : 1)) {
     if (!record.owners.size) continue;
     const owner = record.owners.has('runtime') ? 'runtime' : [...record.owners].sort().join('+');
     const files = [];
-    if (!reuseRuntime || owner !== 'runtime') await walkFiles(record.directory, async (path,bytes) => {
+    if (!hostPeers || owner !== 'runtime') await walkFiles(record.directory, async (path,bytes) => {
       files.push({path:record.location+'/'+path, source:resolve(record.directory,path), bytes});
     }, {signal, exclude:path=>path==='node_modules'});
     const group = groups.get(owner) ?? [];

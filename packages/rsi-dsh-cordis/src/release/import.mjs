@@ -3,7 +3,7 @@ import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {isAbsolute,join} from 'node:path';
 import {installNpm,npmManifest,rebuildApproved,registryCache} from '../registry/npm-install.mjs';
-import {checkRequirements,prereleasePeerOverrides} from '../registry/requirements.mjs';
+import {checkRequirements} from '../registry/requirements.mjs';
 import {packageLocation,releaseLayout} from './layout.mjs';
 import {writeShards,digest,json} from './artifacts.mjs';
 import {writePayloadFiles} from '../archive/payload.mjs';
@@ -51,11 +51,10 @@ export async function importRelease(base,npmRoot,request,signal,runtimeRoots) {
     for(const manifest of manifests)await selectRoot(manifest.name);
     const pins={};
     for(const manifest of manifests) {
-      for(const name of Object.keys({...manifest.dependencies,...manifest.peerDependencies,...manifest.optionalDependencies}))
-        if(Object.hasOwn(runtime,name))pins[name]=runtime[name];
+      for(const [name,range] of Object.entries({...manifest.dependencies,...manifest.optionalDependencies}))
+        if(Object.hasOwn(runtime,name)&&semver.satisfies(runtime[name],range,{includePrerelease:true}))pins[name]=runtime[name];
     }
-    const overrides=prereleasePeerOverrides(manifests,pins,semver);
-    await writeFile(join(root,'package.json'),json({name:'rsi-release-import',private:true,dependencies:pins,overrides}));
+    await writeFile(join(root,'package.json'),json({name:'rsi-release-import',private:true,dependencies:pins}));
     await installNpm(npmRoot,root,work,specs.map(spec=>['file','directory'].includes(spec.type)?spec.fetchSpec:spec.raw),signal,request.options?.registry,cache);
     const {dependencies}=JSON.parse(await readFile(join(root,'package.json'),'utf8'));
     const added=Object.keys(dependencies).filter(name=>!Object.hasOwn(runtime,name));
@@ -73,26 +72,26 @@ export async function importRelease(base,npmRoot,request,signal,runtimeRoots) {
     if(typeof policy!=='object' || Array.isArray(policy) || Object.values(policy).some(value=>typeof value!=='boolean'))
       throw new Error('Invalid registry build decisions');
     const lock=JSON.parse(await readFile(join(root,'package-lock.json'),'utf8'));
-    const present=Object.keys(runtime).filter(name=>Object.hasOwn(lock.packages,'node_modules/'+name));
-    const groups=await releaseLayout(root,present,plugins,signal,true,
-      builds=>rebuildApproved(npmRoot,root,work,builds,policy,signal,cache));
+    const present=Object.keys(runtime).filter(name=>lock.packages['node_modules/'+name]?.version===runtime[name]);
+    const groups=await releaseLayout(root,present,plugins,signal,{hostPeers:runtime,
+      build:builds=>rebuildApproved(npmRoot,root,work,builds,policy,signal,cache)});
     const hostPeers = {};
     const resolvedRuntime=new Map((groups.get('runtime') ?? []).map(item=>[item.location,item]));
     groups.delete('runtime');
+    const target=({win32:'windows',linux:'linux',darwin:'macos'})[process.platform]+'-'+({x64:'x86_64',arm64:'aarch64'})[process.arch];
+    const packed=await writeShards(staging,groups,base.version,target,signal);
     // Only the plugin's edges cross the application boundary. The active
     // runtime has already resolved its own internal and optional dependencies.
     for(const records of groups.values()) for(const item of records) {
       for(const dependency of Object.values(item.dependencies)) {
+        if(Object.hasOwn(packed.locations,dependency))continue;
         const proposed=resolvedRuntime.get(dependency);
-        if(!proposed) continue;
         const held=base.locations[dependency];
-        if(!held || held.version!==proposed.version)
+        if(!held || proposed && held.version!==proposed.version)
           throw new Error('Plugin dependency requires a different runtime instance: '+dependency);
         hostPeers[dependency]=held.version;
       }
     }
-    const target=({win32:'windows',linux:'linux',darwin:'macos'})[process.platform]+'-'+({x64:'x86_64',arm64:'aarch64'})[process.arch];
-    const packed=await writeShards(staging,groups,base.version,target,signal);
     const name='rsi-dsh-selection-'+digest(json(plugins)).slice(0,16);
     const directory=join(staging,name);await mkdir(directory);
     const layout=json({format:2,runtime:'@deepseek-ai/dsh',version:base.version,plugins,locations:packed.locations,hostPeers});

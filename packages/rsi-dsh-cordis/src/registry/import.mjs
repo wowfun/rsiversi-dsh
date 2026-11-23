@@ -10,7 +10,7 @@ import { loadCohort } from '../runtime/cohort.mjs';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const packageName = value => typeof value === 'string' && /^(?:@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/.test(value) && value.length <= 214;
 
-import {checkRequirements,prereleasePeerOverrides} from './requirements.mjs';
+import {checkRequirements} from './requirements.mjs';
 
 /** npm is a pinned implementation detail, never an ambient user command/config. */
 export async function importCohort({ cohortRoot, workspace, work, specifications, signal }) {
@@ -35,9 +35,7 @@ export async function importCohort({ cohortRoot, workspace, work, specifications
     checkRequirements(manifest,runtimeVersion,semver);
   }
   const dependencies=await packPeers(cohortRoot,peers,archive,tar,signal);
-  const versions=Object.fromEntries([...peers].map(([name,manifest])=>[name,manifest.version]));
-  const overrides=prereleasePeerOverrides([...peers.values(),...manifests],versions,semver);
-  await writeFile(join(root, 'package.json'), JSON.stringify({name:'rsi-dsh-import',version:'0.0.0',private:true,type:'module',dependencies,overrides}));
+  await writeFile(join(root, 'package.json'), JSON.stringify({name:'rsi-dsh-import',version:'0.0.0',private:true,type:'module',dependencies}));
   await installNpm(npmRoot,root,work,specs.map(spec=>['file','directory'].includes(spec.type)?spec.fetchSpec:spec.raw),signal);
   signal.throwIfAborted();
   const installed = JSON.parse(await readFile(join(root,'package.json'),'utf8'));

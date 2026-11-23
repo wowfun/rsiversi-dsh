@@ -36,7 +36,7 @@ export async function moveRegistryCache(profile) {
 
 export const npmImportFlags = Object.freeze(['--ignore-scripts','--bin-links=false','--install-links=true',
   '--allow-git=none','--allow-remote=none','--allow-file=root','--allow-directory=root',
-    '--strict-peer-deps','--prefer-dedupe','--omit=dev','--no-audit','--no-fund','--update-notifier=false']);
+    '--legacy-peer-deps','--prefer-dedupe','--omit=dev','--no-audit','--no-fund','--update-notifier=false']);
 
 export function registryUrl(value='https://registry.npmjs.org/') {
   const url=new URL(value);

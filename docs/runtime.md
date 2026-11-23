@@ -103,10 +103,11 @@ The fixture resolver accepts that archive directory through `--from` and
 retains npm's resolved archive integrities in its lockfile. The workbench uses
 the Session contracts and Cordis of that selected host. Source revisions and
 archive digests identify test inputs and installed bytes, not a compatibility
-allowlist. Resolve peers strictly using DSH app-boot's prerelease semantics
-for host-provided DSH peers. When npm would exclude such a peer, the plugin
-binds it to the selected host version. The published-release fixture uses the
-same rule and the requested host's declared Cordis dependency range.
+allowlist. DSH app-boot evaluates the plugin's DSH requirements. Profile
+installation resolves declared dependencies and leaves peer installation off,
+as in an upstream profile. A peer resolves from the installed private graph
+or the selected host. Absent peers stay absent. A release selection records
+the exact version of each host binding it actually uses.
 
 For first-install checks, resolve with `--runtime-only` and run
 `package-market.mjs COHORT SHARDS` with no plugin names. The application
@@ -656,8 +657,7 @@ private home/cache and empty user/global configuration. Pinned original packages
 are supplied as local archives from the leased cohort. Imports cannot replace
 them. Packaging checks their complete files; nested copies of a shared peer are
 rejected after installation. The importer checks the original engines.dsh rule
-first, otherwise the DSH peer ranges, including prereleases. npm receives the
-same prerelease peer overrides as the release importer. Its tree reader caps
+first, otherwise the DSH peer ranges, including prereleases. Its tree reader caps
 files at 16,384, total entries at 65,536, path depth at 128 and total bytes at
 4 GiB; file content is read in bounded chunks. The recorded npm lockfile binds the resolved dependency tree;
 Git/HTTP dependency specifications are refused at every depth. Local tarballs

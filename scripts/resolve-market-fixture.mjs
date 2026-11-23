@@ -7,7 +7,6 @@ import { createRequire } from 'node:module';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { runtimeEnvironment } from '../packages/rsi-dsh-cordis/src/runtime/node.mjs';
-import {prereleasePeerOverrides} from '../packages/rsi-dsh-cordis/src/registry/requirements.mjs';
 
 const { values, positionals } = parseArgs({
   options: { from: { type: 'string' }, 'runtime-only': { type: 'boolean' } },
@@ -74,16 +73,15 @@ while (true) {
   if (Object.keys(packages).length > 512) throw new Error('Runtime dependency graph capacity');
 }
 const dependencies = { ...packages, '@deepseek-ai/cordis': cordisSpec, ...targets };
-const overrides=prereleasePeerOverrides(plugins,packages,npm('semver'));
 for(const name of Object.keys(dependencies)) {
   if(packed.has(name)) dependencies[name]=packed.get(name).url;
 }
-await writeFile(join(root, 'package.json'), JSON.stringify({name:'rsi-dsh-release-fixture', private:true, dependencies, overrides}, null, 2));
+await writeFile(join(root, 'package.json'), JSON.stringify({name:'rsi-dsh-release-fixture', private:true, dependencies}, null, 2));
 const home = join(root, '.home');
 await mkdir(home, { recursive: true });
 await writeFile(join(home, 'npmrc'), '');
 await writeFile(join(home, 'global-npmrc'), '');
-const child = spawn(process.execPath, [resolve(npmEntry), 'install', '--strict-peer-deps', '--prefer-dedupe', '--ignore-scripts',
+const child = spawn(process.execPath, [resolve(npmEntry), 'install', values['runtime-only']?'--strict-peer-deps':'--legacy-peer-deps', '--prefer-dedupe', '--ignore-scripts',
   '--bin-links=false', '--no-audit', '--no-fund', '--fetch-retries=1', '--registry=https://registry.npmjs.org/'], {
   cwd:root, windowsHide:true, stdio:'inherit', env:{ ...runtimeEnvironment(), HOME:home, USERPROFILE:home,
     npm_config_userconfig:join(home,'npmrc'), npm_config_globalconfig:join(home,'global-npmrc'), npm_config_cache:cache }

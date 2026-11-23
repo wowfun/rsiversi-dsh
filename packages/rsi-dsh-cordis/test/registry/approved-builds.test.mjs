@@ -34,8 +34,8 @@ test('real npm stages both scripts inert and runs only the approved resolved ins
   await installNpm(npm,root,work,names.map(name=>join(base,name)),signal,'http://127.0.0.1:1/');
   const marker=name=>join(root,'node_modules',name,'receipt');
   for(const name of names) await assert.rejects(readFile(marker(name)),{code:'ENOENT'});
-  const layout=policy=>releaseLayout(root,[],names,signal,true,
-    builds=>rebuildApproved(npm,root,work,builds,policy,signal));
+  const layout=policy=>releaseLayout(root,[],names,signal,{
+    build:builds=>rebuildApproved(npm,root,work,builds,policy,signal)});
   await assert.rejects(layout({}),/Ignored build scripts: build-first, build-second/);
   const groups=await layout({'build-first':true,'build-second':false});
   assert.equal(await readFile(marker('build-first'),'utf8'),'built\n');
