@@ -19,11 +19,15 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   await mkdir(join(profile,'node_modules'));
   await symlink(join(root,'node_modules/@deepseek-ai'),join(profile,'node_modules/@deepseek-ai'),process.platform==='win32'?'junction':'dir');
   const require=createRequire(join(root,'package.json')),key=randomBytes(32).toString('hex'),agents=new Map(),calls=[];
-  const submissions=[];let failSubmission=true;
+  const submissions=[];let failSubmission=true,delayed;
   const scope=applicationSessions(async(method,args)=>{
     if(method==='application.submit'){
       args=await nativeSubmission(args,scope);
       submissions.push(args);
+      if(args.message_id===delayed?.id){
+        delayed.entered.resolve();await delayed.release.promise;
+        throw Error('fixture: earlier submission failed');
+      }
       if(failSubmission)throw Error('fixture: native mailbox unavailable');
       return {session_id:args.session_id,message_id:args.message_id,accepted_control_seq:1};
     }
@@ -114,6 +118,21 @@ test('original streamed uploads resume a cold authorized Session and retain rece
     assert.deepEqual(submissions.at(-1).content.map(block=>block.presentation.name),['staged.jpg','fixture.jpg']);
     assert.deepEqual(submissions.at(-1).content.map(block=>block.media.id),[image.media.id,image.media.id]);
   }
+  const shared=(await upload('cold',Buffer.from('shared'))).value;
+  const independent=(await upload('cold',Buffer.from('independent'))).value;
+  const enter=await scope.prepare({url:'/api/session/prompt'},'issued');
+  const attached=(requestId,receipt)=>enter(()=>app.ctx.sessionController.prompt({sessionId:'cold',requestId,mode:'queue',
+    content:[{type:'file',receiptId:receipt.receiptId}]},new AbortController().signal));
+  delayed={id:randomUUID(),entered:Promise.withResolvers(),release:Promise.withResolvers()};
+  const earlier=assert.rejects(attached(delayed.id,shared),/earlier submission failed/);
+  await delayed.entered.promise;
+  const laterId=randomUUID(),later=attached(laterId,shared);
+  try{assert.deepEqual(await attached(randomUUID(),independent),{accepted:true});}
+  finally{delayed.release.resolve();}
+  await earlier;assert.deepEqual(await later,{accepted:true});
+  app.ctx.fileUploads.retirePrompt(agents.get('cold'),laterId);
+  assert.equal(app.ctx.fileUploads.resolve(agents.get('cold'),shared.receiptId),undefined,
+    'an earlier failed submission cannot undo the accepted binding');
   // Replacing the controller must release the previous original resolver.
   const controller=[...app.ctx.loader.entries()].find(entry=>entry.options.name==='@deepseek-ai/dsh-api-session-controller');
   await controller.refresh();await app.ctx.loader.await();

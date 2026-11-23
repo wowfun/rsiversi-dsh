@@ -103,25 +103,31 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
       const principal=principalOf(this.ctx.invocation);
       const source={kind:request.content.length?'user':'retry',rpcId:request.requestId,
         ...(clientTimeZone===undefined?{}:{clientTimeZone}),...(principal===undefined?{}:{principal})};
-      const admit=async content=>{
-        if(content.some(part=>part.type==='image'))content=await this.ctx.get('attachments').admitPromptContent(content);
-        return scope.prompt(request,content,source,signal);
-      };
-      if(!request.content.some(part=>part.type==='file'))return admit(request.content);
-      const receipts=[...new Set(request.content.filter(part=>part.type==='file').map(part=>part.receiptId))];
-      const agent=this.ctx.get('agents').get(request.sessionId)??await scope.lookupAgent(request.sessionId,activate);
-      const uploads=this.ctx.get('fileUploads');
-      const binding=uploads.bindPrompt(agent,receipts,request.requestId);
-      try {
-        const content=request.content.map(part=>{
+      let content=request.content,agent,uploads,receipts;
+      if(content.some(part=>part.type==='file')){
+        agent=this.ctx.get('agents').get(request.sessionId)??await scope.lookupAgent(request.sessionId,activate);
+        uploads=this.ctx.get('fileUploads');
+        const ids=new Set();
+        content=content.map(part=>{
           if(part.type!=='file')return part;
           const staged=uploads.resolve(agent,part.receiptId);
+          if(staged===undefined)throw new RemoteError('session/attachment-invalid','File was not uploaded for this session.',{reason:'FILE_NOT_STAGED'});
+          ids.add(part.receiptId);
           return staged.type?staged:{type:'file',attachment:staged};
         });
-        const result=await admit(content);
-        binding.commit();
-        return result;
-      } finally {binding[Symbol.dispose]();}
+        receipts=[...ids];
+      }
+      if(content.some(part=>part.type==='image'))content=await this.ctx.get('attachments').admitPromptContent(content);
+      if(!receipts)return scope.prompt(request,content,source,signal);
+      return scope.withFileReceipts(receipts,async()=>{
+        signal.throwIfAborted();
+        const binding=uploads.bindPrompt(agent,receipts,request.requestId);
+        try{
+          const result=await scope.prompt(request,content,source,signal);
+          binding.commit();
+          return result;
+        }finally{binding[Symbol.dispose]();}
+      });
     }
     attachment(request,signal) {
       return this.read(stop=>this.readAttachment(request,stop),signal);

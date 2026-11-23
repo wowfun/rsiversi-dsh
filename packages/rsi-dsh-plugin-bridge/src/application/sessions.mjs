@@ -10,20 +10,29 @@ import {requestBodies} from '../request-body.mjs';
 
 export class SidebarBodyError extends Error {}
 
+// Reserve the distinct keys together so overlapping operations start in arrival order.
+function orderedOperations() {
+  const tails=new Map();
+  return async (keys,run)=>{
+    const {promise,resolve}=Promise.withResolvers();
+    let prior;
+    for(const key of keys){
+      const tail=tails.get(key);
+      if(tail)(prior??=new Set()).add(tail);
+      tails.set(key,promise);
+    }
+    try {if(prior)await Promise.all(prior);return await run();}
+    finally {resolve();for(const key of keys)if(tails.get(key)===promise)tails.delete(key);}
+  };
+}
+
 /** Resident DSH Sessions and the current native-authorized request's views. */
 export function applicationSessions(send,{capture,owner,agent,registered=agent,attached,select,decorate}={}) {
   const scope=new AsyncLocalStorage();
   const activities=applicationActivities(scope,owner);
   const submissionBodies=requestBodies(8*1024*1024);
   let workspaceChange;
-  const lanes=new Map();
-  async function inSessions(ids,run) {
-    const keys=[...ids].sort(),prior=keys.map(id=>lanes.get(id));
-    const {promise,resolve}=Promise.withResolvers();
-    for(const id of keys)lanes.set(id,promise);
-    try {await Promise.all(prior);return await run();}
-    finally {resolve();for(const id of keys)if(lanes.get(id)===promise)lanes.delete(id);}
-  }
+  const inSessions=orderedOperations();
   function requestSignal(signal) {
     const lifetime=scope.getStore()?.signal;
     return lifetime?(signal?AbortSignal.any([lifetime,signal]):lifetime):signal;
@@ -254,7 +263,7 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
   return {sessions,subagents,prepare,list,drafts,storedPages:signal=>durablePages(signal,true),waitDirectory:(open,signal)=>scoped('application.directory.wait',{open},signal),
     workspaceChange:()=>(workspaceChange??=new AbortController()).signal,
     invalidateWorkspaces(){const before=workspaceChange;workspaceChange=undefined;before?.abort();},
-    create,prompt,submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
+    create,prompt,withFileReceipts:orderedOperations(),submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
     claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
     withCaller:(operation,signal)=>scope.getStore()?operation(requestSignal(signal)):activities.run(operation,signal),
     readSubmission:input=>submissionBodies.read(input),

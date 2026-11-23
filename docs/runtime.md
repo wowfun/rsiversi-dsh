@@ -1548,6 +1548,6 @@ original envelope. The shared journal accepts the inbox insertion synchronously
 and drives the prepared submission after flushing it. Recovery, pending-ID
 uniqueness and withdrawal use the same acceptance owner as non-waking injection.
 
-Prompt image admission uses the selected AttachmentStore to resolve encoded inputs and enforce its message limits after upload binding. Native submissions and plugin inbox messages retain the published digest, intrinsic shape, display name and optional original dimensions. The same identity is used by request hooks and replay.
+Prompt image admission uses the selected AttachmentStore to resolve encoded inputs and enforce its message limits before binding upload receipts. A binding covers native mailbox submission through its receipt. Submissions that use the same upload wait for the preceding binding to commit or roll back. Other uploads and text prompts can proceed independently. Native submissions and plugin inbox messages retain the published digest, intrinsic shape, display name and optional original dimensions. The same identity is used by request hooks and replay.
 
 A live assistant settlement and its end frame are delivered together, before subsequent Step or Turn events from the same native observation. The original client holds the settlement until it receives that end frame.
