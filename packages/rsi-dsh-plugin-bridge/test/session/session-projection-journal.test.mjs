@@ -660,11 +660,18 @@ test('invalid native batches and persisted correlations cannot partially publish
     const before=journal.encode(),event={seq:0,time:2,type:'model/selection',data:selection};
     const orphan=JSON.parse(before);orphan.operations=[];
     assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(orphan))}),/unowned event/);
+    const misplaced=JSON.parse(before);
+    for(const seq of ['0','length',1]){
+      misplaced.operations[0].seq=seq;
+      assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(misplaced))}),/lost its accepted event/);
+    }
     assert.throws(()=>journal.merge([event,{seq:1,time:2,type:'not-an-event',data:{}}]),/event envelope/);
     assert.equal(journal.encode(),before);
     assert.throws(()=>journal.merge([{...event,data:{...selection,model:'wrong'}}],new Map([[0,'choose']])),/disagrees/);
     assert.equal(journal.encode(),before);
     journal.merge([event],new Map([[0,'choose']]));
+    const missing=JSON.parse(journal.encode());missing.events=[];missing.ownedEventCount=0;
+    assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(missing)),native:[event]}),/lost its accepted event/);
     const state=JSON.parse(journal.encode());state.operations[0].source=99;
     assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(state)),native:[event]}),/mutation record/);
     state.operations[0].source=0;state.events[0].data.model='tampered';

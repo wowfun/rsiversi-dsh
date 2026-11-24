@@ -36,13 +36,13 @@ export function readJournalDocument(document) {
     throw Error('Invalid application journal');
   if(!integer(state.inboxSlotFrom)||state.inboxSlotFrom>state.sources.length)throw Error('Invalid saved inbox source boundary');
   let count=0;
-  const events=new Map();
+  const inboxEvents=new Map();
   for(const event of state.events){
     if(derivesCount){
       if(!integer(event?.seq)||event.seq>=limit)throw Error('Invalid application journal event position');
       count=Math.max(count,event.seq+1);
     }
-    events.set(event?.seq,event);
+    if(state.operations.length&&event?.type==='agent/inbox/spliced')inboxEvents.set(event.seq,event);
   }
   const used=new Set();
   for(const row of state.sources) {
@@ -56,17 +56,15 @@ export function readJournalDocument(document) {
   if(derivesCount)state.eventCount=count;
   if(!integer(state.inheritedEventCount)||state.inheritedEventCount>state.eventCount||state.events.length>state.eventCount
     ||state.sources.length>state.eventCount||state.operations.length>state.eventCount)throw Error('Invalid application journal');
-  state.operations=state.operations.map(operation=>restoreInputOperation(operation,events.get(operation?.seq),state.version));
+  state.operations=state.operations.map(operation=>restoreInputOperation(operation,inboxEvents.get(operation?.seq),state.version));
   return state;
 }
 
-/** Translate source-log references, never application-local references. */
 /** Rebuild a candidate log; the owner's first merge verifies its source hashes and correlations. */
 export function restoreJournalEvents(state,native=[],transitions=new Map()) {
   if(state.version===1)return state.events;
   if(native.length<state.sources.length)throw Error('Native event prefix moved backwards');
-  const events=new Array(state.eventCount),owned=new Set();
-  const operations=new Map(state.operations.map(row=>[row.id,row])),at=new Map(state.operations.map(row=>[row.seq,row]));
+  const events=new Array(state.eventCount),at=new Map(state.operations.map(row=>[row.seq,row]));
   let previous=-1;
   for(let event of state.events) {
     if(!integer(event?.seq)||event.seq>=events.length||event.seq<=previous)throw Error('Invalid local application event position');
@@ -85,24 +83,27 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
       event={...event,data:{...event.data,inserted:observed.data.inserted}};
       restoreInputOperation(operation,event,state.version);
     }
-    previous=event.seq;events[event.seq]=event;owned.add(event.seq);
+    previous=event.seq;events[event.seq]=event;
   }
-  for(const operation of state.operations)if(!owned.has(operation.seq))throw Error('Application mutation record lost its accepted event');
+  for(const operation of state.operations)if(!integer(operation.seq)||!events[operation.seq])throw Error('Application mutation record lost its accepted event');
   for(const [index,source] of state.sources.entries()) {
     const event=native[index];
     if(event?.seq!==index)throw Error('Native event positions are not dense');
-    if(owned.has(source.seq)) {
+    if(events[source.seq]) {
       if(at.get(source.seq)?.id!==source.operation||source.operation===undefined)
         throw Error('Native-only event body persisted in application journal');
     } else events[source.seq]=remap(event,source.seq,seq=>state.sources[seq]);
   }
   for(let seq=0;seq<events.length;seq++)if(!events[seq])throw Error('Application journal contains unowned event positions');
+  if(!transitions.size)return events;
+  const operations=new Map(state.operations.map(row=>[row.id,row]));
   const view={session:{seq:events.length,eventAt:seq=>events[seq]},nativeSeq:state.sources.length,revision:0,
     sourceAt:seq=>state.sources[seq],operations:()=>state.operations,operation:id=>operations.get(id),operationAt:seq=>at.get(seq)};
   const {projections}=inboxObservationProjection(view,native.slice(0,state.sources.length),transitions);
   for(const [index,data] of projections) {
     const seq=state.sources[index].seq;
-    if(!owned.has(seq))events[seq]={...events[seq],data};
+    // An application event at a native position already matched its operation above.
+    if(!at.has(seq))events[seq]={...events[seq],data};
   }
   return events;
 }
