@@ -1,6 +1,6 @@
 /** These DSH event payloads carry no event positions or model-surface edits. */
 export function isForkAnnotation(type) {
-  return type === 'working-directory/change' || type === 'subagent/descriptor';
+  return type === 'workspace-root/change' || type === 'working-directory/change' || type === 'subagent/descriptor';
 }
 
 export function isInheritedMarker(event) {

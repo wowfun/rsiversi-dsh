@@ -333,6 +333,27 @@ test('log-only hook invocation and result stay in their turn across cold replay'
   assert.deepEqual(cold.session.surface.nodes,[]);
 });
 
+test('fresh managed children retain descriptor and delegated policy while the parent retains the DSH catalog',{skip:!root},async t=>{
+  const {ctx,api,load,journal}=await fixture(t);
+  const {snapshotSubagentDescriptor,foldSubagentDescriptor}=await load('dsh-subagent');
+  const childHeader={...header,id:'child',parentSession:header.id,origin:'subagent',delegationDepth:1,isSeeded:false};
+  const child=new SessionProjectionJournal(ctx,api,{header:childHeader},{});
+  const descriptor=snapshotSubagentDescriptor({mode:'continuable',provider:'spawn',label:'review'});
+  child.append('subagent/descriptor',descriptor);
+  const policy={mode:'read-only',source:'delegation'};
+  assert.throws(()=>child.append('sandbox/mode',policy),/owning native command/);
+  assert.throws(()=>journal.append('sandbox/mode',policy,{},true),/owning native command/);
+  child.append('sandbox/mode',policy,{},true);
+  child.append('permission/preset',{preset:'auto'},{},true);
+  const entry={version:3,childId:'child',childCreatedAt:childHeader.createdAt,mode:'continuable',label:'review',name:'worker'};
+  journal.append('subagent/catalog',entry);
+  const reopen=(owner,identity)=>new SessionProjectionJournal(ctx,api,{header:identity},{restore:readJournalDocument(owner.encode()),native:[]}).session;
+  const restored=reopen(child,childHeader);
+  assert.deepEqual(foldSubagentDescriptor(restored.snapshotEvents()),descriptor);
+  assert.deepEqual(restored.snapshotEvents(),child.session.snapshotEvents());
+  assert.deepEqual(reopen(journal,header).lastEvent('subagent/catalog').data,entry);
+});
+
 test('constructor annotations keep the original DSH inherited cut through deltas and cold replay', {skip:!root},async t=>{
   const {ctx,api,load}=await fixture(t);
   const {foldSubagentDescriptor,snapshotSubagentDescriptor}=await load('dsh-subagent');
@@ -341,7 +362,7 @@ test('constructor annotations keep the original DSH inherited cut through deltas
   const create=(document,native)=>new SessionProjectionJournal(ctx,api,{header:child},{restore:readJournalDocument(document),native});
   for(const prefix of [[],[{type:'session/end-seed',seq:0,time:1,data:{inherited:true}}]]) {
     const cut=prefix.length;
-    const annotations=[{type:'working-directory/change',seq:cut,time:4,data:{cwd:process.cwd()},ignorable:true},
+    const annotations=[{type:'workspace-root/change',seq:cut,time:4,data:{cwd:process.cwd()},ignorable:true},
       {type:'subagent/descriptor',seq:cut+1,time:5,data:descriptor}];
     const expected=api.Session.create(child.id,[...prefix,...annotations],child,cut+2);
     const native=[...prefix,{type:'session/end-seed',seq:cut,time:6,data:{inherited:true}}];

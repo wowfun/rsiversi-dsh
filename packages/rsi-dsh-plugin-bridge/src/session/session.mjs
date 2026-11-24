@@ -7,8 +7,9 @@ const admitted = new WeakMap();
 const journalEvents = new Set(['session/title', 'session/title-llm-request', 'approval/asked', 'approval/decided', 'approval/policy',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
   'feedback/message-put', 'feedback/message-delete', 'feedback/record', 'agent-preset/selected',
-  'action-cards/decision']);
+  'action-cards/decision','subagent/catalog','subagent/descriptor']);
 export const isJournalEvent = type => journalEvents.has(type);
+export const isDelegatedPolicy = type => type==='sandbox/mode'||type==='permission/preset';
 const allowed = new Set([...journalEvents, 'todo/write', 'plan/mode', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
   'tool/call', 'tool/result', 'session/end-seed', 'model/selection', 'agent/inbox/spliced']);
@@ -19,13 +20,18 @@ const shape = (value, keys) => value && typeof value === 'object' && !Array.isAr
 function envelope(event, seq) {
   if (!shape(event, ['seq', 'time', 'type', 'data', 'surfaceOp', 'sourceEventSeqs', 'ignorable'])
       || event.seq !== seq || !integer(event.seq) || !Number.isSafeInteger(event.time)
-      || (!allowed.has(event.type) && !isForkAnnotation(event.type)) || !Object.hasOwn(event, 'data')
+      || (!allowed.has(event.type) && !isForkAnnotation(event.type) && !isDelegatedPolicy(event.type)) || !Object.hasOwn(event, 'data')
       || (event.ignorable !== undefined && event.ignorable !== true)) throw new Error('unsupported or invalid event envelope');
   const data = event.data;
   if (isForkAnnotation(event.type)) assertForkAnnotation(event);
-  if (event.surfaceOp !== undefined && isJournalEvent(event.type))
+  if (event.surfaceOp !== undefined && (isJournalEvent(event.type)||isDelegatedPolicy(event.type)))
     throw new Error('Log-only Session event cannot edit the message surface');
-  if (event.type === 'todo/write') {
+  if(event.type==='sandbox/mode') {
+    if(!shape(data,['mode','source'])||data.source!=='delegation'||!['read-only','workspace-write','danger-full-access'].includes(data.mode))
+      throw Error('Invalid delegated sandbox mode');
+  } else if(event.type==='permission/preset') {
+    if(!shape(data,['preset'])||!['auto','danger-full-access'].includes(data.preset))throw Error('Invalid delegated permission preset');
+  } else if (event.type === 'todo/write') {
     if (!shape(data, ['todos']) || !Array.isArray(data.todos) || data.todos.length > 512
         || data.todos.some(todo => !shape(todo, ['content', 'status']) || typeof todo.content !== 'string'
           || !todo.content.trim() || Buffer.byteLength(todo.content) > 16 * 1024

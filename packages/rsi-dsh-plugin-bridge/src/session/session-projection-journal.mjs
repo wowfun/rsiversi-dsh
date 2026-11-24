@@ -1,5 +1,5 @@
 import {isDeepStrictEqual} from 'node:util';
-import {SessionFacade,digest,isJournalEvent,remap} from './session.mjs';
+import {SessionFacade,digest,isDelegatedPolicy,isJournalEvent,remap} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
 import {restoreJournalEvents,encodeJournalDocument,createSourceDigest} from './journal-document.mjs';
 
@@ -72,9 +72,13 @@ export class SessionProjectionJournal {
     }
     this.#annotationCount=cut-annotationStart;
     for(let seq=0;seq<this.seq;seq++) {
-      if(!used.has(seq)&&!positions.has(seq)&&(seq<cut?seq<annotationStart:!isJournalEvent(this.#session.eventAt(seq).type)))
+      const native=used.has(seq),operation=positions.has(seq);
+      if(native&&!operation)continue;
+      const event=this.#session.eventAt(seq);
+      if(!native&&!operation&&(seq<cut?seq<annotationStart:!isJournalEvent(event.type)&&
+          !(isDelegatedPolicy(event.type)&&this.#session.header.origin==='subagent')))
         throw Error('Application journal contains unowned event positions');
-      if(!used.has(seq)||positions.has(seq))this.#owned.push(this.#session.eventAt(seq));
+      this.#owned.push(event);
     }
     this.#sources=[...sources];
   }
@@ -101,8 +105,9 @@ export class SessionProjectionJournal {
     try {for(const event of events)try{this.#notify(this.#session,event);}catch(error){try{this.#report(error);}catch{}}}
     finally{this.#publishing=false;}
   }
-  append(type,data,opts={}) {
-    if(!isJournalEvent(type))throw Error('This Session event requires its owning native command');
+  append(type,data,opts={},delegating=false) {
+    if(!isJournalEvent(type)&&!(delegating&&this.#session.header.origin==='subagent'&&isDelegatedPolicy(type)))
+      throw Error('This Session event requires its owning native command');
     return this.#append(type,data,opts,Date.now());
   }
   /** Persistence callers supply exact coordinates and times, not new commands. */

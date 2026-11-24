@@ -109,13 +109,18 @@ completion to the Agent through its inbox.
 The journal owns one dense immutable event sequence. Local acceptance is
 synchronous and returns the exact stored event; persistence is asynchronous.
 When a plugin creates a seeded child, the native fork identifies the stable
-parent Turn. Reference-free `working-directory/change` and
-`subagent/descriptor` events supplied at the end of the inherited prefix
+parent Turn. Reference-free `workspace-root/change`, historical
+`working-directory/change` and `subagent/descriptor` events supplied at the end of the inherited prefix
 belong to the constructor. The journal keeps their order, times and payloads
 immediately before the child's tagged `session/end-seed`. They count as
 inherited events for DSH projections and have no native Fact position.
 Cold replay uses the same boundary. A child created before these events
 were recorded has only the metadata present in its log.
+
+The original subagent manager appends a descriptor to a newly established child
+and a catalog entry to its parent. These are log events and survive cold replay.
+Only the manager establishing the child can record its delegated sandbox mode
+and permission preset through the Agent mirror.
 Preceding observation records must be log-only events. They cannot precede the
 initial inherited prefix or its constructor annotations; such a batch is rejected
 before publication so every accepted layout can be restored.
