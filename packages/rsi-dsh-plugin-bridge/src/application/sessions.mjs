@@ -7,13 +7,13 @@ import {applicationInbox} from './inbox.mjs';
 import {applicationActivities} from './activities.mjs';
 import {submissionContent} from '../agent/file-input.mjs';
 import {nativeMessageSource} from '../history/conversation-history.mjs';
-import {readNativeMessage} from '../history/native-pages.mjs';
+import {nativePage,readNativeMessage} from '../history/native-pages.mjs';
 import {requestBodies} from '../request-body.mjs';
 
 export class SidebarBodyError extends Error {}
 
 // Reserve the distinct keys together so overlapping operations start in arrival order.
-function orderedOperations() {
+export function orderedOperations() {
   const tails=new Map();
   return async (keys,run)=>{
     const {promise,resolve}=Promise.withResolvers();
@@ -174,6 +174,13 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     const request=activeRequest();
     return send('application.history',{request,session_id,operation,...(parent_session_id?{parent_session_id}:{})});
   }
+  async function readPresets(operation,signal) {
+    const request=activeRequest();
+    const packet=operation=>({request,operation});
+    const result=await nativePage(page=>call('application.presets',packet(page),signal),
+      close=>send('application.presets',packet(close)),operation,undefined,undefined,signal);
+    return result.value;
+  }
   async function cancel({sessionId,keepInbox=true,inboxOnly=false},signal) {
     const request=activeRequest();
     const result=await call('application.cancel',{request,session_id:sessionId,keep_inbox:keepInbox,...(inboxOnly?{inbox_only:true}:{})},signal);
@@ -275,6 +282,7 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     workspaceChange:()=>(workspaceChange??=new AbortController()).signal,
     invalidateWorkspaces(){const before=workspaceChange;workspaceChange=undefined;before?.abort();},
     create,prompt,acceptedPrompt,withFileReceipts:orderedOperations(),submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
+    readPresets,selectPreset:(session_id,id,signal)=>scoped('application.presets',{operation:{type:'select',session_id,id}},signal),
     claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
     withCaller:(operation,signal)=>scope.getStore()?operation(requestSignal(signal)):activities.run(operation,signal),
     readSubmission:input=>submissionBodies.read(input),

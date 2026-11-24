@@ -2,7 +2,7 @@ import {mkdir,readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-editor','dsh-settings','dsh-api-settings-controller',
+const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-agent-preset-registry',
   'dsh-host-directory-picker-auto','dsh-host-open-in-app','dsh-host-plugin-inventory','dsh-commands','dsh-session-title','dsh-session-stats','dsh-session-turn-outline','dsh-storage',
   'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-skill-office','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy','dsh-fs-sandbox',

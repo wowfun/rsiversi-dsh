@@ -1,5 +1,10 @@
 # Browser composition contract
 
+When the Host and a DSH declaration use the same preset ID, the workbench
+uses the native composition. The preset document shown for that ID is the
+Host's actual TOML source, including its current metadata. The active
+Session's recorded preset comes from its [journal](session-journal.md).
+
 The leased process answers `application.open` over the existing extension
 channel. Every registered HTTP, fallback and upgrade handler checks the private
 forwarder's key before giving the request to the original DSH server.
