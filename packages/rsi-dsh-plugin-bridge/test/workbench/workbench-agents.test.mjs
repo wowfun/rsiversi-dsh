@@ -7,6 +7,7 @@ import {setImmediate} from 'node:timers/promises';
 import {test} from 'node:test';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchAgents} from '../../src/workbench/agents.mjs';
+import {workbenchPresetRegistry} from '../../src/workbench/presets.mjs';
 import {captureAgentView} from '../../src/workbench/agent-view.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
 import {inputIntents} from '../../src/session/inbox/input-intents.mjs';
@@ -18,7 +19,7 @@ test('plugins claim an ordinary root on their native caller and publish it only 
   const ctx=new (await load('cordis')).Context(),agentApi=await load('dsh-agent');
   await ctx.plugin((await load('dsh-session-projection')).default);await ctx.plugin(agentApi.AgentRegistry);
   const api={...await load('dsh-session'),...await load('dsh-session/surface'),...await load('dsh-util-values')};
-  const saved=new Map(),calls=[],announced=[];
+  const saved=new Map(),calls=[],announced=[],announcedPresets=[];
   const claimEntered=Promise.withResolvers(),claimRelease=Promise.withResolvers(),remoteEntered=Promise.withResolvers();
   const scope=applicationSessions(async(method,args)=>{
     calls.push([method,args.request]);
@@ -37,18 +38,27 @@ test('plugins claim an ordinary root on their native caller and publish it only 
     assert.fail(method+' '+args.operation?.type);
   },{owner:'app-caller',agent:id=>agents?.get(id),registered:id=>ctx.agents.get(id)});
   const loop=ctx.plugin({inject:['agents','sessionProjections'],apply(){}});await loop;
+  const scopes=await load('dsh-scope');
+  await ctx.plugin((await load('cordis-plugin-loader')).default);
+  ctx.loader.builtins.group=(await load('cordis-plugin-group')).default;
+  const Registry=workbenchPresetRegistry((await load('dsh-agent-preset-registry')).default,
+    (await load('dsh-typert-protocol')).RemoteError,scope,()=>assert.fail('unexpected native refresh'),scopes);
+  await ctx.plugin(Registry,{default:'writer'});
   let agents=await workbenchAgents(loop.ctx,scope,{
-    metadata:async()=>({selection_cursor:{kind:'draft',revision:0}}),
+    metadata:async()=>({preset:'writer',selection_cursor:{kind:'draft',revision:0}}),
     captureAgent:async id=>({session:saved.get(id),options:{}}),
   },await load('dsh-scope'),agentApi,api.snapshotJsonValue);
   t.after(async()=>{await ctx.fiber.dispose();await scope.close();});
-  ctx.on('agent/created',({agent,source})=>announced.push([agent.id,source]));
+  ctx.on('agent/created',({agent,source})=>{
+    announced.push([agent.id,source]);announcedPresets.push(ctx.agentPresets.composedPreset(agent.ctx));
+  });
   const owner=ctx.plugin({inject:['agents'],apply(){}});await owner;
   const meta={cwd:process.cwd(),agentPreset:'writer'};
   const setup=Promise.withResolvers(),release=Promise.withResolvers();
   const created=owner.ctx.agents.create({sessionId:'root',meta,async setup(_ctx,agent){
     assert.equal(ctx.agents.get('root'),undefined);assert.equal(scope.sessions.get('root'),agent.session);
     setup.resolve();await release.promise;
+    return {commit(){assert.equal(ctx.agentPresets.composedPreset(agent.ctx),'writer');}};
   }});
   await claimEntered.promise;
   const observed=agents.ensure('root');claimRelease.resolve();
@@ -66,6 +76,7 @@ test('plugins claim an ordinary root on their native caller and publish it only 
   const resumed=await owner.ctx.agents.resume({resumeSessionId:'root'});
   assert.deepEqual(resumed.agent.session.header,handle.agent.session.header);
   await resumed.dispose();assert.deepEqual(announced,[['root','startup'],['root','resume']]);
+  assert.deepEqual(announcedPresets,['writer','writer']);
   const fromBrowser=await browser(()=>owner.ctx.agents.create({sessionId:'web',meta}));
   assert.equal(fromBrowser.agent.id,'web');
   await loop.dispose();

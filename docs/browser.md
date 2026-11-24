@@ -4,6 +4,10 @@ When the Host and a DSH declaration use the same preset ID, the workbench
 uses the native composition. The preset document shown for that ID is the
 Host's actual TOML source, including its current metadata. The active
 Session's recorded preset comes from its [journal](session-journal.md).
+Before the workbench announces a newly attached Agent, its scope retains the
+recorded composition. A plugin that supplied a scope during setup keeps its
+revision. Plugins can read the composition from the first `agent/created`
+notification, including after a Host restart.
 
 The leased process answers `application.open` over the existing extension
 channel. Every registered HTTP, fallback and upgrade handler checks the private

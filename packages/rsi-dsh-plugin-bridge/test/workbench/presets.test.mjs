@@ -67,7 +67,10 @@ test('a colliding Cordis preset uses native configuration, execution and session
   assert.equal(service.presetForSession(agent.session),'dsh-mode');
   const resumed={id:'reopened',session:ctx.sessions.create('reopened',{meta:{agentPreset:'dsh-mode'}})};
   const resumedScope=scopes.createScope(ctx,resumed);resumed.ctx=resumedScope.ctx;
-  await ctx.parallel('agent/created',{agent:resumed});
+  await service.bindSession(resumed,'standard');
+  assert.equal(service.composedPreset(resumed.ctx),'dsh-mode');
+  resumed.session.append('agent-preset/selected',{agentPreset:'standard'});
+  await service.bindSession(resumed,'standard');
   assert.equal(service.composedPreset(resumed.ctx),'dsh-mode');
   await resumedScope.dispose();
   await service.select(agent,'standard');

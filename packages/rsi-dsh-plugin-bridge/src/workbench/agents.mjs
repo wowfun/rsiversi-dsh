@@ -269,6 +269,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       records.set(id,record);
       announced=true;await ctx.parallel(scopeTarget(agent.session,agent),'session/created',agent.session);
       const setup=await options.setup?.(agent.ctx,agent);
+      await ctx.get('agentPresets')?.bindSession?.(agent,record.view.preset);
       owner.fiber.assertActive();options.signal?.throwIfAborted();
       if(record.closing)throw Error('Agent owner retired during setup');
       setup?.commit();

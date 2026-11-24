@@ -18,13 +18,14 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
     changes=orderedOperations();
     selections=orderedOperations();
 
-    async [Registry.init]() {
-      await super[Registry.init]();
-      this.ctx.on('agent/created',async({agent})=>{
-        const id=this.presetForSession(agent.session),record=this.sources.get(id);
-        if(record&&record.source!==nativeSource&&this.composedPreset(agent.ctx)!==id)
-          await super.mount(agent.ctx,id);
-      });
+    async bindSession(agent,nativeId) {
+      if(this.composedPreset(agent.ctx)!==undefined)return;
+      const id=this.presetForSession(agent.session);
+      if(id==null)return;
+      const record=this.sources.get(id);
+      if(!record&&id===nativeId)await this.useSource(id,true);
+      else if(!record||record.source===nativeSource&&id!==nativeId)return;
+      await super.mount(agent.ctx,id);
     }
     nativeRoster() {
       return sessions.withCaller(signal=>sessions.readPresets({type:'list'},signal),this.ctx.invocation?.signal);

@@ -18,6 +18,6 @@ export async function captureAgentView(scope,history,id,signal) {
       if(inbox.kind==='draft')owner.input.observeDraft(inbox);
       await owner.flush();
     }
-    return {session,inbox,options};
+    return {session,inbox,options,preset:meta.preset};
   }
 }
