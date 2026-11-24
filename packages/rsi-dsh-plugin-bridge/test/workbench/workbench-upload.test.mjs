@@ -1,4 +1,5 @@
 import {nativeSubmission} from '../fixtures/native-submission.mjs';
+import {historyPage} from '../fixtures/history-page.mjs';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {mkdtemp,mkdir,readFile,rm,symlink} from 'node:fs/promises';
@@ -19,7 +20,7 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   await mkdir(join(profile,'node_modules'));
   await symlink(join(root,'node_modules/@deepseek-ai'),join(profile,'node_modules/@deepseek-ai'),process.platform==='win32'?'junction':'dir');
   const require=createRequire(join(root,'package.json')),key=randomBytes(32).toString('hex'),agents=new Map(),calls=[];
-  const submissions=[];let failSubmission=true,delayed;
+  const submissions=[],acceptedMessages=new Map();let failSubmission=true,delayed;
   const scope=applicationSessions(async(method,args)=>{
     if(method==='application.submit'){
       args=await nativeSubmission(args,scope);
@@ -29,7 +30,18 @@ test('original streamed uploads resume a cold authorized Session and retain rece
         throw Error('fixture: earlier submission failed');
       }
       if(failSubmission)throw Error('fixture: native mailbox unavailable');
-      return {session_id:args.session_id,message_id:args.message_id,accepted_control_seq:1};
+      const receipt={session_id:args.session_id,message_id:args.message_id,accepted_control_seq:submissions.length};
+      acceptedMessages.set(args.message_id,{receipt,message:{message_id:args.message_id,source:{type:'human',attribution:args.attribution},content:args.content}});
+      return receipt;
+    }
+    if(method==='application.inbox'){
+      assert.equal(args.operation.type,'message_status');assert.equal(args.request,'issued');
+      return acceptedMessages.get(args.operation.message_id)?.receipt??null;
+    }
+    if(method==='application.history'){
+      assert.equal(args.operation.type,'message');assert.equal(args.request,'issued');
+      const {receipt,message}=acceptedMessages.get(args.operation.message_id);
+      return historyPage(message,receipt.accepted_control_seq,args.operation.offset);
     }
     assert.equal(method,'application.actor');assert.equal(args.request,'issued');calls.push(args.session_id);
     if(args.session_id!=='cold')throw Error('Session unavailable');
@@ -92,6 +104,13 @@ test('original streamed uploads resume a cold authorized Session and retain rece
   assert.deepEqual(calls,['cold','unknown'],'a staged upload already retains its authorized Agent');
   app.ctx.fileUploads.retirePrompt(agents.get('cold'),requestId);
   assert.equal(app.ctx.fileUploads.resolve(agents.get('cold'),receipt.value.receiptId),undefined,'accepted binding retires with the original upload service');
+  assert.deepEqual((await prompt()).result?.value,{accepted:true},'an expired upload can confirm its original accepted request');
+  const unknown=await prompt(undefined,randomUUID());assert.equal(unknown.result?.error?.details?.reason,'FILE_NOT_STAGED');
+  const scheduledId=randomUUID();
+  acceptedMessages.set(scheduledId,{receipt:{session_id:'cold',message_id:scheduledId,accepted_control_seq:3},
+    message:{message_id:scheduledId,source:{type:'application',attribution:{id:scheduledId,source:{kind:'schedule'}}},content:[]}});
+  assert.equal((await prompt(undefined,scheduledId)).result?.error?.details?.reason,'FILE_NOT_STAGED');
+  assert.equal(submissions.length,2,'receipt recovery never enqueues another message');
   const sharp=createRequire(require.resolve('@deepseek-ai/dsh-attachment-local'))('sharp');
   const jpeg=await sharp({create:{width:64,height:48,channels:3,background:'red'}}).jpeg().toBuffer();
   const input={type:'image',name:'source/fixture.jpg',mediaType:'image/jpeg',data:jpeg.toString('base64')};

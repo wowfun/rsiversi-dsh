@@ -6,6 +6,8 @@ import {requestPublication} from './request-publication.mjs';
 import {applicationInbox} from './inbox.mjs';
 import {applicationActivities} from './activities.mjs';
 import {submissionContent} from '../agent/file-input.mjs';
+import {nativeMessageSource} from '../history/conversation-history.mjs';
+import {readNativeMessage} from '../history/native-pages.mjs';
 import {requestBodies} from '../request-body.mjs';
 
 export class SidebarBodyError extends Error {}
@@ -260,15 +262,24 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
       await release().catch(()=>{});throw error;
     }
   }
+  const inbox=applicationInbox((id,operation,signal)=>scoped('application.inbox',{session_id:id,operation},signal));
+  async function acceptedPrompt(id,messageId,signal) {
+    const receipt=await inbox.messageStatus(id,messageId,signal);
+    if(!receipt)return false;
+    const {source}=await readNativeMessage(operation=>history(id,operation,signal),operation=>releaseHistory(id,operation),
+      messageId,receipt.accepted_control_seq,signal);
+    const origin=nativeMessageSource(source,messageId);
+    return source.type==='human'&&origin.kind==='user'&&origin.rpcId===messageId;
+  }
   return {sessions,subagents,prepare,list,drafts,storedPages:signal=>durablePages(signal,true),waitDirectory:(open,signal)=>scoped('application.directory.wait',{open},signal),
     workspaceChange:()=>(workspaceChange??=new AbortController()).signal,
     invalidateWorkspaces(){const before=workspaceChange;workspaceChange=undefined;before?.abort();},
-    create,prompt,withFileReceipts:orderedOperations(),submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
+    create,prompt,acceptedPrompt,withFileReceipts:orderedOperations(),submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
     claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
     withCaller:(operation,signal)=>scope.getStore()?operation(requestSignal(signal)):activities.run(operation,signal),
     readSubmission:input=>submissionBodies.read(input),
     runOwned:activities.run,observeOwned:activities.observe,observeStream:activities.observeStream,retainDraft,async close(){submissionBodies.close();await activities.close();},
-    inbox:applicationInbox((id,operation,signal)=>scoped('application.inbox',{session_id:id,operation},signal)),
+    inbox,
     command:(id,operation,signal)=>scoped('application.command',{session_id:id,operation},signal),
     stage(operation) {
       const active=scope.getStore(),publication=writablePublication(active);

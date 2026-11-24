@@ -76,7 +76,11 @@ own durable lifetime.
 Verbatim file prompts use the original `fileUploads` receipts and binding guard.
 The bridge resolves receipts against the uploading Agent's exact Session,
 commits their binding only after native mailbox acceptance, and rolls back a
-failed submission through the original guard. Native input, hook decisions and
+failed submission through the original guard. If a retry references an expired
+upload receipt, the controller acknowledges the original user request when
+the target Session's native mailbox records its acceptance. The check uses
+the existing request ID and acceptance record. A new ID still needs a staged
+upload. Native input, hook decisions and
 projected history retain the file digest, filename and length. No file bytes
 cross the application IPC. The generated market Profile installs the ordinary
 `rsi.media.attachments.local` reader over the original attachment namespace. Native

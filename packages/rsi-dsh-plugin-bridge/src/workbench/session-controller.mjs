@@ -103,6 +103,15 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
       const principal=principalOf(this.ctx.invocation);
       const source={kind:request.content.length?'user':'retry',rpcId:request.requestId,
         ...(clientTimeZone===undefined?{}:{clientTimeZone}),...(principal===undefined?{}:{principal})};
+      if(request.content.every(part=>part.type==='text'))return scope.prompt(request,request.content,source,signal);
+      try{return await this.submitAttachments(request,source,signal);}
+      catch(error){
+        if(error?.code==='session/attachment-invalid'&&error.details?.reason==='FILE_NOT_STAGED'&&
+          await scope.acceptedPrompt(request.sessionId,request.requestId,signal))return {accepted:true};
+        throw error;
+      }
+    }
+    async submitAttachments(request,source,signal) {
       let content=request.content,agent,uploads,receipts;
       if(content.some(part=>part.type==='file')){
         agent=this.ctx.get('agents').get(request.sessionId)??await scope.lookupAgent(request.sessionId,activate);
