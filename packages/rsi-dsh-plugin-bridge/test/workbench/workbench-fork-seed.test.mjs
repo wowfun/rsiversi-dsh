@@ -44,8 +44,9 @@ test('reference snapshot distinguishes actual tool results and pending calls and
 test('original Better Sidebar synthetic closer and dangling-tool fallback map to native cuts',
   {skip:!process.env.RSI_DSH_MARKET_COHORT},async()=>{
     const {build}=await import('esbuild');
-    const {outputFiles}=await build({entryPoints:[join(process.env.RSI_DSH_MARKET_COHORT,
-      'node_modules/dsh-better-sidebar/src/sidechat-core.ts')],bundle:true,write:false,platform:'node',format:'esm'});
+    const modules=join(process.env.RSI_DSH_MARKET_COHORT,'node_modules');
+    const {outputFiles}=await build({entryPoints:[join(modules,'dsh-better-sidebar/src/sidechat-core.ts')],
+      nodePaths:[modules],bundle:true,write:false,platform:'node',format:'esm'});
     const {buildSidechatInheritance}=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text).toString('base64'));
     const original=buildSidechatInheritance([start,user,answer]);
     assert.equal(original.snapshot,null);
