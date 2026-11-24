@@ -20,6 +20,7 @@ import {sessionController} from '../workbench/session-controller.mjs';
 import {jobController} from '../workbench/job-controller.mjs';
 import {packagedPresetPlugins,workbenchProfile} from '../workbench/profile.mjs';
 import {workbenchPresetRegistry} from '../workbench/presets.mjs';
+import {workbenchPresetSettings} from '../workbench/preset-settings.mjs';
 import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
 import {moveRegistryCache,profileState,registryCache,viewNpm} from '../../../rsi-dsh-cordis/src/registry/npm-install.mjs';
@@ -43,7 +44,7 @@ for (let i=0;i<paths.length;i+=2) roots.set(paths[i],paths[i+1]);
 const npmRoot=roots.get('--npm');
 roots.delete('--npm');
 const layout = JSON.parse(await readFile(layoutFile,'utf8'));
-let modules, app, opening, nativeSessions, language;
+let modules, app, opening, nativeSessions, language, workbench;
 async function open({protocol,profile,key,owner,importer,timings=false,tools=false,language:hasLanguage=false}) {
   const start=performance.now();
   if (protocol !== 16 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
@@ -82,6 +83,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
   let toolListener,retireToolOutcome,sessionScope;
   const boundary=requestBoundary();
   const candidate = await createApplication({modules:applicationModules,profile,hostModules,clientOnly,baseRows:base[0].insert,boundary,provide:async (ctx,load) => {
+    workbench=ctx;
     const call=(method,args,signal)=>peer.request(method,args,{signal});
     let persistence,agents,history;
     const storage=sessionJournalStore(join(profileState(profile),'sessions'),await load('@deepseek-ai/dsh-atomic-write'),()=>ctx.emit('rsi/catalog-projection'));
@@ -119,8 +121,9 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
     const presets='@deepseek-ai/dsh-agent-preset-registry';
     const presetModule=await load(presets);
+    const defaults=await workbenchPresetSettings(hostModules,load,sessionScope);
     hostModules.set(presets,workbenchPresetRegistry(presetModule.default,RemoteError,sessionScope,
-      (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load)));
+      (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load),defaults));
     const {Deque}=await load('@deepseek-ai/dsh-deque');
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
       (id,signal,source)=>agents.ensure(id,signal,source)));
@@ -228,6 +231,11 @@ function close() {
 }
 const peer = new Peer({port:workerData,generation,drainOnCancel:drainsOnCancel,handler:async (method,args,signal) => {
   if (method==='extension.close') {await close();return null;}
+  if(method==='application.preset.resolve'&&!closing){
+    const registry=workbench?.get('agentPresets');
+    if(!registry&&!app)throw Error('Application preset registry is preparing');
+    return registry?.resolveApplication(args.id)??null;
+  }
   if(method==='application.language.events'&&language)return language.deliver(args,signal);
   if(method==='application.language.read'&&language)return language.read(args);
   if (method==='application.submit.read' && nativeSessions && !closing) return nativeSessions.readSubmission(args);

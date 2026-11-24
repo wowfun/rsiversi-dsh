@@ -28,6 +28,7 @@ plugin = "rsi.web.application"
 profile = ${quote(profile)}
 host_desktop = true
 tools = true
+presets = true
 replace_preset_tools = ["schedule_create", "schedule_list", "schedule_update", "schedule_delete", "schedule_resume"]
 routes = ["/document", "/plugins", "/sidebar", "/dsh-market", "/api"]
 source = {kind="directory", path=${quote(document)}}

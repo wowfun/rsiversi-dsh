@@ -10,19 +10,29 @@ function metadata({id,name,description,broken}) {
 const nativeSource=Symbol('Host composition');
 
 /** Native tools belong to the Host. Cordis owns its scoped providers and revision leases. */
-export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{scopeOf,scopeParentOf},nativePlugins=()=>[]) {
+export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{scopeOf,scopeParentOf},nativePlugins=()=>[],defaults) {
   return class extends Registry {
     declarations=new Map();
     sources=new Map();
     changes=orderedOperations();
     selections=orderedOperations();
+    get defaultId() {return defaults?.id??super.defaultId;}
+    async currentDefault() {
+      return defaults?(await defaults.refresh(this.ctx.invocation?.signal)).id:this.defaultId;
+    }
+
+    async resolveApplication(id) {
+      if(!this.declarations.has(id))return null;
+      await this.useSource(id,false);
+      return super.resolve(id);
+    }
 
     async bindSession(agent,nativeId,nativeChanged=false) {
       const id=this.presetForSession(agent.session);
       const bound=this.composedPreset(agent.ctx);
       if(id==null||bound===id||bound!==undefined&&!nativeChanged)return;
       const record=this.sources.get(id);
-      if(!record&&id===nativeId)await this.useSource(id,true);
+      if(!record&&id===nativeId)await this.prepare(id);
       else if(!record||record.source===nativeSource&&id!==nativeId)return;
       await super.mount(agent.ctx,id);
     }
@@ -64,9 +74,11 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
       await Promise.all([...this.sources].filter(([id,row])=>names.has(id)!==(row.source===nativeSource))
         .map(([id])=>this.useSource(id,names.has(id))));
       const declared=await super.list();
+      const selected=presets.find(row=>row.is_default)?.id
+        ??await this.currentDefault();
       return {presets:[
         ...presets.map(row=>({...metadata(row),isDefault:row.is_default})),
-        ...declared.filter(row=>!names.has(row.id)).map(row=>({...row,isDefault:false})),
+        ...declared.filter(row=>!names.has(row.id)).map(row=>({...row,isDefault:row.id===selected})),
       ]};
     }
     async list() {
@@ -75,8 +87,9 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
     async resolve(id) {
       const row=await this.nativePreset(id);
       if(row)return row.broken==null?{id:row.id}:{id:row.id,broken:row.broken};
-      await this.useSource(id??this.defaultId,false);
-      return super.resolve(id);
+      const wanted=id??await this.currentDefault();
+      await this.useSource(wanted,false);
+      return super.resolve(wanted);
     }
     readDocument(id) {
       return sessions.withCaller(async signal=>{
@@ -94,13 +107,13 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
     }
     async prepare(id) {
       const row=await this.nativePreset(id);
-      const wanted=row?.id??id??this.defaultId;
+      const wanted=row?.id??id??await this.currentDefault();
       if(row?.broken!=null)throw this.invalid(wanted,row.broken);
       await this.useSource(wanted,!!row);
-      return {id:wanted,native:!!row};
+      return wanted;
     }
     async acquireScope(id) {
-      return super.acquireScope((await this.prepare(id)).id);
+      return super.acquireScope(await this.prepare(id));
     }
     async commitNative(agent,id,signal,announce=false) {
       const previous=scopeParentOf(agent),recorded=this.presetForSession(agent.session),start=agent.session.seq;
@@ -126,16 +139,15 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
       return mounted;
     }
     async mount(ctx,id) {
-      const source=await this.prepare(id),agent=scopeOf(ctx);
-      if(source.native&&agent?.session&&this.presetForSession(agent.session)!==source.id)
-        return sessions.withCaller(signal=>this.commitNative(agent,source.id,signal),this.ctx.invocation?.signal);
-      return super.mount(ctx,source.id);
+      const wanted=await this.prepare(id),agent=scopeOf(ctx);
+      if(agent?.session&&this.presetForSession(agent.session)!==wanted)
+        return sessions.withCaller(signal=>this.commitNative(agent,wanted,signal),this.ctx.invocation?.signal);
+      return super.mount(ctx,wanted);
     }
     select(agent,id) {
       return this.selections([agent.id],async()=>{
-        const source=await this.prepare(id);
-        if(!source.native)return super.select(agent,id);
-        const mounted=await sessions.withCaller(signal=>this.commitNative(agent,id,signal,true),this.ctx.invocation?.signal);
+        const wanted=await this.prepare(id);
+        const mounted=await sessions.withCaller(signal=>this.commitNative(agent,wanted,signal,true),this.ctx.invocation?.signal);
         return mounted.id;
       });
     }

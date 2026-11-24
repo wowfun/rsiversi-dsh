@@ -246,6 +246,15 @@ document. The native composition can use the packaged skill directories from
 that declaration. Presets supplied only by DSH retain their declared child tree.
 The original token meter publishes its Session projections and supplies the
 measurements used by preset-scoped compaction plugins.
+The Settings form for the new-session default uses the Host Settings namespace
+shared with native clients. The form shows an override only when the Host has
+one, including an explicit selection of the deployment default. Its writes
+preserve discovery roots and check the observed revision. Other workbench forms
+use the original DSH profile editor.
+The Host can ask the selected workbench for one Cordis preset declaration over
+the application connection. On a local workspace the selected declaration
+supplies its Cordis scope for model input and tools. An SSH workspace requires
+an explicit native selection when the shared default comes from Cordis.
 
 The DSH standard preset's model tools are `@deepseek-ai/dsh-tool-pwsh` on
 Windows and `@deepseek-ai/dsh-tool-bash` on Linux. A market profile can

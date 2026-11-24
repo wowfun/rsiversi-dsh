@@ -298,6 +298,8 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     invalidateWorkspaces(){const before=workspaceChange;workspaceChange=undefined;before?.abort();},
     create,prompt,acceptedPrompt,withFileReceipts:orderedOperations(),submit,history,releaseHistory,cancel,workingDirectory,modelCatalog,selectModel,
     readPresets,resolvePreset:(id,signal)=>scoped('application.presets',{operation:{type:'resolve',id}},signal),
+    presetDefault:(signal)=>scoped('application.presets',{operation:{type:'default_read'}},signal),
+    setPresetDefault:(id,expected,signal)=>scoped('application.presets',{operation:{type:'default_write',id,expected}},signal),
     selectPreset:(session_id,id,signal)=>scoped('application.presets',{operation:{type:'select',session_id,id}},signal),
     claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
     withCaller:(operation,signal)=>scope.getStore()?operation(requestSignal(signal)):activities.run(operation,signal),

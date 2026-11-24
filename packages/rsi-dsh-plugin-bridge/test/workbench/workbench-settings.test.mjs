@@ -10,8 +10,22 @@ import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
 import {provideHttp} from '../fixtures/application-http.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
+import {workbenchPresetSettings} from '../../src/workbench/preset-settings.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('a late settings read cannot restore a retired Host default',async()=>{
+  const original={id:'old',selected:'old',version:{scope_id:'first',revision:9}};
+  const replacement={id:'current',selected:'current',version:{scope_id:'second',revision:0}};
+  const delayed=Promise.withResolvers();
+  const replies=[original,delayed.promise,replacement];
+  const sessions={withCaller:fn=>fn(),presetDefault:()=>replies.shift()};
+  const defaults=await workbenchPresetSettings(new Map(),async()=>({default:class{}}),sessions);
+  const reading=defaults.refresh();
+  assert.equal((await defaults.refresh()).id,'current');
+  delayed.resolve(original);
+  assert.equal((await reading).id,'current');
+  assert.equal(defaults.id,'current');
+});
 test('base workbench configures live plugins and discovers local apps without an importer',{skip:!root},async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-settings-'));
   t.after(()=>rm(profile,{recursive:true,force:true}));
@@ -50,13 +64,23 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.ok(!selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'),
     'must not offer permission writes without a native authority adapter');
   const names=new Set(['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway',
-    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app']);
+    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-preset-registry']);
   const rows=selected.rows.filter(row=>names.has(row.name.replace('@deepseek-ai/','')));
   rows.push({id:'probe',name:'settings-probe',config:{token:'isolated-test-secret'}});
-  let app;
+  let app,stored=null,revision=1;
+  const snapshot=()=>({id:stored??'standard',selected:stored,version:{scope_id:'test',revision}});
+  const sessions={withCaller:fn=>fn(),presetDefault:async()=>snapshot(),async setPresetDefault(id,expected){
+    assert.deepEqual(expected,snapshot().version);
+    revision++;stored=id;return snapshot();
+  }};
   t.after(async()=>{await app?.close();});
   async function start(){
-    app=await createApplication({profile,modules,baseRows:rows,provide:async(ctx,load)=>{
+    const hostModules=new Map();
+    app=await createApplication({profile,modules,baseRows:rows,hostModules,provide:async(ctx,load)=>{
+      await workbenchPresetSettings(hostModules,load,sessions);
+      await ctx.plugin((await load('@deepseek-ai/dsh-session')).default);
+      await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
+      await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
       await provideHttp(ctx,load,key);
       ctx.effect(()=>ctx.webServer.register({kind:'exact',path:'/fixture/listener',handler:(req,res)=>{
         res.end(JSON.stringify([ctx.webServer.getOrigin(),req.socket.remoteAddress,req.socket.remotePort,req.socket.remoteFamily]));
@@ -93,6 +117,25 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const apps=await fetch(app.ctx.webServer.getOrigin()+'/open-in-app/apps',{headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key}});
   assert.equal(apps.status,200);assert.ok(Array.isArray((await apps.json()).apps));
   const before=await rpc('settings/describe');assert.equal(before.ok,true,JSON.stringify(before));
+  const ns='agent-preset-registry',preset=before.value.namespaces.find(row=>row.ns===ns);
+  assert.deepEqual(preset.value,{});
+  assert.deepEqual(preset.user,{});
+  const savedPreset=await rpc('settings/update',{ns,patch:{selectedDefault:'dsh-only'},expectedRevision:preset.revision});
+  assert.equal(savedPreset.ok,true,JSON.stringify(savedPreset));
+  assert.equal(stored,'dsh-only');
+  assert.equal(savedPreset.value.value.selectedDefault,stored);
+  stored='native-selection';revision++;
+  const conflict=await rpc('settings/update',{ns,patch:{selectedDefault:'old'},expectedRevision:savedPreset.value.revision});
+  assert.equal(conflict.error?.code,'settings/conflict',JSON.stringify(conflict));
+  assert.equal(stored,'native-selection');
+  const current=await rpc('settings/describe');
+  assert.equal(current.value.namespaces.find(row=>row.ns===ns).value.selectedDefault,stored);
+  await app.ctx.settings.mutate(ns,[{op:'unset',path:['selectedDefault']}]);
+  assert.equal(stored,null);
+  const explicit=await rpc('settings/update',{ns,patch:{selectedDefault:'standard'}});
+  assert.deepEqual(explicit.value.user,{selectedDefault:'standard'});
+  await app.ctx.settings.mutate(ns,[{op:'unset',path:['selectedDefault']}]);
+  assert.deepEqual(app.ctx.settings.describe().find(row=>row.ns===ns).user,{});
   assert.equal(before.value.writable,true);assert.ok(!JSON.stringify(before).includes('isolated-test-secret'));
   const original=before.value.namespaces.find(row=>row.ns==='probe');assert.ok(original);
   const updated=await rpc('settings/mutate',{ns:'probe',ops:[{op:'set',path:['count'],value:7}],expectedRevision:original.revision});
@@ -104,6 +147,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.equal(credentials.ok,false);assert.match(credentials.error.message,/credentials service is absent/);
   await app.close();app=undefined;
   assert.match(await readFile(join(profile,'cordis.patch.yml'),'utf8'),/count: 7/);
+  assert.doesNotMatch(await readFile(join(profile,'cordis.patch.yml'),'utf8'),/selectedDefault|agent-preset-registry/);
   const bundle=join(profile,'node_modules/@rsiversi/dsh-workbench');
   const manifest=join(profile,'package.json');
   const generated=[join(bundle,'package.json'),join(bundle,'cordis.patch.yml')];
