@@ -80,8 +80,8 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
     if(response)return active.publication=requestPublication(response);
   }
   const workingDirectory=nativeWorkingDirectory({ctx,lifetime:activities.signal,directoryOf,createUserMessage,
-    async restoreDirectory(agent,signal){
-      const directory=await scoped('application.directory.ensure',{session_id:agent.id},signal);
+    async updateDirectory(agent,path,signal){
+      const directory=await scoped('application.directory',path===null?{session_id:agent.id}:{session_id:agent.id,path},signal);
       await capture(agent.id,signal);
       return directory;
     },ownsSession:session=>{

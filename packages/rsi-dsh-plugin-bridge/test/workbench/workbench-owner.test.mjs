@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {mkdir,mkdtemp,rename,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
@@ -134,6 +134,38 @@ test('managed child keeps its project of origin and reopens in the Host-selected
   assert.equal((await cold.history.snapshot(meta)).header.cwd,origin);
 });
 
+test('an existing chat follows committed directory changes through a cold workbench reopen',{skip:!root},async t=>{
+  const f=await fixture(t),project=await mkdtemp(join(tmpdir(),'rsi-directory-change-'));
+  t.after(()=>rm(project,{recursive:true,force:true}));
+  const [a,b,c]=['A','B','C'].map(name=>join(project,name));
+  await Promise.all([a,b,c].map(path=>mkdir(path)));
+  const meta=()=>({...f.meta(),cwd:a});
+  const read=(id,op,signal)=>op.type==='open'?meta():op.type==='capture'?historyCapture(meta(),op,[],f.controls):f.options.read(id,op,signal);
+  const open=()=>workbenchHistory({...f.options,read});
+  const history=open();t.after(()=>history.close());
+  const session=await history.capture('one',meta()),owner=history.owner(session),agent={session};
+  const paths=[];
+  const working=nativeWorkingDirectory({ctx:f.ctx,lifetime:new AbortController().signal,ownsSession:value=>value===session,
+    ownsAgent:value=>value===agent,directoryOf:()=>owner.cwd,async updateDirectory(_agent,path){
+      paths.push(path);
+      const cwd=resolve(owner.cwd,path);
+      f.change({kind:'working_directory_changed',cwd});
+      await history.capture('one',meta());return cwd;
+    }});
+  assert.equal(await working.set(agent,b),b);
+  assert.equal(await working.set(agent,b),b);
+  assert.equal(await working.set(agent,'../C'),c);
+  assert.deepEqual(paths,[b,'../C']);
+  assert.equal(session.header.cwd,a);
+  assert.equal(working.get(session),c);
+  await history.close();
+  const cold=open();t.after(()=>cold.close());
+  const reopened=await cold.capture('one',meta());
+  assert.equal(reopened.header.cwd,a);
+  assert.equal(cold.owner(reopened).cwd,c);
+  assert.deepEqual(reopened.snapshotEvents().filter(e=>e.type==='workspace-root/change').map(e=>e.data.cwd),[b,c]);
+});
+
 test('working directory recovery follows the Host record even when the old path returns',{skip:!root},async t=>{
   const f=await fixture(t),rootDir=await mkdtemp(join(tmpdir(),'rsi-restored-child-'));
   t.after(()=>rm(rootDir,{recursive:true,force:true}));
@@ -148,8 +180,8 @@ test('working directory recovery follows the Host record even when the old path 
   let restores=0;
   const working=nativeWorkingDirectory({ctx:f.ctx,lifetime:new AbortController().signal,
     ownsAgent:value=>value===agent,ownsSession:value=>value===session,directoryOf:()=>owner.cwd,
-    async restoreDirectory(){
-      restores++;f.change({kind:'working_directory_restored',cwd:origin});
+    async updateDirectory(_agent,path){
+      assert.equal(path,null);restores++;f.change({kind:'working_directory_changed',cwd:origin});
       await history.capture('one',meta());return origin;
     }});
   assert.equal(await working.ensure(agent),selected);

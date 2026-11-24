@@ -1391,6 +1391,11 @@ order for that Session. Both dispatch the released `working-directory/access`
 waterfall before inspecting the directory. A waiting plugin receives the
 requested path (null for validation), Agent and cancellation signal. Its
 rejection leaves the recorded directory and the Agent inbox untouched.
+A trusted Workbench plugin can move an existing local Session through
+`workingDirectory.set`. The Host commits the canonical target and its model
+notice. The updated directory applies to new file operations in that Session
+and survives a restart. Its workspace membership and creation header keep
+their original identities. Re-selecting the current directory is idempotent.
 A redirected local plugin child's public Session header retains its parent's
 creation directory, including through nested delegation. Its working directory
 starts at the selected location. If that location disappears and the creation

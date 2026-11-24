@@ -72,7 +72,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
               const appended=next.model.observe(event,next.session);
               if(hasLocalRequest?.(event.invocation?.request_id))next.origins.set(appended.seq,event);
             }
-            else if(event.kind==='working_directory_restored') {
+            else if(event.kind==='working_directory_changed') {
               next.session.adoptObserved({type:'workspace-root/change',seq:next.session.seq,time:event.time,data:{cwd:event.cwd}});
             } else next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
           }finally{next.session.end();}

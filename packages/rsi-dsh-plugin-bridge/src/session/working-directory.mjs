@@ -1,7 +1,7 @@
 import {realpath,stat} from 'node:fs/promises';
 import {relative,resolve} from 'node:path';
 
-export function nativeWorkingDirectory({ctx,lifetime,ownsSession,ownsAgent,directoryOf,createUserMessage,restoreDirectory}){
+export function nativeWorkingDirectory({ctx,lifetime,ownsSession,ownsAgent,directoryOf,createUserMessage,updateDirectory}){
   const pending=new WeakMap();
   function get(session){
     if(!ownsSession(session)||!session?.header?.cwd)throw Error('Session has no available local working directory');
@@ -32,12 +32,14 @@ export function nativeWorkingDirectory({ctx,lifetime,ownsSession,ownsAgent,direc
         if((await stat(actual)).isDirectory())return current(agent,control);
       }catch(error){if(error.code!=='ENOENT'&&error.code!=='ENOTDIR')throw error;}
       current(agent,control);
-      if(restoreDirectory&&cwd!==agent.session.header.cwd)return restoreDirectory(agent,control);
+      if(updateDirectory&&cwd!==agent.session.header.cwd)return updateDirectory(agent,null,control);
       throw Error('Session working directory is no longer available');
     }),
     set:(agent,path,signal)=>access(agent,path,signal,async control=>{
       if(typeof path!=='string'||!path)throw Error('Working directory must not be empty');
-      const cwd=current(agent,control),actual=await realpath(resolve(cwd,path));
+      const cwd=current(agent,control),target=resolve(cwd,path);
+      if(updateDirectory&&relative(cwd,target)!=='')return updateDirectory(agent,path,control);
+      const actual=await realpath(target);
       if(relative(cwd,actual)!=='')throw Error('Changing the native working directory requires a new Session');
       if(!(await stat(actual)).isDirectory())throw Error('Session working directory is no longer available');
       current(agent,control);
