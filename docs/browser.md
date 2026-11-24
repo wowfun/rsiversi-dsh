@@ -4,6 +4,8 @@ When the Host and a DSH declaration use the same preset ID, the workbench
 uses the native composition. The preset document shown for that ID is the
 Host's actual TOML source, including its current metadata. The active
 Session's recorded preset comes from its [journal](session-journal.md).
+Resolving a named preset probes its public ID directly, even when the Host's
+full catalog exceeds its discovery limit.
 Before the workbench announces a newly attached Agent, its scope retains the
 recorded composition. A plugin that supplied a scope during setup keeps its
 revision. Plugins can read the composition from the first `agent/created`
@@ -11,6 +13,9 @@ notification, including after a Host restart.
 Selecting a different composition on a blank Agent notifies DSH
 `tools/change` observers. Selecting its already recorded and bound
 revision leaves the tool observers and selection log quiet.
+The Host confirms blankness for a repeated selection. The workbench reuses
+its current Session view when both the Host draft and its bound revision
+already match.
 
 The leased process answers `application.open` over the existing extension
 channel. Every registered HTTP, fallback and upgrade handler checks the private

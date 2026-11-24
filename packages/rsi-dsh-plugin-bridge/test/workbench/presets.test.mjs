@@ -22,26 +22,33 @@ test('a colliding Cordis preset uses native configuration, execution and session
   await ctx.plugin((await load('dsh-agent')).AgentRegistry);
   const content='# 实际的组合\n[plugins]\nexample = "原生"\n';
   const standard={id:'standard',name:'Native mode',description:null,broken:null,is_default:true};
-  let rows=[standard],locked=false;
+  let rows=[standard],locked=false,fullRoster=true,refreshes=0,nativeId='standard';
   const selected=[];
   const sessions={
     withCaller:fn=>fn(),
     async readPresets(op){
-      if(op.type==='list')return {presets:rows};
+      if(op.type==='list'){
+        assert.ok(fullRoster,'targeted lookup enumerated all native presets');
+        return {presets:rows};
+      }
       const row=rows.find(row=>row.id===op.id);
       if(!row)return {code:'not_found'};
       if(row.broken)return {code:'broken',reason:row.broken};
       return {...row,format:'toml',content};
     },
+    async resolvePreset(id){return rows.find(row=>id===undefined?row.is_default:row.id===id)??null;},
     async selectPreset(session,id){
       if(locked)return {code:'locked'};
-      selected.push([session,id]);return {selected:id};
+      const changed=id!==nativeId;
+      nativeId=id;
+      selected.push([session,id]);return {selected:id,changed};
     },
   };
   const agent={id:'one',session:ctx.sessions.create('one',{meta:{agentPreset:'standard'}})};
   const world=scopes.createScope(ctx,agent);agent.ctx=world.ctx;
   const Registry=workbenchPresetRegistry((await load('dsh-agent-preset-registry')).default,
     (await load('dsh-typert-protocol')).RemoteError,sessions,async()=>{
+      refreshes++;
       const id=selected.at(-1)[1];
       if(ctx.agentPresets.presetForSession(agent.session)!==id)
         agent.session.append('agent-preset/selected',{agentPreset:id});
@@ -60,6 +67,8 @@ test('a colliding Cordis preset uses native configuration, execution and session
   assert.deepEqual(await service.resolve(),{id:'standard'});
   assert.deepEqual(await service.list(),[{id:'standard',name:'Native mode'},{id:'dsh-mode'}]);
   assert.deepEqual((await service.remoteExportList()).presets.map(row=>[row.id,row.isDefault]),[['standard',true],['dsh-mode',false]]);
+  fullRoster=false;
+  assert.deepEqual(await service.resolve(),{id:'standard'});
   assert.deepEqual(await service.readDocument('standard'),{agentPreset:'standard',name:'Native mode',content});
   assert.equal((await service.compositionInventory()).find(row=>row.id==='standard').rows.length,0);
   assert.deepEqual(await service.mount(agent.ctx,'standard'),{id:'standard'});
@@ -86,9 +95,14 @@ test('a colliding Cordis preset uses native configuration, execution and session
   assert.deepEqual(selected,[['one','standard']]);
   const seq=agent.session.seq;
   assert.equal(seq,beforeSwitch+1,'the Host already recorded the switch');
+  const beforeRepeat=refreshes;
   await service.select(agent,'standard');
+  assert.equal(refreshes,beforeRepeat,'unchanged selection recaptured the native session');
   assert.equal(toolChanges,1);
   assert.equal(agent.session.seq,seq);
+  nativeId='other-native-selection';
+  await service.select(agent,'standard');
+  assert.equal(refreshes,beforeRepeat+1,'a concurrent native switch must refresh the mirror');
   assert.deepEqual(lifecycle,[]);
   rows=[];
   await service.resolve('standard');
@@ -107,6 +121,7 @@ test('a colliding Cordis preset uses native configuration, execution and session
   rows=[];
   assert.match((await service.readDocument('standard')).content,/shadow-tool/);
   assert.deepEqual(lifecycle,[true,false,true]);
+  fullRoster=true;
   assert.equal((await service.list()).find(row=>row.id==='standard').name,'DSH mode');
   assert.equal(service.composedPreset(agent.ctx),'standard');
   await world.dispose();

@@ -29,9 +29,8 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
     nativeRoster() {
       return sessions.withCaller(signal=>sessions.readPresets({type:'list'},signal),this.ctx.invocation?.signal);
     }
-    async nativePreset(id) {
-      const {presets}=await this.nativeRoster();
-      return presets.find(row=>id===undefined?row.is_default:row.id===id);
+    nativePreset(id) {
+      return sessions.withCaller(signal=>sessions.resolvePreset(id,signal),this.ctx.invocation?.signal);
     }
     useSource(id,native) {
       return this.changes([id],async()=>{
@@ -108,9 +107,11 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
       const result=await sessions.selectPreset(agent.id,id,signal);
       if(result.code==='locked')throw new RemoteError('agent-preset/locked','This session has already started',
         {sessionId:agent.id,agentPreset:id});
-      if(result.selected!==id)throw Error('Native preset selection was not confirmed');
+      if(result.selected!==id||typeof result.changed!=='boolean')throw Error('Native preset selection was not confirmed');
       const mounted=await super.mount(agent.ctx,id);
-      const switched=announce&&(recorded!==id||previous!==scopeParentOf(agent));
+      const rebound=recorded!==id||previous!==scopeParentOf(agent);
+      if(!result.changed&&!rebound)return mounted;
+      const switched=announce&&rebound;
       if(switched){
         try{this.ctx.emit('tools/change');}
         catch(error){this.ctx.logger.warn('Preset tools observer:',error);}
