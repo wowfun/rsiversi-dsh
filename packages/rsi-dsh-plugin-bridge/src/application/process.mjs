@@ -149,7 +149,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const subagents=workbenchSubagents((await load(subagentName)).default,caller,sessionScope);
     hostModules.set(subagentName,subagents.Runtime);
     const goalName='@deepseek-ai/dsh-goal';
-    const goals=workbenchGoalMutations((await load(goalName)).default,caller);
+    const goals=workbenchGoalMutations((await load(goalName)).default,caller,
+      id=>sessionScope.commitGoal(id,{type:'disarm_goal'}));
     hostModules.set(goalName,goals.Runtime);
     await provideHttp(ctx,load,key,sessionScope);
     await ctx.plugin(leasedPluginPackages(boot,modules));

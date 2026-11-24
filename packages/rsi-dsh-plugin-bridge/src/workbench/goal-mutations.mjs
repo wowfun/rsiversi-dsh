@@ -3,7 +3,7 @@ import {loaderEntry} from './subagents.mjs';
 import {commandReceipt} from '../session/command-receipts.mjs';
 
 /** Keep attribution on the original Goal service's own synchronous append. */
-export function workbenchGoalMutations(Runtime,caller) {
+export function workbenchGoalMutations(Runtime,caller,disarm) {
   let mutation;
   function invoke(service,agent,operation,run) {
     const ctx=service[caller],entry=loaderEntry(ctx);
@@ -19,6 +19,14 @@ export function workbenchGoalMutations(Runtime,caller) {
       pause(agent,ref){return invoke(this,agent,'pause',()=>super.pause(agent,ref));}
       resume(agent,ref){return invoke(this,agent,'resume',()=>super.resume(agent,ref));}
       complete(agent,ref){return invoke(this,agent,'complete',()=>super.complete(agent,ref));}
+      disarm(agent) {
+        const ctx=this[caller];
+        // Cordis retains the committed injections until the plugin's disposers settle.
+        if(!loaderEntry(ctx)||!ctx.fiber.committed)throw Error('Goal disarm requires a live Cordis plugin');
+        super.get(agent); // Validate the exact Agent before addressing the Host by id.
+        disarm(agent.id);
+        return super.disarm(agent);
+      }
     },
     commit(record,scope,change,opts,stage,publish) {
       if(mutation?.agent!==record.agent||mutation.operation!==change.operation)
@@ -38,9 +46,9 @@ export function workbenchGoalMutations(Runtime,caller) {
       let event,accepted;
       stage(record,async signal=>{
         if(!event||journal.session.lastEvent('goal/change')?.seq!==event.seq)return false;
-        if(operation!=='create'&&operation!=='resume')return;
+        if((operation!=='create'&&operation!=='resume')||service.get(record.agent)?.activation!=='armed')return;
         const {live}=await scope.command(record.id,{type:'goal',control:accepted.control},signal);
-        if(!live.armed&&journal.session.lastEvent('goal/change')?.seq===event.seq)service.disarm(record.agent);
+        if(!live.armed&&journal.session.lastEvent('goal/change')?.seq===event.seq)Runtime.prototype.disarm.call(service,record.agent);
       });
       accepted=scope.commitGoal(record.id,{
         request_id:id,expected_revision:expected,action,published_at_ms:change.updatedAt});

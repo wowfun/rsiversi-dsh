@@ -26,6 +26,7 @@ test('the existing carrier returns a native Goal receipt or rejection before the
     assert.equal(args.request,'request');assert.equal(args.session_id,'one');
     const op=args.operation;received.push(op);
     if(op.type==='prepare')return {kind:'durable',control_seq:7};
+    if(op.type==='disarm_goal')return null;
     if(op.type==='goal'&&op.control.request_id==='pending'){
       waiting.resolve();
       await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));
@@ -46,6 +47,9 @@ test('the existing carrier returns a native Goal receipt or rejection before the
   await assert.rejects(host.request('application.open',{...create,request_id:'end',expected_revision:first.control.expected_revision,
     action:{action:'complete',id:'goal'}}),/stale goal revision/);
   assert.deepEqual(received.map(op=>op.type),['prepare','execute','status','goal','status']);
+  const before=received.length;
+  assert.equal(await host.request('application.open',{type:'disarm_goal'}),null);
+  assert.deepEqual(received.slice(before),[{type:'disarm_goal'}]);
   assert.equal(await host.request('extension.ping',null),null);
   const pending=host.request('application.open',{...create,request_id:'pending',expected_revision:first.control.expected_revision,
     action:{action:'complete',id:'goal'}});

@@ -18,29 +18,35 @@ export async function receiveGoal(carrier, {request, sessionId, control, wake}, 
   const command = operation => carrier.request('application.command', {request, session_id:sessionId, operation},{signal});
   let response;
   try {
-    let expected = control.expected_revision;
-    if (expected.kind === 'draft') {
-      // Publish the blank identity before its first Goal. Every subsequent action has a durable receipt.
-      expected = await command({type:'prepare',expected_draft_revision:expected.revision});
-    }
-    const accepted = {...control, expected_revision:expected};
-    const starts = ['create','resume'].includes(accepted.action.action);
-    let receipt;
-    try {
-      receipt = starts
-        ? await command({type:'execute',invocation:{command:'rsi.goal.command',request_id:accepted.request_id,
-            expected_revision:expected,arguments:{...accepted.action,published_at_ms:accepted.published_at_ms}}})
-        : (await command({type:'goal',control:accepted})).command;
-    } catch (error) {
-      signal.throwIfAborted();
-      receipt = await command({type:'status',request_id:accepted.request_id}).catch(()=>undefined);
-      if(!receipt)throw error;
-    }
-    response = {result:{control:accepted,receipt}};
+    response = {result:control.type==='disarm_goal'
+      ? await command(control)
+      : await commitChange(command,control,signal)};
   } catch (error) {
     response = {error:String(error?.message ?? error)};
   }
   worker.postMessage(response);
   Atomics.store(wake,0,1);
   Atomics.notify(wake,0);
+}
+
+async function commitChange(command,control,signal) {
+  let expected = control.expected_revision;
+  if (expected.kind === 'draft') {
+    // Publish the blank identity before its first Goal. Every subsequent action has a durable receipt.
+    expected = await command({type:'prepare',expected_draft_revision:expected.revision});
+  }
+  const accepted = {...control, expected_revision:expected};
+  const starts = ['create','resume'].includes(accepted.action.action);
+  let receipt;
+  try {
+    receipt = starts
+      ? await command({type:'execute',invocation:{command:'rsi.goal.command',request_id:accepted.request_id,
+          expected_revision:expected,arguments:{...accepted.action,published_at_ms:accepted.published_at_ms}}})
+      : (await command({type:'goal',control:accepted})).command;
+  } catch (error) {
+    signal.throwIfAborted();
+    receipt = await command({type:'status',request_id:accepted.request_id}).catch(()=>undefined);
+    if(!receipt)throw error;
+  }
+  return {control:accepted,receipt};
 }

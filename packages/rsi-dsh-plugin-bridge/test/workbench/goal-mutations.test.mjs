@@ -8,21 +8,29 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createApplication} from '../../src/application/application.mjs';
 import {invocationDigest} from '../../src/session/command-receipts.mjs';
 import {workbenchGoalMutations} from '../../src/workbench/goal-mutations.mjs';
+import {workbenchProfile} from '../../src/workbench/profile.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {nativeInboxFixture} from '../fixtures/native-inbox-fixture.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
-test('released Goal service publishes only accepted native commands and attributes the calling Loader entry',
-  {skip:!root||!process.env.RSI_DSH_INBOX_SOURCE,timeout:15000},async t=>{
+test('the standard Goal service publishes native commands and revokes scheduling through the guest lifecycle',
+  {skip:!root||!process.env.RSI_DSH_INBOX_SOURCE,timeout:60000},async t=>{
     const runtime='@deepseek-ai/dsh-goal',guest='example-review',require=createRequire(join(root,'package.json'));
     const profile=await mkdtemp(join(tmpdir(),'rsi-goal-mutation-'));
     t.after(()=>rm(profile,{recursive:true,force:true}));
-    const modules={entry:name=>name===guest?fileURLToPath(import.meta.url):require.resolve(name)};
+    const modules={entry:name=>name===guest?fileURLToPath(import.meta.url):require.resolve(name),
+      directory:name=>join(root,'node_modules',name)};
+    const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
+    const {rows}=await workbenchProfile(modules,boot,profile);
+    const goalRow=rows.find(row=>row.name===runtime);
+    assert.ok(goalRow,'the original profile supplies the standard Goal service');
+    assert.ok(!rows.some(row=>row.name==='@deepseek-ai/dsh-goal-round-driver'));
     const hostModules=new Map(),accepted=[];
-    let f,plugin,current,reject=false,lastControl,arm=false;
+    let f,plugin,current,reject=false,lastControl,arm=false,disarms=0,cleanup;
     function commitGoal(request,session,control) {
       assert.equal(request,'owner');assert.equal(session,'one');
       if(reject)throw Error('native revision conflict');
+      if(control.type==='disarm_goal'){disarms++;return null;}
       assert.deepEqual(control.expected_revision,{kind:'durable',control_seq:f.state.control});
       const a=control.action;
       lastControl=control;
@@ -39,20 +47,28 @@ test('released Goal service publishes only accepted native commands and attribut
       return {control,receipt:{command:invocation.command,request_id:control.request_id,
         invocation_sha256:invocationDigest(invocation),state_sha256:'b'.repeat(64),outcome:{kind:'committed',control_seq:f.state.control}}};
     }
-    const app=await createApplication({modules,profile,hostModules,async provide(ctx,load){
-      const goals=workbenchGoalMutations((await load(runtime)).default,(await load('@deepseek-ai/cordis')).symbols.caller);
+    const app=await createApplication({modules,profile,hostModules,baseRows:[goalRow],async provide(ctx,load){
+      const goals=workbenchGoalMutations((await load(runtime)).default,(await load('@deepseek-ai/cordis')).symbols.caller,
+        id=>f.scope.commitGoal(id,{type:'disarm_goal'}));
       f=await nativeInboxFixture(t,{kind:'durable',context:ctx,goals,commitGoal,activateGoal(control){
         assert.deepEqual(control,lastControl);
         return {live:{armed:arm}};
       }});
       hostModules.set(runtime,goals.Runtime);
-      hostModules.set(guest,{inject:['goals'],apply(caller){plugin=caller;}});
+      hostModules.set(guest,{inject:['goals'],apply(caller){
+        plugin=caller;
+        caller.effect(()=>()=>{cleanup=caller.goals.disarm(f.agent);});
+      }});
     }});
     try {
-      await app.reconcile([[{insert:[{id:'goal',name:runtime},{id:'review',name:guest}]}]]);
+      await app.reconcile([[{insert:[{id:'review',name:guest}]}]]);
       const {remoteMethods}=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-typert-protocol')));
       const exports=remoteMethods(plugin.goals).map(marker=>marker.exportName??marker.method);
       for(const name of ['create','pause','resume','complete','get'])assert.ok(exports.includes(name),name);
+      assert.throws(()=>plugin.goals.disarm({id:f.agent.id}),/not live/);
+      assert.equal(disarms,0);
+      assert.equal(plugin.goals.disarm(f.agent),undefined);
+      assert.equal(disarms,1);
       let done;
       await f.scope.runOwned(()=>{
         const first=plugin.goals.create(f.agent,{objective:'Review the draft',maxGoalRounds:2});
@@ -96,5 +112,27 @@ test('released Goal service publishes only accepted native commands and attribut
       arm=true;
       await f.scope.runOwned(()=>plugin.goals.resume(f.agent,next.ref));
       assert.equal(plugin.goals.get(f.agent).activation,'armed');
+      const prior=plugin.goals.get(f.agent),seq=f.agent.session.seq;
+      reject=true;
+      assert.throws(()=>plugin.goals.disarm(f.agent),/native revision conflict/);
+      assert.equal(plugin.goals.get(f.agent).activation,'armed');
+      reject=false;
+      const stopped=plugin.goals.disarm(f.agent);
+      assert.deepEqual(stopped,{...prior,activation:'disarmed'});
+      assert.equal(f.agent.session.seq,seq);
+      const starts=f.calls.filter(call=>call.op?.type==='goal').length;
+      await f.scope.runOwned(()=>{
+        const resumed=plugin.goals.resume(f.agent,stopped);
+        assert.deepEqual(plugin.goals.disarm(f.agent),{...resumed,activation:'disarmed'});
+      });
+      assert.equal(disarms,3);
+      assert.equal(f.calls.filter(call=>call.op?.type==='goal').length,starts);
+      assert.equal(plugin.goals.get(f.agent).activation,'disarmed');
+      const retained=plugin.goals;
+      await app.reconcile([]);
+      assert.equal(cleanup?.activation,'disarmed','the disposer can revoke scheduling');
+      assert.equal(disarms,4);
+      assert.throws(()=>retained.disarm(f.agent));
+      assert.equal(disarms,4,'a retired guest cannot revoke another activation');
     } finally {await app.close();}
   });

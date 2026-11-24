@@ -525,6 +525,9 @@ without cancelling the claimed Turn. Draft inputs use native identity-based
 withdrawal, with no fabricated durable slot or cursor. An empty clear remains
 a no-op. Writable Session log events still require their own native contracts.
 
+The standard workbench loads the Goal service from the upstream profile.
+Plugins that inject `goals` share the native Session's Goal. Its Host
+controller is the single scheduling owner.
 The workbench reads Goal changes at the same native Fact/control cut as messages
 and model selections. An explicit completion therefore appears in Session history
 even when the Goal finished before the first Turn. Goal reads have no scheduling
@@ -542,6 +545,11 @@ The caller's Loader entry supplies the identity for an explicit plugin
 completion. A create followed by completion in the same callback spends no
 round. The native controller can arm the surviving active choice when the
 callback yields.
+The original service's `disarm(agent)` also revokes the Host scheduling lease.
+Calling it before a create or resume yields prevents that activation. It leaves
+the Goal phase, revision and event stream intact.
+A plugin can disarm during its Cordis disposer while it still holds its
+injected services. That authority ends when Cordis releases those services.
 If that activation receipt reports a disarmed controller, the live workbench
 view also disarms the same revision.
 Once its native control is observed, the journal retains the local event
