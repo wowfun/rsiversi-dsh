@@ -1197,7 +1197,10 @@ actual completion through the same request boundary.
 The root Include reads the managed profile's cordis.yml. Original plugins and
 the configuration editor can change this file and the profile's patch layers.
 Starting the workbench preserves an already selected base bundle and unchanged
-generated bundle files. Missing or changed generated files are restored from
+single-link generated files. On POSIX it reapplies private permissions to a
+matching file through its open handle when needed. Updating permissions
+preserves its contents and modification time, including on mounts that
+synthesize Unix mode bits. Missing, linked or changed generated files are restored from
 the selected workbench configuration. The market restores package links and live
 bindings on restart and updates the profile manifest only when the installed
 selections change its dependencies or the manifest needs initialization.

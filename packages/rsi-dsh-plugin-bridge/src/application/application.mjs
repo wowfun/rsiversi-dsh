@@ -1,10 +1,35 @@
 import {isAbsolute,join,relative,sep} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {lstat,writeFile} from 'node:fs/promises';
+import {constants} from 'node:fs';
+import {lstat,open,writeFile} from 'node:fs/promises';
 import {inactiveFiber} from '../agent/fiber.mjs';
-import {boundedText,readProfileManifest} from '../market/profile-files.mjs';
+import {readProfileManifest} from '../market/profile-files.mjs';
 
 export const applicationBundle='@rsiversi/dsh-workbench';
+async function reuseGenerated(path,expected,mode) {
+  let file;
+  try {
+    if(process.platform==='win32' && !(await lstat(path)).isFile())return false;
+    file=await open(path,constants.O_RDONLY|(constants.O_NOFOLLOW??0)|(constants.O_NONBLOCK??0));
+    const info=await file.stat();
+    if(!info.isFile()||info.nlink!==1||info.size!==expected.length)return false;
+    // Compare at most one extra byte. Permissions apply to the same opened file.
+    const bytes=Buffer.allocUnsafe(expected.length+1);
+    let length=0;
+    while(length<bytes.length){
+      const {bytesRead}=await file.read(bytes,length,bytes.length-length);
+      if(!bytesRead)break;
+      length+=bytesRead;
+    }
+    if(length!==expected.length||!bytes.subarray(0,length).equals(expected))return false;
+    if(process.platform!=='win32' && (info.mode&0o777)!==mode)await file.chmod(mode);
+    return true;
+  } catch(error) {
+    if(['ENOENT','ELOOP','EACCES','EPERM','EOPNOTSUPP'].includes(error.code))return false;
+    throw error;
+  } finally {await file?.close();}
+}
+
 async function publishBase(profile,rows,load) {
   if(!rows.length) return [];
   const {writeFileAtomic,withFileLock}=await load('@deepseek-ai/dsh-atomic-write');
@@ -12,12 +37,8 @@ async function publishBase(profile,rows,load) {
   const patches=[{insert:rows}];
   const privateFile={mode:0o600};
   async function publish(name,value) {
-    const path=join(directory,name),text=JSON.stringify(value),size=Buffer.byteLength(text);
-    const file=await lstat(path).catch(error=>{if(error.code!=='ENOENT')throw error;});
-    if(file?.isFile() && file.nlink===1 && file.size===size &&
-      (process.platform==='win32' || (file.mode&0o777)===privateFile.mode) &&
-      await boundedText(path,size)===text)return;
-    await writeFileAtomic(path,text,privateFile);
+    const path=join(directory,name),bytes=Buffer.from(JSON.stringify(value));
+    if(!await reuseGenerated(path,bytes,privateFile.mode))await writeFileAtomic(path,bytes,privateFile);
   }
   await publish('cordis.patch.yml',patches);
   await publish('package.json',{name:applicationBundle,version:'0.1.0',dsh:{bundle:{patch:'cordis.patch.yml'}}});

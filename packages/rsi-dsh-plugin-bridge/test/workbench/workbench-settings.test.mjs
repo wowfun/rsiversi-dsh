@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
-import {mkdir,mkdtemp,readFile,rm,stat,symlink,utimes,writeFile} from 'node:fs/promises';
+import {chmod,link,mkdir,mkdtemp,readFile,rename,rm,stat,symlink,utimes,writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {get} from 'node:http';
 import {tmpdir} from 'node:os';
@@ -101,12 +101,15 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const manifest=join(profile,'package.json');
   const generated=[join(bundle,'package.json'),join(bundle,'cordis.patch.yml')];
   const saved=await Promise.all(generated.map(path=>readFile(path)));
+  const privateMode=(await stat(generated[0])).mode&0o777;
+  if(process.platform!=='win32')await chmod(generated[0],0o644);
   const stamp=new Date('2001-01-01T00:00:00Z');
   const unchanged=[manifest,...generated];
   await Promise.all(unchanged.map(path=>utimes(path,stamp,stamp)));
   await writeFile(manifest+'.lock',String(process.pid)+'\n',{flag:'wx'});
   try {await start();} finally {await rm(manifest+'.lock');}
   assert.deepEqual(await Promise.all(unchanged.map(async path=>(await stat(path)).mtimeMs)),unchanged.map(()=>stamp.getTime()));
+  assert.equal((await stat(generated[0])).mode&0o777,privateMode);
   assert.deepEqual(app.ctx.settingsProbe.read(),{count:7,token:'isolated-test-secret'});
   const restored=await rpc('settings/describe');assert.equal(restored.ok,true);
   assert.equal(restored.value.namespaces.find(row=>row.ns==='probe').value.count,7);
@@ -118,4 +121,22 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.deepEqual(await Promise.all(generated.map(path=>readFile(path))),saved);
   assert.equal((await stat(manifest)).mtimeMs,stamp.getTime());
   assert.equal(app.ctx.settingsProbe.read().count,7);
+  await app.close();app=undefined;
+  const alias=join(profile,'hard-linked-manifest'),target=join(profile,'linked-patch');
+  await link(generated[0],alias);
+  if(process.platform!=='win32'){
+    await chmod(alias,0o644);
+    await rename(generated[1],target);await symlink(target,generated[1]);
+    await utimes(target,stamp,stamp);
+  }
+  const aliasMode=(await stat(alias)).mode;
+  await start();
+  assert.equal((await stat(alias)).nlink,1);
+  assert.notEqual((await stat(generated[0],{bigint:true})).ino,(await stat(alias,{bigint:true})).ino);
+  assert.equal((await stat(alias)).mode,aliasMode);
+  if(process.platform!=='win32'){
+    assert.notEqual((await stat(generated[1],{bigint:true})).ino,(await stat(target,{bigint:true})).ino);
+    assert.equal((await stat(target)).mtimeMs,stamp.getTime());
+  }
+  assert.deepEqual(await Promise.all(generated.map(path=>readFile(path))),saved);
 });
