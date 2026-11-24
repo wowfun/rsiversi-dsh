@@ -41,7 +41,11 @@ test('a colliding Cordis preset uses native configuration, execution and session
   const agent={id:'one',session:ctx.sessions.create('one',{meta:{agentPreset:'standard'}})};
   const world=scopes.createScope(ctx,agent);agent.ctx=world.ctx;
   const Registry=workbenchPresetRegistry((await load('dsh-agent-preset-registry')).default,
-    (await load('dsh-typert-protocol')).RemoteError,sessions,async()=>{},scopes);
+    (await load('dsh-typert-protocol')).RemoteError,sessions,async()=>{
+      const id=selected.at(-1)[1];
+      if(ctx.agentPresets.presetForSession(agent.session)!==id)
+        agent.session.append('agent-preset/selected',{agentPreset:id});
+    },scopes);
   await ctx.plugin(Registry,{default:'standard'});
   const service=ctx.agentPresets;
   const directory=await mkdtemp(join(tmpdir(),'rsi-preset-'));
@@ -73,10 +77,28 @@ test('a colliding Cordis preset uses native configuration, execution and session
   await service.bindSession(resumed,'standard');
   assert.equal(service.composedPreset(resumed.ctx),'dsh-mode');
   await resumedScope.dispose();
+  let toolChanges=0;
+  ctx.on('tools/change',()=>{toolChanges++;});
+  const beforeSwitch=agent.session.seq;
   await service.select(agent,'standard');
+  assert.equal(toolChanges,1,'switching to the native preset announces its tools');
   assert.equal(service.presetForSession(agent.session),'standard');
   assert.deepEqual(selected,[['one','standard']]);
+  const seq=agent.session.seq;
+  assert.equal(seq,beforeSwitch+1,'the Host already recorded the switch');
+  await service.select(agent,'standard');
+  assert.equal(toolChanges,1);
+  assert.equal(agent.session.seq,seq);
   assert.deepEqual(lifecycle,[]);
+  rows=[];
+  await service.resolve('standard');
+  rows=[standard];
+  const stop=ctx.on('tools/change',()=>{throw Error('observer refused');});
+  assert.equal(await service.select(agent,'standard'),'standard');
+  stop();
+  assert.equal(toolChanges,2,'a replacement revision publishes its tools');
+  assert.equal(agent.session.seq,seq+1,'the replacement is recorded once');
+  assert.deepEqual(lifecycle,[true,false]);
   locked=true;
   await assert.rejects(service.select(agent,'standard'),{code:'agent-preset/locked'});
   rows=[{...standard,broken:'invalid native source'}];
@@ -84,11 +106,11 @@ test('a colliding Cordis preset uses native configuration, execution and session
   await assert.rejects(service.select(agent,'standard'),{code:'agent-preset/invalid'});
   rows=[];
   assert.match((await service.readDocument('standard')).content,/shadow-tool/);
-  assert.deepEqual(lifecycle,[true]);
+  assert.deepEqual(lifecycle,[true,false,true]);
   assert.equal((await service.list()).find(row=>row.id==='standard').name,'DSH mode');
   assert.equal(service.composedPreset(agent.ctx),'standard');
   await world.dispose();
   await shadowFiber.dispose();await otherFiber.dispose();
-  assert.deepEqual(lifecycle,[true,false]);
+  assert.deepEqual(lifecycle,[true,false,true,false]);
   assert.deepEqual(await service.list(),[]);
 });

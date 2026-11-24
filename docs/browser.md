@@ -8,6 +8,9 @@ Before the workbench announces a newly attached Agent, its scope retains the
 recorded composition. A plugin that supplied a scope during setup keeps its
 revision. Plugins can read the composition from the first `agent/created`
 notification, including after a Host restart.
+Selecting a different composition on a blank Agent notifies DSH
+`tools/change` observers. Selecting its already recorded and bound
+revision leaves the tool observers and selection log quiet.
 
 The leased process answers `application.open` over the existing extension
 channel. Every registered HTTP, fallback and upgrade handler checks the private

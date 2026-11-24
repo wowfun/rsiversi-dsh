@@ -10,7 +10,7 @@ function metadata({id,name,description,broken}) {
 const nativeSource=Symbol('Host composition');
 
 /** Native tools belong to the Host. Cordis owns its scoped providers and revision leases. */
-export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{scopeOf},nativePlugins=()=>[]) {
+export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{scopeOf,scopeParentOf},nativePlugins=()=>[]) {
   return class extends Registry {
     declarations=new Map();
     sources=new Map();
@@ -103,14 +103,25 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
     async acquireScope(id) {
       return super.acquireScope((await this.prepare(id)).id);
     }
-    async commitNative(agent,id,signal) {
+    async commitNative(agent,id,signal,announce=false) {
+      const previous=scopeParentOf(agent),recorded=this.presetForSession(agent.session),start=agent.session.seq;
       const result=await sessions.selectPreset(agent.id,id,signal);
       if(result.code==='locked')throw new RemoteError('agent-preset/locked','This session has already started',
         {sessionId:agent.id,agentPreset:id});
       if(result.selected!==id)throw Error('Native preset selection was not confirmed');
       const mounted=await super.mount(agent.ctx,id);
+      const switched=announce&&(recorded!==id||previous!==scopeParentOf(agent));
+      if(switched){
+        try{this.ctx.emit('tools/change');}
+        catch(error){this.ctx.logger.warn('Preset tools observer:',error);}
+      }
       await refresh(agent.id,signal);
-      if(this.presetForSession(agent.session)!==id)agent.session.append('agent-preset/selected',{agentPreset:id});
+      // Native refresh can already have published this selection into the shared journal.
+      const needsRecord=this.presetForSession(agent.session)!==id
+        ||switched&&!agent.session.snapshotEvents(start).some(event=>
+          event.type==='agent-preset/selected'&&event.data.agentPreset===id);
+      if(needsRecord)
+        agent.session.append('agent-preset/selected',{agentPreset:id});
       return mounted;
     }
     async mount(ctx,id) {
@@ -123,7 +134,7 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
       return this.selections([agent.id],async()=>{
         const source=await this.prepare(id);
         if(!source.native)return super.select(agent,id);
-        const mounted=await sessions.withCaller(signal=>this.commitNative(agent,id,signal),this.ctx.invocation?.signal);
+        const mounted=await sessions.withCaller(signal=>this.commitNative(agent,id,signal,true),this.ctx.invocation?.signal);
         return mounted.id;
       });
     }
