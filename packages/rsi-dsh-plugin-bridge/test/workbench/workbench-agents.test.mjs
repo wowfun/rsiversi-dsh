@@ -23,6 +23,10 @@ test('plugins claim an ordinary root on their native caller and publish it only 
   const claimEntered=Promise.withResolvers(),claimRelease=Promise.withResolvers(),remoteEntered=Promise.withResolvers();
   const scope=applicationSessions(async(method,args)=>{
     calls.push([method,args.request]);
+    if(method==='application.presets'&&args.operation.type==='resolve'){
+      assert.equal(args.operation.id,'writer');
+      return {id:'writer',is_default:true};
+    }
     if(method==='application.create'){
       assert.equal(args.requested,undefined);assert.equal(args.cwd,process.cwd());
       assert.equal(args.preset,'writer');assert.equal(args.fork,undefined);
