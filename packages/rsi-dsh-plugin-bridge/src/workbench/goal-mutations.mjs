@@ -18,6 +18,7 @@ export function workbenchGoalMutations(Runtime,caller,disarm) {
       create(agent,spec){return invoke(this,agent,'create',()=>super.create(agent,spec));}
       pause(agent,ref){return invoke(this,agent,'pause',()=>super.pause(agent,ref));}
       resume(agent,ref){return invoke(this,agent,'resume',()=>super.resume(agent,ref));}
+      block(agent,ref,reason){return invoke(this,agent,'block',()=>super.block(agent,ref,reason));}
       complete(agent,ref){return invoke(this,agent,'complete',()=>super.complete(agent,ref));}
       disarm(agent) {
         const ctx=this[caller];
@@ -37,6 +38,7 @@ export function workbenchGoalMutations(Runtime,caller,disarm) {
       // The receipt binds JSON field order, including when a pure create is later armed.
       if(operation==='create')Object.assign(action,{objective:goal.objective,constraints:'',max_rounds:goal.maxGoalRounds});
       if(operation==='complete')action.source={kind:'plugin',name};
+      if(operation==='block')Object.assign(action,goal.blockedReason);
       const captured=record.owner.meta.selection_cursor;
       const expected=captured.kind==='draft'&&record.goalControlSeq===undefined
         ?{kind:'draft',revision:captured.revision}

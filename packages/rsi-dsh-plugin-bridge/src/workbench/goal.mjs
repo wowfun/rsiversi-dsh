@@ -37,7 +37,7 @@ export function observeGoal(state,{goal:{current:native,command},time}) {
   if(!operation)throw Error('Unknown native Goal phase');
   const {blockedReason,...previous}=current;
   return snapshot(state,time,operation,{...previous,revision:previous.revision+1,phase,
-    ...(phase==='blocked'?{blockedReason:{code:'rsi-goal',message:native.reason?.trim()||'The Host blocked the Goal.'}}:{})},publishedAt);
+    ...(phase==='blocked'?{blockedReason:{code:native.block_code??'rsi-goal',message:native.reason?.trim()||'The Host blocked the Goal.'}}:{})},publishedAt);
 }
 
 export function goalMessage(state,message,source) {

@@ -35,12 +35,14 @@ test('the standard Goal service publishes native commands and revokes scheduling
       const a=control.action;
       lastControl=control;
       if(a.action==='create')current={id:a.id,objective:a.objective,phase:'active',max_rounds:a.max_rounds};
-      else if(a.action==='resume')current={...current,phase:'active'};
+      else if(a.action==='resume')current={...current,phase:'active',reason:null,block_code:null};
+      else if(a.action==='block')current={...current,phase:'blocked',reason:a.message,block_code:a.code};
       else {assert.equal(a.action,'complete');current={...current,phase:'completed'};}
       accepted.push(a);
       f.control({kind:'goal',goal:{current,command:{request_id:control.request_id,action:a.action,published_at_ms:control.published_at_ms}}});
       const args=a.action==='create'?{action:'create',id:a.id,objective:a.objective,constraints:a.constraints,max_rounds:a.max_rounds}:
-        a.action==='resume'?{action:'resume',id:a.id}:{action:'complete',id:a.id,source:a.source};
+        a.action==='resume'?{action:'resume',id:a.id}:a.action==='block'?{action:'block',id:a.id,code:a.code,message:a.message}:
+          {action:'complete',id:a.id,source:a.source};
       args.published_at_ms=control.published_at_ms;
       const invocation={command:'rsi.goal.command',request_id:control.request_id,expected_revision:control.expected_revision,
         arguments:args};
@@ -129,6 +131,25 @@ test('the standard Goal service publishes native commands and revokes scheduling
       assert.equal(f.calls.filter(call=>call.op?.type==='goal').length,starts);
       assert.equal(plugin.goals.get(f.agent).activation,'disarmed');
       const retained=plugin.goals;
+      const priorToBlock=plugin.goals.get(f.agent);
+      const reason={code:'needs-input',message:'A choice is required.'};
+      reject=true;
+      assert.throws(()=>plugin.goals.block(f.agent,priorToBlock,reason),/native revision conflict/);
+      assert.deepEqual(plugin.goals.get(f.agent),priorToBlock);
+      reject=false;
+      const blocked=await f.scope.runOwned(()=>plugin.goals.block(f.agent,priorToBlock,{...reason,message:'  A choice is required.  '}));
+      assert.equal(blocked.phase,'blocked');
+      assert.equal(blocked.activation,'disarmed');
+      assert.deepEqual(blocked.blockedReason,reason);
+      assert.deepEqual(accepted.at(-1),{action:'block',id:priorToBlock.id,...reason});
+      await f.owner.flush();
+      const cold=workbenchHistory(f.options);
+      try {
+        const last=(await cold.capture('one')).lastEvent('goal/change').data;
+        assert.equal(last.operation,'block');
+        assert.deepEqual(last.goal.blockedReason,reason);
+        assert.equal(last.goal.revision,blocked.revision);
+      } finally {await cold.close();}
       await app.reconcile([]);
       assert.equal(cleanup?.activation,'disarmed','the disposer can revoke scheduling');
       assert.equal(disarms,4);

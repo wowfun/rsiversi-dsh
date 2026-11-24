@@ -545,6 +545,9 @@ The caller's Loader entry supplies the identity for an explicit plugin
 completion. A create followed by completion in the same callback spends no
 round. The native controller can arm the surviving active choice when the
 callback yields.
+An in-process plugin can block its active Goal at the observed revision.
+Its policy code and trimmed explanation return from the original service and
+from cold replay. The native controller stops scheduling when it accepts the block.
 The original service's `disarm(agent)` also revokes the Host scheduling lease.
 Calling it before a create or resume yields prevents that activation. It leaves
 the Goal phase, revision and event stream intact.
