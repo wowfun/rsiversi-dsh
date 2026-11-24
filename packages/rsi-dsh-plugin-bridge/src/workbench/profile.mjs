@@ -6,6 +6,7 @@ const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-edit
   'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-skill-office','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy','dsh-fs-sandbox',
   'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env','dsh-jobs-local','dsh-action-cards',
+  'dsh-user-questions','dsh-web','dsh-web-fetch-http','dsh-ptc-runtime-node',
   'dsh-subagent','dsh-subagent-spawn-in-process'].map(name=>'@deepseek-ai/'+name));
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
 

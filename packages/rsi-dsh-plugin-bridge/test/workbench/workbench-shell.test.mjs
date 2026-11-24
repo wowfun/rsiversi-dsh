@@ -14,6 +14,29 @@ import {workbenchProfile} from '../../src/workbench/profile.mjs';
 import {shellPreset} from '../../../../fixtures/market/shell-preset.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('preset plugins receive the released question, web fetch and TypeScript workflow services',{skip:!root},async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-preset-services-'));
+  let app;
+  t.after(async()=>{await app?.close();await rm(profile,{recursive:true,force:true});});
+  const require=createRequire(join(root,'package.json'));
+  const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
+  const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
+  const {rows}=await workbenchProfile(modules,boot,profile);
+  app=await createApplication({profile,modules,provide:async(ctx,load)=>{
+    await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
+  }});
+  const services=new Set(['dsh-user-questions','dsh-web','dsh-web-fetch-http','dsh-ptc-runtime-node',
+    'dsh-sandbox-local','dsh-subprocess-local','dsh-sandbox-policy','dsh-fs-sandbox'].map(name=>'@deepseek-ai/'+name));
+  await app.reconcile([{insert:rows.filter(row=>services.has(row.name))}]);
+  const {ctx}=app;
+  ctx.on('user-questions/request',async request=>({answers:[{id:request.questions[0].id,selected:['Continue']}]}));
+  const question={id:'choice',question:'Continue?',options:[{label:'Continue'}]};
+  assert.deepEqual(await ctx.userQuestions.ask({questions:[question]}),{answers:[{id:'choice',selected:['Continue']}]});
+  assert.deepEqual(ctx.web.listProviders().fetch.map(provider=>provider.id),['http']);
+  assert.equal(ctx.ptcRuntime.language,'typescript');
+  assert.equal(ctx.ptcRuntime.isolation,'process');
+});
+
 test('the market filesystem enforces the release policy for the Session workspace',{skip:!root},async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-dsh-fs-'));
   const workspace=join(profile,'project');

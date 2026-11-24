@@ -10,6 +10,10 @@ Before the workbench announces a newly attached Agent, its scope retains the
 recorded composition. A plugin that supplied a scope during setup keeps its
 revision. Plugins can read the composition from the first `agent/created`
 notification, including after a Host restart.
+DSH preset entries resolve their question, web-provider registry and Node PTC
+services from the release's base profile. The original question service uses
+the Session-scoped answerer waterfall, and the HTTP fetch provider uses DSH's
+destination and response limits. The preset determines which tools to register.
 Selecting a different composition on a blank Agent notifies DSH
 `tools/change` observers. Selecting its already recorded and bound
 revision leaves the tool observers and selection log quiet.
