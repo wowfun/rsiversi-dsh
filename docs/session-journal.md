@@ -22,6 +22,10 @@ The native owner must advance the cut when changing the preset. Selection times
 record local observation time; event sequence, not wall-clock time, orders the log.
 Preset identifiers in the Header and selection records are nonblank strings of
 at most 256 UTF-16 code units; native admission owns the preset-name grammar.
+The workbench exposes the release's `agentPreset` Session projection to
+clients and plugins. It starts with the creation choice (or null) and
+folds committed selections in log order. A resumed Agent uses that same
+projection to discover its preset's packaged skills.
 
 Plugins read the model-visible messages with `session.deriveMessages()`.
 It returns a fresh list in the release surface's order, with its replacements

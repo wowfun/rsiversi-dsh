@@ -9,13 +9,16 @@ const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-edit
   'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env','dsh-jobs-local','dsh-action-cards'].map(name=>'@deepseek-ai/'+name));
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
 
-/** Mount the shipped preset's filesystem skill provider in its Agent scope. */
-export async function providePresetSkills(ctx,modules,boot,load) {
+/** Project the native Session's preset and mount its packaged skills in Agent scope. */
+export async function provideWorkbenchPresets(ctx,modules,boot,load) {
   const web=modules.directory('@deepseek-ai/dsh-web-app');
   const manifest=JSON.parse(await readFile(join(web,'package.json'),'utf8'));
   const patches=new Set(manifest.dsh.bundle.patch),configs=new Map();
   const name='@deepseek-ai/dsh-skill-filesystem';
-  const [{interpolate},filesystem]=await Promise.all([load('@deepseek-ai/cordis-plugin-loader'),load(name)]);
+  const [{interpolate},filesystem,{agentPresetProjectionDefinition}]=await Promise.all([
+    load('@deepseek-ai/cordis-plugin-loader'),load(name),load('@deepseek-ai/dsh-agent-preset-registry'),
+  ]);
+  const selection=await ctx.sessionProjections.register(agentPresetProjectionDefinition);
   function configFor(preset){
     const patch=`./presets/${preset}.patch.yml`;
     if(!patches.has(patch))return;
@@ -42,7 +45,7 @@ export async function providePresetSkills(ctx,modules,boot,load) {
     agent.ctx.on('session/event',(session,event)=>{
       if(session===agent.session&&event.type==='agent-preset/selected')return select(event.data.agentPreset);
     });
-    await select(agent.session.lastEvent('agent-preset/selected')?.data.agentPreset??agent.session.header.agentPreset);
+    await select(selection.stateOf(agent.session));
   });
 }
 
