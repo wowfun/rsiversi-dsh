@@ -21,8 +21,27 @@ async function fixture(t){
   }
   const ctx={effect(){},emit(){},parallel:async()=>{}};
   const Manager=managedPackages(Original,()=>market,{parseInstallSpec:()=>({kind:'registry',name:'fixture'}),classifyInstallFailure:()=> 'unknown'});
-  return {manager:new Proxy(new Manager(ctx,{}),{}),market,boundary};
+  return {manager:new Proxy(new Manager(ctx,{}),{}),market,boundary,ctx};
 }
+test('install output and exit cross the event boundary with and without request identity',{skip:!cohort},async t=>{
+  const {manager,market,ctx}=await fixture(t);
+  const events=[];
+  ctx.emit=(name,data)=>{
+    if(name!=='plugin-manager/install-log')return;
+    assert.deepEqual(JSON.parse(JSON.stringify(data)),data);
+    events.push(data);
+  };
+  market.prepare=async(_spec,_signal,_registry,log)=>{log.write('preparing');return {dispose:async()=>{}};};
+  market.commitBundle=async()=>({application:'applied',changed:true});
+  for(const options of [{},{requestId:'correlated'}]){
+    events.length=0;
+    assert.equal((await manager.installBundle('fixture@1',options)).application,'applied');
+    assert.deepEqual(events.map(e=>[e.stream,e.text]),[['stderr','preparing'],['stdout','']]);
+    assert.equal(events[1].exitCode,0);
+    assert.equal(events[0].jobId,events[1].jobId);
+    for(const event of events)assert.equal(event.requestId,options.requestId);
+  }
+});
 test('queued cancellation joins without starting preparation or waiting for the preceding writer',{skip:!cohort},async t=>{
   const {manager,market,boundary}=await fixture(t);
   const held=Promise.withResolvers(),entered=Promise.withResolvers();

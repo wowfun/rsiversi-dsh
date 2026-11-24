@@ -116,6 +116,9 @@ as in an upstream profile. A peer resolves from the installed private graph
 or the selected host. Absent peers stay absent. A release selection records
 the exact version of each host binding it actually uses.
 
+Install log chunks share their stage job ID. They include the caller's
+`requestId` only when the caller supplied one.
+
 For first-install checks, resolve with `--runtime-only` and run
 `package-market.mjs COHORT SHARDS` with no plugin names. The application
 starts without either catalog fixture plugin. Install an independently chosen

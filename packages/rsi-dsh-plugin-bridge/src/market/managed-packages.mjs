@@ -66,14 +66,16 @@ export function managedPackages(Manager,market,{parseInstallSpec,classifyInstall
           for(const [index,selected] of plan.entries()){
             signal.throwIfAborted();result.registries.push(selected);
             announce('installing',{registry:selected,index:index+1,total:plan.length});
-            const jobId=randomUUID();let output='';
+            const run={jobId:randomUUID(),argv:['application.stage',spec],cwd:profile,
+              ...(options.requestId===undefined?{}:{requestId:options.requestId})};
+            let output='';
             const log={write:text=>{output=(output+text).slice(-8192);emit('plugin-manager/install-log',{
-              requestId:options.requestId,jobId,argv:['application.stage',spec],cwd:profile,stream:'stderr',text});}};
+              ...run,stream:'stderr',text});}};
             let failure;
             try {candidate=await market().prepare(spec,signal,selected,log,options.expected);}
             catch(error){failure=error;log.write(String(error.message??error));}
             result.packageResult={exitCode:failure?1:0,output};
-            emit('plugin-manager/install-log',{requestId:options.requestId,jobId,argv:['application.stage',spec],cwd:profile,stream:'stdout',text:'',exitCode:signal.aborted?null:result.packageResult.exitCode});
+            emit('plugin-manager/install-log',{...run,stream:'stdout',text:'',exitCode:signal.aborted?null:result.packageResult.exitCode});
             if(candidate)break;
             if(signal.aborted)throw failure;
             const kind=classifyInstallFailure({log:output});result.packageResult.kind=kind;
