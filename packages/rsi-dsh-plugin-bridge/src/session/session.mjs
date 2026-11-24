@@ -17,11 +17,14 @@ const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is
 export const presetId = value => typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
 const shape = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).every(key => keys.includes(key));
-function envelope(event, seq) {
+function envelope(event, seq, api) {
   if (!shape(event, ['seq', 'time', 'type', 'data', 'surfaceOp', 'sourceEventSeqs', 'ignorable'])
       || event.seq !== seq || !integer(event.seq) || !Number.isSafeInteger(event.time)
-      || (!allowed.has(event.type) && !isForkAnnotation(event.type) && !isChildSetupEvent(event.type)) || !Object.hasOwn(event, 'data')
+      || typeof event.type !== 'string' || !Object.hasOwn(event, 'data')
       || (event.ignorable !== undefined && event.ignorable !== true)) throw new Error('unsupported or invalid event envelope');
+  if (!allowed.has(event.type) && !isForkAnnotation(event.type) && !isChildSetupEvent(event.type)
+      && (!api.pluginRecordOf?.(event) || event.surfaceOp !== undefined || event.sourceEventSeqs !== undefined))
+    throw new Error('unsupported or invalid event envelope');
   const data = event.data;
   if (isForkAnnotation(event.type)) assertForkAnnotation(event);
   if (event.surfaceOp !== undefined && (isJournalEvent(event.type)||isChildSetupEvent(event.type)))
@@ -152,7 +155,7 @@ export class SessionFacade {
     if (!integer(inheritedEventCount) || inheritedEventCount > events.length) throw new Error('invalid inherited prefix');
     this.inheritedEventCount = inheritedEventCount;
     this.#ctx = ctx; this.#api = api; this.#surface = new api.SurfaceManager(this.#events);
-    for (const event of events) this.#admit(event, false, eventState === 'shared-frozen');
+    for (const event of events) this.#admit(event, false, eventState === 'shared-frozen' || admitted.has(event));
     this.firstLiveSeq = this.seq;
     if (announce) this.attach();
   }
@@ -252,7 +255,7 @@ export class SessionFacade {
     return event;
   }
   #prepare(event, seq, usedBytes, adopt) {
-    envelope(event, seq);
+    envelope(event, seq, this.#api);
     const known = adopt ? admitted.get(event) : undefined;
     const encoded = known ? undefined : JSON.stringify(event);
     const bytes = known?.bytes ?? Buffer.byteLength(encoded);

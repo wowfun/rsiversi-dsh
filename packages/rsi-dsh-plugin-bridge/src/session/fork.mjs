@@ -37,24 +37,22 @@ export function forkSnapshot(canonical, { header, afterFact, throughFact, includ
   if (!identity(header.id) || header.id === canonical.header.id) throw new Error('fork requires a new Session identity');
   const all = canonical.events;
   validateSeed(canonical.seed, validateLineage(canonical.lineage, all.length), projections, canonical.header);
-  for (const event of all) if (!schemas.has(event.type)) throw new Error(`event lacks a fork reference schema: ${event.type}`);
   const mapping = restoreMapping(); mapping.turn = canonical.mapping.turn;
   let events, seed, seedEventCount;
   if (afterFact === 0 && includeInherited) {
-    events = structuredClone(all); seed = structuredClone(canonical.seed ?? null);
+    events = all.slice(); seed = structuredClone(canonical.seed ?? null);
     seedEventCount = canonical.lineage?.seedEventCount ?? 0;
   } else {
+    for (const event of all) if (!schemas.has(event.type)) throw new Error(`event lacks a fork reference schema: ${event.type}`);
     const start = afterFact === throughFact ? all.length : all.findIndex(event => event.type === 'turn/start'
       && event.data.rsi?.session === canonical.header.id && event.data.rsi.fact > afterFact && event.data.rsi.fact <= throughFact);
     if (start < 0) throw new Error('fork window lacks canonical Turn provenance');
     const prefix = all.slice(0, start);
     const restored = projections.restore(canonical.seed ?? {}, prefix, 0, canonical.header, canonical.inheritedEventCount ?? 0);
-    // Both released and development timeContext states contain only clocks
-    // and browser-zone values. They do not store parent event references.
-    const {timeContext,...core} = restored.checkpoint;
-    if (Object.keys(core).sort().join(',') !== 'plan,todos,turnBoundary'
-      || ![3,4].includes(restored.checkpoint.plan.ver) || restored.checkpoint.todos.ver !== 2
-      || restored.checkpoint.turnBoundary.ver !== 2 || timeContext && ![2,3].includes(timeContext.ver))
+    const {plan,todos,turnBoundary,timeContext,systemSections,...other} = restored.checkpoint;
+    if (Object.keys(other).length || ![3,4,5].includes(plan?.ver) || todos?.ver !== 2
+      || turnBoundary?.ver !== 2 || timeContext && ![2,3].includes(timeContext.ver)
+      || systemSections && systemSections.ver !== 4)
       throw new Error('fork projection schema is not admitted');
     seed = structuredClone(restored.checkpoint);
     // The omitted prefix is closed. Its old step locations are not child events.

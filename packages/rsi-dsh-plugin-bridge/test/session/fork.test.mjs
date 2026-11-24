@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createBridge } from '../../src/index.mjs';
 import { restoreMapping } from '../../src/history/history.mjs';
+import { loadCohort } from '../../../rsi-dsh-cordis/src/runtime/cohort.mjs';
 
 for (const clocks of [false,true]) {
 const cohortRoot = clocks ? process.env.RSI_DSH_MARKET_COHORT : process.env.RSI_DSH_COHORT;
@@ -31,7 +32,10 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   const boundary = (turn, fact) => ({ turn, rsi: { session: 'parent', fact, turn: `turn-${turn}` } });
   add('plan/mode', { active: true });
   add('request/header', { header: { config: { provider: 'provider', model: 'model' } }, reason: 'initial' });
-  const head = add('system/message', { turn: 0, step: 0, message: message('system', 'system', 'Old instructions') }, { surfaceOp: 'append' });
+  const initialHead = message('system', 'system', 'Old instructions');
+  initialHead.source = {kind:'system-prompt',reset:true,complete:true,
+    sections:[{name:'project',state:'active',order:1,contentIndex:0}]};
+  const head = add('system/message', { turn: 0, step: 0, message: initialHead }, { surfaceOp: 'append' });
   add('turn/start', boundary(1, 1));
   add('user/message', message('excluded', 'user', 'EXCLUDED_PRIVATE_CONVERSATION'), { surfaceOp: 'append' });
   add('todo/write', { todos: [{ content: 'Prior state', status: 'completed' }] });
@@ -45,7 +49,11 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   add('todo/write', { todos: [{ content: 'Selected state', status: 'pending' }] });
   add('turn/end', { ...boundary(2, 10), reason: { kind: 'completed' } });
   const mapping = restoreMapping(); mapping.factCursor = 10; mapping.turn = 2;
-  await bridge.load({ header: { version: 4, id: 'parent', createdAt: 1, isSeeded: false }, events, mapping, revision: 3 });
+  const header = { version: 4, id: 'parent', createdAt: 1, isSeeded: false };
+  const cut = events.findIndex(event => event.type==='turn/start' && event.data.turn===2);
+  await bridge.load({header,events:events.slice(0,cut),mapping:{...mapping,factCursor:5,turn:1},revision:2});
+  const prefix = bridge.checkpoint('parent');
+  await bridge.load({ header, events, mapping, revision: 3 });
   const original = bridge.canonical('parent');
   const fork = (id, afterFact, throughFact = 10, source = 'parent') => bridge.fork(source,
     { header: { version: 4, id, createdAt: 20, isSeeded: true }, afterFact, throughFact, includeInherited: afterFact === 0 });
@@ -58,7 +66,11 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   if(clocks) { assert.ok([2,3].includes(last.seed.timeContext.ver));assert.equal(last.seed.timeContext.seq,1); }
   assert.equal(last.seed.plan.seq, 1);
   assert.equal(last.seed.plan.val.active, false);
-  assert.equal(last.seed.plan.val.activeAtLastHeader, true, 'metadata replay must not overwrite the exact baseline');
+  assert.deepEqual(last.seed.plan.val,prefix.plan.val);
+  if(prefix.systemSections){
+    assert.equal(prefix.systemSections.val.sections[0].text,'Old instructions');
+    assert.deepEqual(last.seed.systemSections.val,prefix.systemSections.val);
+  }
   assert.ok(!JSON.stringify(last).includes('EXCLUDED_PRIVATE_CONVERSATION'));
   assert.deepEqual(last.events.map(event => event.seq), last.events.map((_, index) => index));
   const replacement = last.events.find(event => event.surfaceOp?.op === 'replace');
@@ -115,5 +127,32 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   commandLog.events.at(-2).data.sourceEventSeq = 4;
   await bridge.load(commandLog);
   assert.throws(() => fork('omitted-command-source',5), /command result points outside the window/);
+  const custom = structuredClone(original);
+  const end = custom.events.pop();
+  const {Session,appendPluginRecord,pluginRecordOf} = await (await loadCohort(cohortRoot)).import('@deepseek-ai/dsh-session');
+  const writer = Session.create('annotation-writer');
+  for(const {type,data,surfaceOp,sourceEventSeqs} of custom.events) writer.append(type,data,{surfaceOp,sourceEventSeqs});
+  const position = appendPluginRecord(writer,'plugin:example/annotation',{sourcePosition:source.seq});
+  const note = writer.eventAt(position);
+  custom.events.push(note,{...end,seq:note.seq+1});
+  await bridge.load(custom);
+  const copied = fork('plugin-event-child',0);
+  assert.deepEqual(copied.events.slice(0,copied.inheritedEventCount),custom.events);
+  assert.deepEqual(pluginRecordOf(copied.events[position]),pluginRecordOf(note));
+  const sibling = fork('plugin-event-sibling',0);
+  assert.notEqual(sibling.events,copied.events);
+  assert.equal(sibling.events[position],copied.events[position]);
+  assert.throws(()=>{copied.events[position].data.sourcePosition=0;},TypeError);
+  assert.equal(copied.events[copied.events[note.seq].data.sourcePosition].data.id,'visible');
+  await bridge.load(copied);
+  assert.deepEqual(bridge.canonical('plugin-event-child').events[note.seq],note);
+  const reloaded = fork('plugin-event-grandchild',0,0,'plugin-event-child');
+  assert.equal(reloaded.events[position],copied.events[position]);
+  assert.throws(() => fork('partial-plugin-event',5), /lacks a fork reference schema/);
+  for(const edit of [{ignorable:false},{type:'example/annotation'},{surfaceOp:'append'}]){
+    const invalid = structuredClone(custom);
+    Object.assign(invalid.events[note.seq],edit);
+    await assert.rejects(bridge.load(invalid));
+  }
 });
 }

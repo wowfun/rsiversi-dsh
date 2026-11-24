@@ -1,4 +1,4 @@
-import {SessionFacade, validateHeader} from '../../session/session.mjs';
+import {SessionFacade, encodedEventBytes, validateHeader} from '../../session/session.mjs';
 import {forkSnapshot, validateLineage, validateSeed} from '../../session/fork.mjs';
 import {ForkTransfers} from '../../session/fork-transfer.mjs';
 import {restoreMapping} from '../../history/history.mjs';
@@ -49,8 +49,13 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
     const metadata = structuredClone(canonical);
     const lineage = validateLineage(canonical.lineage, events.length);
     if ((canonical.inheritedEventCount ?? 0) !== (lineage?.inheritedEventCount ?? 0)) throw new Error('fork inherited count mismatch');
-    const mirrored = forks.encodedBytes + residentBytes(canonical.header.id);
-    if (mirrored + Buffer.byteLength(JSON.stringify(events)) > 256 * 1024 * 1024) throw new Error('generation mirror capacity');
+    const available = 256 * 1024 * 1024 - forks.encodedBytes - residentBytes(canonical.header.id);
+    let bytes = events.length === 0 ? 2 : events.length + 1; // JSON array brackets and commas.
+    for (const event of events) {
+      bytes += encodedEventBytes(event);
+      if (bytes > available) break;
+    }
+    if (bytes > available) throw new Error('generation mirror capacity');
     const replacement = new SessionFacade(ctx, api, { ...canonical, events }, false);
     validateSeed(canonical.seed, lineage, ctx.sessionProjections, canonical.header);
     if (canonical.seed) {

@@ -869,10 +869,13 @@ latter. Original cold conversation rendering therefore retains refused calls.
 Stored application projections built without those call events cannot reconcile
 the changed source prefix. They are not silently rewritten or discarded.
 
-Fork cuts are immutable completed-turn selections. Last(n) preserves the exact
-projection baseline while excluding omitted conversation messages. Event schemas
-must explicitly declare references before admission. Unknown schemas and invalid
-seed versions fail before publishing a fork. A manual fork starts as a draft;
+Fork cuts are immutable completed-turn selections. A complete prefix preserves
+admitted events and their original sequence numbers, including positions inside
+opaque `plugin:` records. Restored records use the selected DSH cohort's
+`pluginRecordOf` grammar and remain log-only. Last(n) preserves the exact projection baseline
+while excluding omitted conversation messages. Renumbering requires a known
+reference schema for each event. Every fork checks its projection seed versions.
+A manual fork starts as a draft, and
 its first input creates an independent execution root with historical lineage.
 Turn boundaries carry their RSI Session/Fact provenance. A Last window replays
 only selected turns; its seed is the original Todo/Plan projection state immediately
@@ -881,8 +884,13 @@ as at most two metadata events. Seed rows skip that metadata, avoiding a fabrica
 Plan narration transition. Replacements and source references are rewritten only
 for declared event schemas; excluded tool-result rewrites stay excluded. Full
 forks preserve the existing seed and event identities, including nested lineage.
+Each in-process child owns its event array. Loading or forking a mirror reuses
+events already admitted as immutable and counts their original encoded bytes
+toward its capacity. Exporting the child serializes the same standalone log.
 The pinned turn-boundary projection keeps its last Turn number; omitted closed
-Step references are cleared. Todo v2 and Plan v4 contain no sequence references.
+Step references are cleared. The selected Plan, Todo, time-context and committed
+system-section states retain their values at the cut. Their admitted versions
+store command identities, clocks and section content independently of event positions.
 
 Limits apply before JSON parsing, append, seed hydration and installation. The
 process transport accepts UTF-8 JSON lines with at most 1 MiB before the newline
