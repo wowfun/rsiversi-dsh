@@ -11,7 +11,7 @@ const body=({seq,time,...value})=>value;
 /** One synchronous application event owner; native commands remain outside this log. */
 export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
-  #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
+  #modelSelectionId;#revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
   #sourceDigest=createSourceDigest();#nativePreset;
   constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions,nativeEventState,nativePreset}={}) {
@@ -57,8 +57,7 @@ export class SessionProjectionJournal {
         ||operation.source!==undefined&&(!integer(operation.source)||sources[operation.source]?.operation!==operation.id
           ||!isDeepStrictEqual(body(this.#session.eventAt(sources[operation.source].seq)),
             body(this.#session.eventAt(operation.seq)))))throw Error('Invalid application mutation record');
-      positions.add(operation.seq);this.#operations.set(operation.id,operation);
-      this.#operationIds[operation.seq]=operation.id;
+      positions.add(operation.seq);this.#addOperation(operation,this.#session.eventAt(operation.seq).type);
     }
     for(const [index,row] of sources.entries()) {
       if(row.operation===undefined?positions.has(row.seq):this.#operations.get(row.operation)?.source!==index||
@@ -99,6 +98,12 @@ export class SessionProjectionJournal {
   }
   operation(id){return this.#operations.get(id);}
   operationAt(seq){return this.#operations.get(this.#operationIds[seq]);}
+  latestModelSelection(){return this.#operations.get(this.#modelSelectionId);}
+  #addOperation(operation,type) {
+    this.#operations.set(operation.id,operation);
+    this.#operationIds[operation.seq]=operation.id;
+    if(type==='model/selection')this.#modelSelectionId=operation.id;
+  }
   #entry(){if(this.#publishing)throw Error('Reentrant application journal mutation');}
   #isLocalEvent(event){return isJournalEvent(event?.type)||!!this.#api.pluginRecordOf?.(event);}
   #publish(events) {
@@ -139,8 +144,7 @@ export class SessionProjectionJournal {
     this.#session.begin();let event;
     try{event=this.#session.appendObserved(type,data,time,opts);}finally{this.#session.end();}
     if(id!==undefined){
-      this.#operations.set(id,Object.freeze({id,seq:event.seq,...(invocation===undefined?{}:{invocation})}));
-      this.#operationIds[event.seq]=id;
+      this.#addOperation(Object.freeze({id,seq:event.seq,...(invocation===undefined?{}:{invocation})}),type);
     }
     this.#owned.push(event);this.#revision++;
     this.#publish([event]);return event;

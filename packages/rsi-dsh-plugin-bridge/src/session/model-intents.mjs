@@ -10,7 +10,7 @@ const integer=value=>Number.isSafeInteger(value)&&value>=0;
 /** Synchronous choice acceptance; native effects settle through the supplied publication owner. */
 export function modelIntents(journal,command) {
   let tail=Promise.resolve();
-  const latest=()=>journal.operations().findLast(row=>journal.session.eventAt(row.seq).type==='model/selection');
+  const latest=()=>journal.latestModelSelection();
   // Retained JSON is an external boundary; newly prepared in-process records are already frozen.
   for(const operation of journal.operations()) {
     const event=journal.session.eventAt(operation.seq);if(event.type!=='model/selection')continue;

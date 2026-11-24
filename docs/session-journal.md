@@ -370,6 +370,10 @@ invocation; no new request ID or revision is substituted. A local selection made
 later supersedes retries of older selections. Already dispatched work settles
 before the later selection executes. The latest unresolved choice prevents the
 driver's dependent submission from proceeding under an older choice.
+The journal remembers the latest local model choice while publishing or
+restoring operations. A lookup reads the current receipt by that identity
+even when later inbox operations share the journal. This reference lives
+only in memory.
 
 An attempt failure is retained separately from a successful receipt. The current
 native transport does not distinguish a rejected command from an unknown outcome,

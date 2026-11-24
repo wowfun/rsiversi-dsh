@@ -39,6 +39,24 @@ function native(kind='durable') {
   }};
 }
 
+test('latest local choice is visible during publication, after later inbox changes and after reopening',
+  {skip:!root},async t=>{
+    let driver,observed,encoded;
+    const {ctx,api,journal}=await fixture(t,{save:async value=>{encoded=value;},notify:(_session,event)=>{
+      if(event.type==='model/selection')observed=driver.latest()?.id;
+    }});
+    const host=native();
+    driver=modelIntents(journal,host.command);
+    assert.equal(driver.latest(),undefined);
+    const event=driver.accept(selection),id=journal.operationAt(event.seq).id;
+    assert.equal(observed,id);
+    journal.accept('later-inbox','agent/inbox/spliced',{target:'next-step',start:0,removedCount:1,inserted:[]});
+    await driver.ready();
+    assert.equal(driver.latest().receipt.request_id,id);
+    const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(encoded)});
+    assert.deepEqual(modelIntents(cold,host.command).latest(),driver.latest());
+  });
+
 test('lost native reply recovers the same invocation from original atomic persistence and applies once',
   {skip:!root},async t=>{
     const {ctx,api,load}=await fixture(t),{writeFileAtomic}=await load('dsh-atomic-write');
