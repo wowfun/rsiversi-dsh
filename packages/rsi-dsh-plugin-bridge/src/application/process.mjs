@@ -29,7 +29,7 @@ import {managedPackages} from '../market/managed-packages.mjs';
 import {historyHeader,workbenchHistory} from '../workbench/history.mjs';
 import {sessionJournalStore} from '../session/session-journal-store.mjs';
 import {workbenchPersistence} from '../workbench/persistence.mjs';
-import {workbenchAgents} from '../workbench/agents.mjs';
+import {registerWorkbenchContext,workbenchAgents} from '../workbench/agents.mjs';
 import {workbenchSubagents} from '../workbench/subagents.mjs';
 import {terminalController} from '../terminal/controller.mjs';
 import {applicationTools} from '../tools/application-tools.mjs';
@@ -191,6 +191,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const loopServices=['agents','sessions','sessionProjections','tools','systemPrompt'];
     if(hasLanguage)loopServices.push('llm');
     await ctx.inject(loopServices,async loop=>{
+      await registerWorkbenchContext(loop,modules.entry('@deepseek-ai/dsh-working-directory'));
       agents=await workbenchAgents(loop,sessionScope,history,await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue,subagents);
       watchWorkbenchCatalog(loop,sessionScope,agents.sharedBlankChanged);
     }).await();

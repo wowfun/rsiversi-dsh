@@ -10,7 +10,11 @@ Before the workbench announces a newly attached Agent, its scope retains the
 recorded composition. A plugin that supplied a scope during setup keeps its
 revision. Plugins can read the composition from the first `agent/created`
 notification, including after a Host restart.
-DSH preset entries resolve their question, web-provider registry and Node PTC
+The Web server and the web-provider registry retain their distinct upstream
+Cordis entry IDs. The Session's `workingDirectory` projection folds directory
+changes for the Environment panel and scoped plugins. Prompt templates resolve
+`model` and `provider` from the request selection, falling back to the live
+Agent options. DSH preset entries resolve their question, web-provider registry and Node PTC
 services from the release's base profile. The original question service uses
 the Session-scoped answerer waterfall, and the HTTP fetch provider uses DSH's
 destination and response limits. The preset determines which tools to register.

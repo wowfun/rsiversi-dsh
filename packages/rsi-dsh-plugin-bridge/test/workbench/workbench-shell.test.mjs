@@ -22,6 +22,9 @@ test('preset plugins receive the released question, web fetch and TypeScript wor
   const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   const {rows}=await workbenchProfile(modules,boot,profile);
+  const namesById=new Map(rows.map(row=>[row.id,row.name]));
+  assert.equal(namesById.get('web'),'@deepseek-ai/dsh-web');
+  assert.equal(namesById.get('web-runtime'),'@deepseek-ai/dsh-web-app');
   app=await createApplication({profile,modules,provide:async(ctx,load)=>{
     await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
   }});

@@ -1,7 +1,23 @@
 import {setTimeout as delay} from 'node:timers/promises';
+import {createRequire} from 'node:module';
+import {isAbsolute} from 'node:path';
 import {captureAgentView} from './agent-view.mjs';
 import {nativeForkSeed} from './fork-seed.mjs';
 import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
+
+/** Context registrations owned upstream by the working-directory service and Agent loop. */
+export async function registerWorkbenchContext(ctx,workingDirectoryModule) {
+  const {z}=createRequire(workingDirectoryModule)('zod');
+  const directory=z.string().min(1).refine(isAbsolute).nullable();
+  await ctx.sessionProjections.register({
+    key:'workingDirectory',stateVersion:3,stateSchema:directory,
+    init:header=>header.cwd??null,
+    apply:(state,event)=>event.type==='workspace-root/change'?event.data.cwd:state,
+    wire:{viewSchema:directory,view:state=>state},
+  });
+  ctx.systemPrompt.variable('provider',context=>context.modelSelection?.provider??context.agent?.options.provider);
+  ctx.systemPrompt.variable('model',context=>context.modelSelection?.model??context.agent?.options.model);
+}
 
 /** Original Cordis owns Agent lifetime; native Session services own execution and history. */
 export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget},{agentEvents,AgentModel,modelSelectionProjectionDefinition},snapshotJsonValue,subagents) {

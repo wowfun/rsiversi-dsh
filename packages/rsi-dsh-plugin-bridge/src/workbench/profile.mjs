@@ -40,6 +40,10 @@ export async function workbenchProfile(modules,boot,state,{importer=false,langua
     const parts=entry.name.split('/');
     const name=parts.slice(0,entry.name.startsWith('@')?2:1).join('/');
     if(name!==entry.name) continue;
+    if(name==='@deepseek-ai/dsh-web-app'){
+      rows.push({id:entry.id,name,config:{openBrowser:false,printUrl:false}});
+      continue;
+    }
     // Its DSH journal setters cannot change the native Turn's permissions.
     if(name==='@deepseek-ai/dsh-client-ui-permission-presets') continue;
     const manifest=JSON.parse(await readFile(join(modules.directory(name),'package.json'),'utf8'));
@@ -60,6 +64,5 @@ export async function workbenchProfile(modules,boot,state,{importer=false,langua
     // client face independently of the backend service becoming available.
     if(client) clientOnly.add(entry.id);
   }
-  rows.push({id:'web',name:'@deepseek-ai/dsh-web-app',config:{openBrowser:false,printUrl:false}});
   return {rows,clientOnly};
 }

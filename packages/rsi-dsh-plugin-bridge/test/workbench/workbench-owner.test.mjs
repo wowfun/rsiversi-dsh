@@ -11,7 +11,7 @@ import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
-import {workbenchAgents} from '../../src/workbench/agents.mjs';
+import {registerWorkbenchContext,workbenchAgents} from '../../src/workbench/agents.mjs';
 import {nativeWorkingDirectory} from '../../src/session/working-directory.mjs';
 import {historyPage,historyCapture} from '../fixtures/history-page.mjs';
 
@@ -136,6 +136,14 @@ test('managed child keeps its project of origin and reopens in the Host-selected
 
 test('an existing chat follows committed directory changes through a cold workbench reopen',{skip:!root},async t=>{
   const f=await fixture(t),project=await mkdtemp(join(tmpdir(),'rsi-directory-change-'));
+  const prompt=await f.load('dsh-system-prompt');
+  await f.ctx.plugin(prompt.default);
+  const require=createRequire(join(root,'package.json'));
+  await registerWorkbenchContext(f.ctx,require.resolve('@deepseek-ai/dsh-working-directory'));
+  f.ctx.systemPrompt.section({name:'fixture:persona',order:10,text:'Selected: {{provider}} / {{model}}'});
+  const selection={provider:'fixture',model:'this-step'};
+  const assembled=await f.ctx.systemPrompt.assemble({modelSelection:selection});
+  assert.ok(prompt.renderPrompt(assembled).includes('Selected: fixture / this-step'));
   t.after(()=>rm(project,{recursive:true,force:true}));
   const [a,b,c]=['A','B','C'].map(name=>join(project,name));
   await Promise.all([a,b,c].map(path=>mkdir(path)));
@@ -163,6 +171,7 @@ test('an existing chat follows committed directory changes through a cold workbe
   const reopened=await cold.capture('one',meta());
   assert.equal(reopened.header.cwd,a);
   assert.equal(cold.owner(reopened).cwd,c);
+  assert.equal(f.ctx.sessionProjections.snapshot(reopened).values.workingDirectory,c);
   assert.deepEqual(reopened.snapshotEvents().filter(e=>e.type==='workspace-root/change').map(e=>e.data.cwd),[b,c]);
 });
 
