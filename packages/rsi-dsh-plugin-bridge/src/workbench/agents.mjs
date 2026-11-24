@@ -126,9 +126,10 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       ()=>{if(record.idleWait===pending)record.idleWait=undefined;});
     return pending;
   }
-  function mirror(record) {
+  function mirror(record,newSession) {
     const session={id:record.id,
       firstLiveSeq:record.view.session.seq,
+      firstLifecycleSeq:newSession&&record.view.session.header.isSeeded?record.view.session.inheritedEventCount:record.view.session.seq,
       get header(){return record.view.session.header;},get seq(){return record.view.session.seq;},
       get inheritedEventCount(){return record.view.session.inheritedEventCount;},
       get surface(){return record.view.session.surface;},
@@ -226,7 +227,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     const record={id,closed:false,pending:new Set(),idleStop:new AbortController(),view:await captureAgentView(scope,history,id,options.signal)};
     record.owner=history.owner?.(record.view.session);record.notified=record.view.session.seq;
     owner.fiber.assertActive();options.signal?.throwIfAborted();
-    const agent=record.agent=mirror(record);
+    const agent=record.agent=mirror(record,options.sessionId!==undefined);
     record.sessionCarrier=scopeTarget(agent.session,agent);record.dispatch=agentEvents(ctx,agent);
     let detach,announced=false,disposing,world;
     const publication=Promise.withResolvers(),retentionStop=new AbortController();

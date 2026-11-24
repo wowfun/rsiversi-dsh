@@ -44,6 +44,11 @@ On a live Session, `eventAt(seq)` returns `undefined` for an absent position.
 The half-open `snapshotEvents(start, end)` range stops at the current tail
 and returns an empty frozen array when it contains no events.
 
+An attached Agent exposes the release's `session.firstLifecycleSeq`. A newly
+created fork starts at its inherited cut, including its own seed marker.
+Reopening that fork starts after its stored events. This offset belongs to
+the current Agent attachment and requires no storage write.
+
 `session.observeEvent` registers a passive listener before returning `ready`.
 It can subscribe before a Session exists. It reads no baseline and starts no
 Agent or native history wait. Events from the registered Session's Cordis

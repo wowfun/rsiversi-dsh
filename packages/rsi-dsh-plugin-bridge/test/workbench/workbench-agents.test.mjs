@@ -13,6 +13,47 @@ import {SessionProjectionJournal} from '../../src/session/session-projection-jou
 import {inputIntents} from '../../src/session/inbox/input-intents.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('released telemetry captures a new fork marker and skips the saved log when that Agent reopens',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context(),agentApi=await load('dsh-agent');
+  await ctx.plugin((await load('dsh-session-projection')).default);await ctx.plugin(agentApi.AgentRegistry);
+  const api={...await load('dsh-session'),...await load('dsh-session/surface'),...await load('dsh-util-values')};
+  const parent=api.Session.create('parent');
+  parent.append('turn/start',{turn:1});
+  parent.append('turn/end',{turn:1,reason:{kind:'completed'},rsi:{session:'parent',turn:'turn',fact:3}});
+  const seed=parent.snapshotEvents(),header={version:4,id:'child',createdAt:1,parentSession:'parent',isSeeded:true};
+  const original=api.Session.create('child',seed,header,seed.length);
+  const journal=new SessionProjectionJournal(ctx,api,{header});
+  journal.merge(original.snapshotEvents(),new Map(),seed.length);
+  const scope=applicationSessions(async method=>{
+    assert.equal(method,'application.create');return {id:'child',summary:{createdAt:1}};
+  },{owner:'owner'});
+  t.after(async()=>{await ctx.fiber.dispose();await scope.close();});
+  scope.inbox.capture=async()=>({kind:'draft',shared:true,revision:0,pending:[]});
+  await workbenchAgents(ctx,scope,{
+    metadata:async()=>({selection_cursor:{kind:'draft',revision:0}}),
+    captureAgent:async()=>({session:journal.session,options:{}}),
+  },await load('dsh-scope'),agentApi,api.snapshotJsonValue);
+  const records=[];
+  const coordinator=new (await load('dsh-session-telemetry')).SessionTelemetryCoordinator(ctx,
+    {emit:record=>records.push(record.sourceEvent.envelope.seq),shutdown:async()=>{}},{capture:'on-demand'});
+  const capture=session=>{coordinator.captureSession(session);return records.splice(0);};
+  const created=await ctx.agents.create({sessionId:'child',meta:{parentSession:'parent'},seed,inheritedEventCount:seed.length});
+  const fresh=capture(original);
+  assert.deepEqual(fresh,[seed.length]);
+  assert.deepEqual(capture(created.agent.session),fresh);
+  assert.equal(created.agent.session.firstLifecycleSeq,original.firstLifecycleSeq);
+  assert.equal(created.agent.session.eventAt(original.firstLifecycleSeq).type,'session/end-seed');
+  await created.dispose();
+  const restored=api.Session.fromRestore('child',original.snapshotEvents(),header,seed.length,'shared-frozen');
+  const resumed=await ctx.agents.resume({resumeSessionId:'child'});
+  assert.deepEqual(capture(restored),[]);
+  assert.deepEqual(capture(resumed.agent.session),[]);
+  assert.equal(resumed.agent.session.firstLifecycleSeq,original.seq);
+  await resumed.dispose();
+});
+
 test('plugins claim an ordinary root on their native caller and publish it only after setup',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
