@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {writePayloadFiles} from '../../packages/rsi-dsh-cordis/src/archive/payload.mjs';
 import {digest,json} from '../../packages/rsi-dsh-cordis/src/release/artifacts.mjs';
 import {runtimeEnvironment} from '../../packages/rsi-dsh-cordis/src/runtime/node.mjs';
-import {homeOptions} from './home.mjs';
+import {fixtureWorkspaceContext,homeOptions} from './home.mjs';
 
 const [bin,home,document]=process.argv.slice(2).map(path=>resolve(path));
 await mkdir(home,{recursive:false});
@@ -72,11 +72,7 @@ profile = 'probe'
 routes = ['/document']
 source = {kind='directory',path='${document.replaceAll('\\','/')}'}
 process = {package='sample-application',digest='${digest(manifest)}',export='application',program='${process.execPath.replaceAll('\\','/')}',environment={${Object.entries({...runtimeEnvironment(),RSI_SUBMISSION_PROBE_WORKSPACE:workspace}).map(([name,value])=>name+'='+JSON.stringify(value)).join(',')}}}
-[[steps]]
-kind = 'patch'
-target = 'rsi-agent-workspace-context'
-config_json = ${JSON.stringify(JSON.stringify({user_instruction_file:join(config,'AGENTS.md'),user_agent_roots:[join(config,'agents')],user_skill_roots:[join(config,'skills')]}))}
-`);
+${fixtureWorkspaceContext(config)}`);
 cli('plugin','install','--local',source);
 const installed=JSON.parse(await readFile(join(home,'data/rsi/packages/resolution.json'),'utf8'));
 assert.equal(installed.packages['sample-application'].digest,digest(manifest));

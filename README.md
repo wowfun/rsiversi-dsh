@@ -27,6 +27,9 @@ of 1 MiB escaped native-valid text, exact durable acceptance readback, and
 idempotent same-message submission. The new Home retains hashes and results;
 the fixture stops its Host and provider. Market fixtures select config, data,
 state, cache and scratch below the chosen Home, including when reopening it.
+Their native Host reads personal instructions, agents and skills from the
+fixture configuration directory. Workspace-local discovery still uses the
+workspace selected for the session.
 
 ### Market integration verification
 

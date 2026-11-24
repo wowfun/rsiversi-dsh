@@ -1,8 +1,7 @@
 import {execFileSync} from 'node:child_process';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
-import {writeMarketServiceProfile} from '../../scripts/market-service-profile.mjs';
-import {homeOptions} from './home.mjs';
+import {homeOptions,writeFixtureMarketServiceProfile} from './home.mjs';
 
 const [bin,home,shards,selection,document]=process.argv.slice(2).map(path=>resolve(path));
 const config=join(home,'config/rsi'),state=join(home,'state/rsi');
@@ -18,6 +17,6 @@ const start=Date.now();
 const installed=JSON.parse(run('plugin','install','--local',...receipt.artifacts.map(row=>join(shards,row.name)),
   ...[receipt.toolchain,receipt.selection,receipt.importer].map(row=>join(selection,row.name))));
 const profile=join(config,'host-profiles/market');await mkdir(profile,{recursive:true});
-await writeMarketServiceProfile({receipt:join(selection,'receipt.json'),document,state,profile:'market',output:join(profile,'host.profile.toml'),importer:true});
+await writeFixtureMarketServiceProfile({receipt:join(selection,'receipt.json'),document,state,profile:'market',output:join(profile,'host.profile.toml'),importer:true},config);
 await writeFile(join(config,'rsi.toml'),"format = 1\n[service]\nkind = 'catalog'\nid = 'market'\n");
 console.log(JSON.stringify({installed:Object.keys(installed.packages),elapsedMs:Date.now()-start}));
