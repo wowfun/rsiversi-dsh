@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {remap} from './session.mjs';
+import {presetId,remap} from './session.mjs';
 import {inboxObservationProjection} from './inbox/inbox-observations.mjs';
 import {restoreInputOperation} from './inbox/input-invocation.mjs';
 
@@ -15,7 +15,8 @@ export function readJournalDocument(document) {
   if(document===undefined)return;
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
   const state=JSON.parse(document);
-  if(!shape(state,['version','header','inheritedEventCount','events','sources','sourceDigest','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom'])
+  if(!shape(state,['version','header','inheritedEventCount','events','sources','sourceDigest','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom','nativePreset'])
+    ||state.nativePreset!==undefined&&(state.version!==7||!presetId(state.nativePreset))
     ||![1,2,3,4,5,6,7].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
   const prefixDigest=state.version===7;
@@ -100,11 +101,11 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
   return events;
 }
 
-export function encodeJournalDocument(session,events,sources,sourceDigest,operations,inboxSlotFrom) {
+export function encodeJournalDocument(session,events,sources,sourceDigest,operations,inboxSlotFrom,nativePreset) {
   const event=session.lastEvent('session/title');
   const prefix=JSON.stringify({header:session.header,ownedEventCount:events.length,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
   const sourceMap=sources.map(({seq,operation})=>({seq,...(operation===undefined?{}:{operation})}));
-  const document=JSON.stringify({version:7,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,events,sources:sourceMap,sourceDigest,operations});
+  const document=JSON.stringify({version:7,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:sourceMap,sourceDigest,operations});
   const value=prefix.slice(0,-1)+',\n'+document.slice(1);
   if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
   return value;

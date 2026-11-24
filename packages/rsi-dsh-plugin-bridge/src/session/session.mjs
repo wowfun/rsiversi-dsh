@@ -13,7 +13,7 @@ const allowed = new Set([...journalEvents, 'todo/write', 'plan/mode', 'turn/star
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
   'tool/call', 'tool/result', 'session/end-seed', 'model/selection', 'agent/inbox/spliced']);
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
-const presetId = value => typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
+export const presetId = value => typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
 const shape = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).every(key => keys.includes(key));
 function envelope(event, seq) {

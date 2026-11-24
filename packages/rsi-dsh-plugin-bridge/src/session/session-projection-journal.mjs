@@ -13,10 +13,11 @@ export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
   #revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
-  #sourceDigest=createSourceDigest();
-  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions,nativeEventState}={}) {
+  #sourceDigest=createSourceDigest();#nativePreset;
+  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions,nativeEventState,nativePreset}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
     this.#sharedNative=nativeEventState==='shared-frozen';
+    this.#nativePreset=nativePreset;
     if(restore!==undefined) {
       if(!isDeepStrictEqual(restore.header,seed.header))throw Error('Invalid application journal identity');
       restore=this.#snapshot(restore);
@@ -233,14 +234,18 @@ export class SessionProjectionJournal {
     const appended=this.#session.snapshotEvents(start);this.#publish(appended);return Object.freeze(appended);
   }
   encode() {
+    let selected;
     const events=this.#owned.map(event=>{
+      if(event.type==='agent-preset/selected')selected=event.data.agentPreset;
       const operation=this.operationAt(event.seq);
       if(event.type==='agent/inbox/spliced'&&event.data.inserted.length===1&&
         operation?.source!==undefined&&this.#sources[operation.source].seq===event.seq)
         return {...event,data:{...event.data,inserted:null}};
       return event;
     });
-    return encodeJournalDocument(this.#session,events,this.#sources,this.#sourceDigest.copy().digest('hex'),this.operations(),this.#inboxSlotFrom);
+    const native=selected===undefined?undefined:this.#nativePreset?.();
+    return encodeJournalDocument(this.#session,events,this.#sources,this.#sourceDigest.copy().digest('hex'),this.operations(),this.#inboxSlotFrom,
+      native===selected?undefined:native);
   }
 
   flush() {

@@ -99,6 +99,18 @@ test('native draft preset changes preserve the Session and replay the observed c
   assert.equal(projection.stateOf(restored),'custom');
   const stored=JSON.parse(await f.options.storage.read('one'));
   assert.deepEqual(stored.events,[selected]);assert.deepEqual(stored.sources,[]);
+  // A Cordis-only selection is layered on the current native composition.
+  // Reopening must preserve it unless the Host changed its own preset while offline.
+  let document=JSON.stringify(stored);
+  const overlayOptions={...options,storage:{read:async()=>document,save:async(_id,value)=>{document=value;}}};
+  const overlay=workbenchHistory(overlayOptions);t.after(()=>overlay.close());
+  const layered=await overlay.capture('one',meta);
+  overlay.owner(layered).journal.append('agent-preset/selected',{agentPreset:'declared'});
+  await overlay.owner(layered).flush();
+  const reopenedOverlay=workbenchHistory(overlayOptions);t.after(()=>reopenedOverlay.close());
+  assert.equal(projection.stateOf(await reopenedOverlay.capture('one',meta)),'declared');
+  const switchedOffline=workbenchHistory(overlayOptions);t.after(()=>switchedOffline.close());
+  assert.equal(projection.stateOf(await switchedOffline.capture('one',{...meta,preset:'standard'})),'standard');
   await assert.rejects(history.capture('one',{...meta,created_at:2}),/identity changed/);
   facts.push({seq:1,timestamp_ms:3,type:'message_turn_accepted',turn_id:'first'});
   meta={...meta,preset:'standard',through:1,selection_cursor:{kind:'durable',fact_seq:1,control_seq:0}};

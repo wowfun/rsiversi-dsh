@@ -24,7 +24,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
   const collected=new FinalizationRegistry(({id,reference})=>{if(rows.get(id)===reference)rows.delete(id);});
   async function create(header,meta,call,release,signal,first) {
     let restore=readJournalDocument(await storage?.read(header.id));
-    const persisted=restore!==undefined,initialCut=cut(meta);
+    const persisted=restore!==undefined,initialCut=cut(meta),restoredNativePreset=restore?.nativePreset;
     const creation=persisted?undefined:await creationMeta?.(header.id,header.createdAt);
     const declared=creation?.meta??restore?.header;
     let annotations=creation?.annotations;
@@ -48,7 +48,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       changed();for(const listener of listeners)try{listener(event);}catch(error){report(error);}
     };
     const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{restore,nativeEventState:'shared-frozen',
-      native:initial?.value.session.snapshotEvents(),transitions:initial?.value.inbox.transitions,
+      native:initial?.value.session.snapshotEvents(),transitions:initial?.value.inbox.transitions,nativePreset:()=>row.meta?.preset,
       save:storage?value=>storage.save(header.id,value):undefined,report,
       notify:(_session,event)=>batch?batch.push(event):publish(event)});
     restore=undefined;
@@ -100,7 +100,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           const inbox=inboxObservationProjection(journal,events,native.inbox.transitions);
           for(const [seq,id] of inbox.correlations)correlations.set(seq,id);
           const preceding=[];
-          if(meta.preset!==undefined&&meta.preset!==row.meta?.preset) {
+          if(meta.preset!==undefined&&meta.preset!==(row.merged?row.meta?.preset:restoredNativePreset)) {
             const selected=journal.session.lastEvent('agent-preset/selected')?.data.agentPreset??journal.session.header.agentPreset;
             if(meta.preset!==selected)preceding.push({type:'agent-preset/selected',data:{agentPreset:meta.preset},time:Date.now()});
           }

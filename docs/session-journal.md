@@ -16,8 +16,11 @@ native choice as `agent-preset/selected`, before the events in the same newly
 observed cut. Re-reading a cut adds nothing; an older draft revision cannot
 undo a newer choice. Selection records and native events publish atomically.
 The compact journal keeps those records and the original Header so a cold
-reader reconstructs the same immutable events. Native Session admission remains
-the sole authority for choosing a preset; the record performs no mutation.
+reader reconstructs the same immutable events. Native Session admission owns
+the executable Host composition. An original DSH-only declaration can supply
+a Cordis scope on that composition. While such a selection is recorded, the
+journal remembers its underlying native preset so a cold reader can distinguish
+an unchanged Host from a native switch made while the workbench was closed.
 The native owner must advance the cut when changing the preset. Selection times
 record local observation time; event sequence, not wall-clock time, orders the log.
 Preset identifiers in the Header and selection records are nonblank strings of
