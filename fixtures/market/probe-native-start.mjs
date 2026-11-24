@@ -2,11 +2,12 @@ import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
-import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,stat,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
 import {writePayloadFiles} from '../../packages/rsi-dsh-cordis/src/archive/payload.mjs';
+import {readDigest} from '../../packages/rsi-dsh-cordis/src/archive/tree.mjs';
 import {digest,json} from '../../packages/rsi-dsh-cordis/src/release/artifacts.mjs';
 import {runtimeEnvironment} from '../../packages/rsi-dsh-cordis/src/runtime/node.mjs';
 import {fixtureWorkspaceContext,homeOptions} from './home.mjs';
@@ -73,6 +74,7 @@ ${fixtureWorkspaceContext(config)}`);
 cli('plugin','install','--local',source);
 const installed=JSON.parse(await readFile(join(home,'data/rsi/packages/resolution.json'),'utf8'));
 assert.equal(installed.packages['sample-application'].digest,digest(manifest));
+using probeHost = { [Symbol.dispose]() { cli('host','stop'); } };
 const start=new URL(cli('web','--assets',document,'--no-open','--port','0').match(/https?:\/\/[^\s]+/)[0]);
   const response=await fetch(start.origin+'/api/v2/browser-bootstrap',{method:'POST',headers:{
     origin:start.origin,'x-rsi-csrf':'1','x-rsi-launch-ticket':start.hash.slice(12)}});
@@ -83,12 +85,11 @@ const start=new URL(cli('web','--assets',document,'--no-open','--port','0').matc
   const submission=await fetch(start.origin+'/document/submit',{method:'POST',headers:{cookie,origin:start.origin,'x-rsi-csrf':'1','sec-fetch-site':'same-origin'},signal:AbortSignal.timeout(120000)});
   const text=await submission.text();assert.equal(submission.status,200,text);
   const evidence={bootstrap:response.status,document:result.status,submission:JSON.parse(text),
-    executable:{path:bin,sha256:digest(await readFile(bin))},
+    executable:{path:bin,sha256:await readDigest(bin,(await stat(bin)).size)},
     sources:await Promise.all(files.map(async file=>({path:file.path,sha256:digest(await readFile(file.source))}))),
     package:digest(manifest)};
   await writeFile(join(home,'result.json'),JSON.stringify(evidence,null,2));
   console.log(JSON.stringify(evidence));
 } finally {
-  try {cli('host','stop');}
-  finally {await new Promise(resolve=>provider.close(resolve));}
+  await new Promise(resolve=>provider.close(resolve));
 }
