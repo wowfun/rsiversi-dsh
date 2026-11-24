@@ -30,6 +30,9 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const selected=await workbenchProfile(modules,boot,profile);
   assert.ok(selected.rows.some(row=>row.id==='action-cards'));
   const managed=await workbenchProfile(modules,boot,profile,{importer:true,language:true});
+  for(const {rows} of [selected,managed]){
+    assert.deepEqual(rows.filter(row=>['@deepseek-ai/dsh-plugin-market','@deepseek-ai/dsh-client-ui-plugin-market'].includes(row.name)),[]);
+  }
   const kinds=rows=>rows.filter(row=>['plugin-recommendations','creation-recommendations'].includes(row.id)).map(row=>row.id);
   assert.deepEqual(kinds(selected.rows),[]);
   assert.deepEqual(kinds(managed.rows),['creation-recommendations','plugin-recommendations']);

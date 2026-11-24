@@ -41,7 +41,6 @@ export async function workbenchProfile(modules,boot,state,{importer=false,langua
     // client face independently of the backend service becoming available.
     if(client) clientOnly.add(entry.id);
   }
-  rows.push({id:'web',name:'@deepseek-ai/dsh-web-app',config:{openBrowser:false,printUrl:false}},
-    {id:'discover',name:'@deepseek-ai/dsh-client-ui-plugin-market'});
+  rows.push({id:'web',name:'@deepseek-ai/dsh-web-app',config:{openBrowser:false,printUrl:false}});
   return {rows,clientOnly};
 }

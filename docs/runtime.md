@@ -1007,6 +1007,11 @@ and incomplete load transfers remain pinned. Receipts for evicted mirrors report
 `{"state":"unloaded"}`; the RSI owner reconciles canonical evidence before accepting
 that response and reloads the journal before another callback. Failed load
 transfers are explicitly aborted; no persisted plugin state is owned by the cache.
+The standard workbench leaves custom plugin indexes disabled. The released
+`@deepseek-ai/dsh-experimental-plugin-market-bundle` supplies both the
+Discover tab and the Host index service while enabled. Its selection survives
+a Host restart through the regular profile. The plugin manager still accepts
+direct installs with custom indexes disabled.
 Before installing, Discover inspects a candidate through the same registry
 and npm toolchain as its install. Metadata goes to stdout, diagnostics to
 stderr. An inspection does not publish a package or enable code.

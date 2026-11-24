@@ -171,11 +171,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       const command=await packageCommand(profile,market.packageRunner);
       ctx.effect(()=>()=>command.close(),'managed package command');
       packageManager=command.invocation;
-      for(const [id,name] of [['plugin-manager','dsh-plugin-manager'],['plugin-market','dsh-plugin-market']]) {
-        const selected={id,name:'@deepseek-ai/'+name};
-        const index=base[0].insert.findIndex(row=>row.id===id);
-        if(index===-1) base[0].insert.push(selected);else base[0].insert[index]=selected;
-      }
+      base[0].insert.push({id:'plugin-manager',name:managerName});
     }
     ctx.provide('profileContext',{name:basename(profile),dir:profile,
       patchPath:join(profile,'cordis.patch.yml'),installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),
