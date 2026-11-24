@@ -30,8 +30,6 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     let annotations=creation?.annotations;
     if(meta.inherited&&declared?.origin==='subagent')
       header={...header,origin:declared.origin,...(declared.delegationDepth===undefined?{}:{delegationDepth:declared.delegationDepth})};
-    if(meta.plugin_child_depth!==undefined&&declared?.parentSession===meta.parent&&declared.cwd)
-      header={...header,cwd:declared.cwd};
     if(restore)header={...identityHeader(header),...restore.header.agentPreset===undefined?{}:{agentPreset:restore.header.agentPreset}};
     const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome});
     if(header.origin&&declared&&source.current.session.header.parentSession!==declared.parentSession)
@@ -71,7 +69,8 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     async function reconcileClears(signal) {
       if(input.needsClearReconciliation)input.reconcileClears(await inbox.capture(header.id,signal));
     }
-    const row={journal,driver,input,source,cwd:meta.cwd,meta:undefined,merged:false,
+    const row={journal,driver,input,source,meta:undefined,merged:false,
+      get cwd(){return source.current.session.lastEvent('workspace-root/change')?.data.cwd??meta.cwd;},
       get version(){return version;},
       onEvent(listener){listeners.add(listener);return ()=>listeners.delete(listener);},
       wait(after,signal) {
@@ -165,7 +164,6 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       if(meta.inherited){
         delete existing.parentSession;delete existing.origin;delete existing.delegationDepth;
       }
-      if(meta.plugin_child_depth!==undefined)existing.cwd=row.cwd;
       if(!isDeepStrictEqual(existing,identityHeader(header)))throw Error('Application Session identity changed');
       await row.apply(meta,call,release,signal,first);return row;
     },

@@ -7,7 +7,8 @@ import {workbenchOwners} from './owner.mjs';
 import {nativeCapture} from '../history/native-pages.mjs';
 
 export function historyHeader(meta) {
-  return {version:4,id:meta.id,createdAt:meta.created_at,...(meta.cwd?{cwd:meta.cwd}:{}),
+  const cwd=meta.creation_cwd??meta.cwd;
+  return {version:4,id:meta.id,createdAt:meta.created_at,...(cwd?{cwd}:{}),
     ...(meta.preset?{agentPreset:meta.preset}:{}),isSeeded:meta.inherited,
     ...(meta.plugin_child_depth===undefined?{}:{parentSession:meta.parent,origin:'subagent',delegationDepth:meta.plugin_child_depth})};
 }
@@ -124,8 +125,6 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       const hint=saved?.header?.id===meta.id&&saved.header.createdAt===meta.created_at?saved:undefined;
       const header={...historyHeader(meta),...(meta.parent?{parentSession:meta.parent}:{})};
       const declared=journal?.session.header??hint?.header;
-      if(meta.plugin_child_depth!==undefined&&declared?.parentSession===meta.parent&&declared.cwd)
-        header.cwd=declared.cwd;
       if(meta.inherited&&declared?.parentSession===meta.parent&&declared?.origin==='subagent') {
         header.origin=declared.origin;
         if(declared.delegationDepth!==undefined)header.delegationDepth=declared.delegationDepth;

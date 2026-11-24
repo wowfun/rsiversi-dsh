@@ -1391,9 +1391,13 @@ order for that Session. Both dispatch the released `working-directory/access`
 waterfall before inspecting the directory. A waiting plugin receives the
 requested path (null for validation), Agent and cancellation signal. Its
 rejection leaves the recorded directory and the Agent inbox untouched.
-Changing a native Session's execution coordinates
-requires a new Session. A remote or missing local directory cannot fall back
-to the adapter process's own directory.
+A redirected local plugin child's public Session header retains its parent's
+creation directory, including through nested delegation. Its working directory
+starts at the selected location. If that location disappears and the creation
+directory is available, the child returns there and receives a working-directory
+notice for its next model step. Reopening the child retains the restored
+selection even if the old location has been recreated. If both locations are
+unavailable, directory validation fails.
 Invalid JSON or an oversized sidebar JSON request has the plugin's HTTP 400
 bad-request envelope. A rejected Session or workspace has HTTP 403.
 After admission, handler failures propagate to the original WebServer for

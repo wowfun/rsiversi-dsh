@@ -2,7 +2,7 @@ import {nativeSubmission} from '../fixtures/native-submission.mjs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,rename,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -74,7 +74,7 @@ test('managed child keeps its project of origin and reopens in the Host-selected
   const origin=await mkdtemp(join(tmpdir(),'rsi-child-origin-'));
   const target=await mkdtemp(join(tmpdir(),'rsi-child-target-'));
   t.after(()=>Promise.all([origin,target].map(path=>rm(path,{recursive:true,force:true}))));
-  const meta={...f.meta(),parent:'parent',plugin_child_depth:1,cwd:target};
+  const meta={...f.meta(),parent:'parent',plugin_child_depth:1,cwd:target,creation_cwd:origin};
   const read=async(id,op,signal)=>op.type==='open'?meta:op.type==='capture'?historyCapture(meta,op,[],f.controls):
     op.type==='page_close'?null:f.options.read(id,op,signal);
   async function open(creationMeta){
@@ -82,7 +82,7 @@ test('managed child keeps its project of origin and reopens in the Host-selected
     const session=await history.capture('one',meta),owner=history.owner(session);
     return {history,session,owner};
   }
-  const {history,session,owner}=await open(()=>({meta:{parentSession:'parent',cwd:origin,origin:'subagent'}}));
+  const {history,session,owner}=await open();
   const notices=[];
   const agent={session:{header:session.header,lastEvent:type=>session.lastEvent(type),
     append:(type,data)=>owner.journal.append(type,data,{},true)},inject:message=>notices.push(message)};
@@ -132,6 +132,39 @@ test('managed child keeps its project of origin and reopens in the Host-selected
   assert.equal(cold.owner.cwd,target);
   assert.equal(cold.session.lastEvent('workspace-root/change').data.cwd,target);
   assert.equal((await cold.history.snapshot(meta)).header.cwd,origin);
+});
+
+test('working directory recovery follows the Host record even when the old path returns',{skip:!root},async t=>{
+  const f=await fixture(t),rootDir=await mkdtemp(join(tmpdir(),'rsi-restored-child-'));
+  t.after(()=>rm(rootDir,{recursive:true,force:true}));
+  const origin=join(rootDir,'A'),selected=join(rootDir,'B');
+  await Promise.all([mkdir(origin),mkdir(selected)]);
+  const meta=()=>({...f.meta(),parent:'parent',plugin_child_depth:1,cwd:selected,creation_cwd:origin});
+  const read=(id,operation,signal)=>operation.type==='open'?meta():
+    operation.type==='capture'?historyCapture(meta(),operation,[],f.controls):f.options.read(id,operation,signal);
+  const open=()=>workbenchHistory({...f.options,read});
+  const history=open();t.after(()=>history.close());
+  const session=await history.capture('one',meta()),owner=history.owner(session),agent={session};
+  let restores=0;
+  const working=nativeWorkingDirectory({ctx:f.ctx,lifetime:new AbortController().signal,
+    ownsAgent:value=>value===agent,ownsSession:value=>value===session,directoryOf:()=>owner.cwd,
+    async restoreDirectory(){
+      restores++;f.change({kind:'working_directory_restored',cwd:origin});
+      await history.capture('one',meta());return origin;
+    }});
+  assert.equal(await working.ensure(agent),selected);
+  await rename(selected,join(rootDir,'moved'));
+  assert.deepEqual(await Promise.all([working.ensure(agent),working.ensure(agent)]),[origin,origin]);
+  assert.equal(restores,1);
+  await mkdir(selected);
+  assert.equal(working.get(session),origin);
+  assert.equal(session.lastEvent('workspace-root/change').data.cwd,origin);
+  await history.close();
+  const cold=open();t.after(()=>cold.close());
+  const recovered=await cold.capture('one',meta());
+  assert.equal(recovered.header.cwd,origin);
+  assert.equal(cold.owner(recovered).cwd,origin);
+  assert.equal(recovered.snapshotEvents().filter(event=>event.type==='workspace-root/change').length,1);
 });
 
 test('native draft preset changes preserve the Session and replay the observed choice before its first Turn', {skip:!root},async t=>{

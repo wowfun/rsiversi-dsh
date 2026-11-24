@@ -1,7 +1,7 @@
 import {realpath,stat} from 'node:fs/promises';
 import {relative,resolve} from 'node:path';
 
-export function nativeWorkingDirectory({ctx,lifetime,ownsSession,ownsAgent,directoryOf,createUserMessage}){
+export function nativeWorkingDirectory({ctx,lifetime,ownsSession,ownsAgent,directoryOf,createUserMessage,restoreDirectory}){
   const pending=new WeakMap();
   function get(session){
     if(!ownsSession(session)||!session?.header?.cwd)throw Error('Session has no available local working directory');
@@ -25,9 +25,15 @@ export function nativeWorkingDirectory({ctx,lifetime,ownsSession,ownsAgent,direc
   }
   return {get,
     ensure:(agent,signal)=>access(agent,null,signal,async control=>{
-      const cwd=current(agent,control),actual=await realpath(cwd);
-      if(relative(actual,cwd)!==''||!(await stat(actual)).isDirectory())throw Error('Session working directory is no longer available');
-      return current(agent,control);
+      const cwd=current(agent,control);
+      try {
+        const actual=await realpath(cwd);
+        if(relative(actual,cwd)!=='')throw Error('Session working directory changed its canonical target');
+        if((await stat(actual)).isDirectory())return current(agent,control);
+      }catch(error){if(error.code!=='ENOENT'&&error.code!=='ENOTDIR')throw error;}
+      current(agent,control);
+      if(restoreDirectory&&cwd!==agent.session.header.cwd)return restoreDirectory(agent,control);
+      throw Error('Session working directory is no longer available');
     }),
     set:(agent,path,signal)=>access(agent,path,signal,async control=>{
       if(typeof path!=='string'||!path)throw Error('Working directory must not be empty');

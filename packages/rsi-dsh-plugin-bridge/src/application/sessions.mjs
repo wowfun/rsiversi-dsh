@@ -79,7 +79,12 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
     if(active.publication)return active.publication.accepting?active.publication:undefined;
     if(response)return active.publication=requestPublication(response);
   }
-  const workingDirectory=nativeWorkingDirectory({ctx,lifetime:activities.signal,directoryOf,createUserMessage,ownsSession:session=>{
+  const workingDirectory=nativeWorkingDirectory({ctx,lifetime:activities.signal,directoryOf,createUserMessage,
+    async restoreDirectory(agent,signal){
+      const directory=await scoped('application.directory.ensure',{session_id:agent.id},signal);
+      await capture(agent.id,signal);
+      return directory;
+    },ownsSession:session=>{
     const active=scope.getStore();
     return agent?.(session?.id)?.session===session ||
       active!==undefined&&!active.released&&(active===session||active.agent?.session===session||active.views?.get(session?.id)===session);
