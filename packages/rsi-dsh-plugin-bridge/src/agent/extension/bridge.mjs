@@ -35,6 +35,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
   const executeTool = toolPipeline(ctx,await cohort.subpath('@deepseek-ai/dsh-tools','pipeline'),tools);
   await ctx.plugin(commands.default);
   ctx.provide('workingDirectory',nativeWorkingDirectory({ctx,lifetime:lifetime.signal,
+    directoryOf:session=>records.get(session.id)?.cwd,
     ownsSession:session=>!lifetime.signal.aborted&&records.get(session.id)?.session===session,
     ownsAgent:agent=>!lifetime.signal.aborted&&records.get(agent.id)?.agent===agent}));
   ctx.provide('userQuestions', { async ask(request) {

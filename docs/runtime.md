@@ -1397,7 +1397,10 @@ starts at the selected location. If that location disappears and the creation
 directory is available, the child returns there and receives a working-directory
 notice for its next model step. Reopening the child retains the restored
 selection even if the old location has been recreated. If both locations are
-unavailable, directory validation fails.
+unavailable, directory validation fails. In the Agent extension process a
+local mirror presents the same original Session header and reads its current
+working directory from the native load boundary. A committed move can update
+that directory while reusing the existing journal revision.
 Invalid JSON or an oversized sidebar JSON request has the plugin's HTTP 400
 bad-request envelope. A rejected Session or workspace has HTTP 403.
 After admission, handler failures propagate to the original WebServer for

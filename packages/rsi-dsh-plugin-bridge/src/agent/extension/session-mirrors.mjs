@@ -2,6 +2,7 @@ import {SessionFacade, encodedEventBytes, validateHeader} from '../../session/se
 import {forkSnapshot, validateLineage, validateSeed} from '../../session/fork.mjs';
 import {ForkTransfers} from '../../session/fork-transfer.mjs';
 import {restoreMapping} from '../../history/history.mjs';
+import {isAbsolute} from 'node:path';
 
 class Lane {
   #tail = Promise.resolve();
@@ -82,21 +83,24 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
   function get(id) { const record = records.get(id); if (signal.aborted || !record) throw new Error('Session unavailable'); return record; }
   const protocol = {
     forks,
-    beginAgentLoad({ session_id, created_at, local_cwd, revision, count, reload }) {
+    beginAgentLoad({ session_id, created_at, local_cwd, creation_cwd, revision, count, reload }) {
       if (signal.aborted || typeof reload !== 'boolean' || !Number.isSafeInteger(revision) || revision < 0 || !Number.isSafeInteger(count) || count < 0 || count > 100_000) throw new Error('invalid load boundary');
+      if(creation_cwd!==undefined&&(typeof local_cwd!=='string'||!isAbsolute(local_cwd)))throw Error('invalid local working directory');
+      const origin=creation_cwd??local_cwd;
       validateHeader({ version: 4, id: session_id, createdAt: created_at, isSeeded: false,
-        ...(local_cwd==null?{}:{cwd:local_cwd}) });
+        ...(origin==null?{}:{cwd:origin}) });
       const record = records.get(session_id);
       if (record?.staged || record?.active) throw new Error('pending transaction');
       if (!reload && revision > 0 && record?.canonical.revision === revision && record.committedCount === count
-        && record.canonical.header.createdAt === created_at && record.canonical.header.cwd === (local_cwd ?? undefined)
+        && record.canonical.header.createdAt === created_at && record.canonical.header.cwd === (origin ?? undefined)
         && !record.executing.size && !record.parked && !loading.has(session_id)) {
         record.settled = false;
+        record.cwd = local_cwd ?? undefined;
         return 'current';
       }
       makeRoom(session_id);
       if (record) record.settled = false;
-      loading.set(session_id, { session_id, created_at, local_cwd, revision, count, events: [], bytes: 0 });
+      loading.set(session_id, { session_id, created_at, local_cwd, creation_cwd, revision, count, events: [], bytes: 0 });
       return 'transfer';
     },
     appendAgentLoad({ session_id, offset, events }) {
@@ -123,25 +127,25 @@ export function sessionMirrors({ctx, api, llm, surface, request, records, intent
       loading.delete(session_id);
       await this.loadAgent({...load, checkpoint});
     },
-    async loadAgent({ session_id, created_at, local_cwd, revision, events, checkpoint }) {
+    async loadAgent({ session_id, created_at, local_cwd, creation_cwd, revision, events, checkpoint }) {
       const lineage = validateLineage(checkpoint?.lineage, events.length);
       await this.load({ header: { version: 4, id: session_id, createdAt: created_at, isSeeded: lineage !== null,
-        ...(local_cwd==null?{}:{cwd:local_cwd}),
+        ...(local_cwd==null?{}:{cwd:creation_cwd??local_cwd}),
         ...(lineage ? { parentSession: lineage.parentSession } : {}) },
         revision, events, seed: checkpoint?.seed ?? undefined, lineage, inheritedEventCount: lineage?.inheritedEventCount ?? 0,
-        pendingIntent: checkpoint?.pendingIntent ?? null, mapping: checkpoint?.mapping });
+        pendingIntent: checkpoint?.pendingIntent ?? null, mapping: checkpoint?.mapping },local_cwd??undefined);
     },
-    async load(canonical) {
+    async load(canonical,cwd=canonical.header.cwd) {
       if (signal.aborted || !Number.isSafeInteger(canonical.revision) || canonical.revision < 0) throw new Error('invalid canonical revision');
       const id = canonical.header.id;
       let record = records.get(id);
       if (!record) {
         makeRoom(id, Buffer.byteLength(JSON.stringify(canonical.events)));
         record = { settled: false, lane: new Lane(), epoch: 0, staged: null, active: null, receipts: new Map(), executing: new Set() };
-        restore(record, canonical); records.set(id, record);
+        restore(record, canonical); record.cwd=cwd; records.set(id, record);
       } else {
         const release = await record.lane.acquire();
-        try { if (record.staged || record.active) throw new Error('pending transaction'); restore(record, canonical); record.settled = false; } finally { release(); }
+        try { if (record.staged || record.active) throw new Error('pending transaction'); restore(record, canonical); record.cwd=cwd; record.settled = false; } finally { release(); }
       }
     },
     project(id) { return structuredClone(get(id).views); },

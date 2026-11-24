@@ -87,11 +87,24 @@ test('a published Mods fiber activates in the Agent bridge with the canonical lo
   bridge.beginAgentLoad({ reload: false, session_id:'mods-remote',created_at:1,local_cwd:null,revision:0,count:0});
   await bridge.finishAgentLoad({session_id:'mods-remote',checkpoint:null});
   assert.equal(bridge.canonical('mods-remote').header.cwd,undefined);
-  for(const id of ['mods-local','mods-remote']) {
+  const sibling=await mkdtemp(join(tmpdir(),'rsi-mods-cwd-'));
+  t.after(()=>rm(sibling,{force:true,recursive:true}));
+  bridge.beginAgentLoad({reload:false,session_id:'mods-child',created_at:1,local_cwd:sibling,
+    creation_cwd:root,revision:0,count:0});
+  await bridge.finishAgentLoad({session_id:'mods-child',checkpoint:null});
+  for(const id of ['mods-local','mods-remote','mods-child']) {
     const staged=await bridge.tool(id,'cwd-'+id,'todo_write',{todos:[{content:'Check cwd',status:'completed'}]});
     assert.equal(staged.payload.result.value?.counts?.completed,1,JSON.stringify(staged.payload.result));
     await bridge.receipt(id,'cwd-'+id,staged.token,'committed',1);
   }
+  assert.equal(bridge.canonical('mods-child').header.cwd,root);
+  assert.equal(observed.get('mods-child'),sibling);
+  const committed=bridge.canonical('mods-child');
+  assert.equal(bridge.beginAgentLoad({reload:false,session_id:'mods-child',created_at:1,local_cwd:root,
+    revision:1,count:committed.events.length}),'current');
+  const updated=await bridge.tool('mods-child','after-move','todo_write',{todos:[{content:'Check move',status:'completed'}]});
+  await bridge.receipt('mods-child','after-move',updated.token,'committed',2);
+  assert.equal(observed.get('mods-child'),root);
   assert.equal(observed.get('mods-local'),root);
   assert.match(observed.get('mods-remote'),/no available local working directory/);
 });
