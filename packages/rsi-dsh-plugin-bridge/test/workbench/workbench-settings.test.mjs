@@ -28,6 +28,13 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
     directory:name=>dirname(require.resolve(name+'/package.json'))};
   const boot=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')));
   const selected=await workbenchProfile(modules,boot,profile);
+  const web=modules.directory('@deepseek-ai/dsh-web-app');
+  const webManifest=JSON.parse(await readFile(join(web,'package.json'),'utf8'));
+  const declared=entries=>entries.filter(row=>row.name==='@deepseek-ai/dsh-agent-preset');
+  const upstream=declared(boot.composeEntries(boot.bundlePatchPaths(web,webManifest.dsh.bundle)
+    .map(file=>boot.loadOverlayPatches('test',file))));
+  assert.ok(upstream.some(row=>row.config.id==='minimal'));
+  assert.deepEqual(declared(selected.rows),upstream);
   assert.ok(selected.rows.some(row=>row.id==='action-cards'));
   const managed=await workbenchProfile(modules,boot,profile,{importer:true,language:true});
   for(const {rows} of [selected,managed]){

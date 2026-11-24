@@ -126,7 +126,7 @@ test('the workbench skill registry discovers and withdraws an original bundle pr
     selectPreset:async(_session,id)=>({selected:id,changed:true})};
   const Registry=workbenchPresetRegistry((await load('@deepseek-ai/dsh-agent-preset-registry')).default,
     (await load('@deepseek-ai/dsh-typert-protocol')).RemoteError,native,async()=>{},scopes,
-    await packagedPresetPlugins(ctx,modules,await load('@deepseek-ai/dsh-app-boot'),load));
+    await packagedPresetPlugins(ctx,profile.rows,load));
   await ctx.plugin(Registry,{default:'standard'});
   const current=session=>ctx.sessionProjections.snapshot(session).values.agentPreset;
   assert.equal(current(ctx.sessions.create('no-preset')),null);

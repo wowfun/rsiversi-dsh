@@ -1,8 +1,7 @@
 import {mkdir,readFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {pathToFileURL} from 'node:url';
 
-const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-agent-preset-registry',
+const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-agent-preset-registry','dsh-agent-preset',
   'dsh-host-directory-picker-auto','dsh-host-open-in-app','dsh-host-plugin-inventory','dsh-commands','dsh-session-title','dsh-session-stats','dsh-session-turn-outline','dsh-storage',
   'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-skill-office','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy','dsh-fs-sandbox',
@@ -10,21 +9,15 @@ const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-edit
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
 
 /** The existing packaged skill directories supplement the native composition. */
-export async function packagedPresetPlugins(ctx,modules,boot,load) {
-  const web=modules.directory('@deepseek-ai/dsh-web-app');
-  const manifest=JSON.parse(await readFile(join(web,'package.json'),'utf8'));
-  const patches=manifest.dsh.bundle.patch;
+export async function packagedPresetPlugins(ctx,rows,load) {
+  const definitions=rows.filter(row=>row.name==='@deepseek-ai/dsh-agent-preset');
   const name='@deepseek-ai/dsh-skill-filesystem';
   const {interpolate}=await load('@deepseek-ai/cordis-plugin-loader');
   return preset=>{
-    const patch=`./presets/${preset}.patch.yml`;
-    if(!patches.includes(patch))return [];
-    const file=join(web,patch);
-    const rows=boot.composeEntries([boot.loadOverlayPatches('rsi-dsh',file)]);
-    const definition=rows.find(row=>row.config?.id===preset);
+    const definition=definitions.find(row=>row.config.id===preset);
     const provider=definition?.config.plugins.find(row=>row.name===name&&row.disabled!==true);
     if(!provider)return [];
-    const config=interpolate({ctx,baseUrl:pathToFileURL(file).href},provider.config);
+    const config=interpolate({ctx,baseUrl:ctx.baseUrl},provider.config);
     return [{...provider,config:{...config,includeDefaultRoots:false,watch:false}}];
   };
 }
@@ -33,8 +26,11 @@ export async function packagedPresetPlugins(ctx,modules,boot,load) {
  * declarations. A backend requiring a missing service remains pending; third
  * party bundle activation still requires its actual Fiber to be active. */
 export async function workbenchProfile(modules,boot,state,{importer=false,language=false}={}) {
-  const patches=['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app'].map(name=>
-    boot.loadOverlayPatches('rsi-dsh',join(modules.directory(name),'cordis.patch.yml')));
+  const patches=await Promise.all(['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app'].map(async name=>{
+    const dir=modules.directory(name);
+    const {dsh}=JSON.parse(await readFile(join(dir,'package.json'),'utf8'));
+    return boot.bundlePatchPaths(dir,dsh.bundle).flatMap(file=>boot.loadOverlayPatches('rsi-dsh',file));
+  }));
   const composed=boot.composeEntries(patches);
   const rows=[], clientOnly=new Set();
   for(const entry of composed) {

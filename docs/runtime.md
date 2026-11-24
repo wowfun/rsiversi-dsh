@@ -239,6 +239,12 @@ The default deployment write root for such calls is the profile's private
 `workspaceRoot` to the project when hooks need to write there. A provider
 that passes a Session to the policy service gets its Session workspace.
 
+The workbench reads the base and Web bundles' ordered patch lists from their
+published manifests. Their preset entries use the original DSH declaration and
+registry. A matching native ID selects the native composition and configuration
+document. The native composition can use the packaged skill directories from
+that declaration. Presets supplied only by DSH retain their declared child tree.
+
 The DSH standard preset's model tools are `@deepseek-ai/dsh-tool-pwsh` on
 Windows and `@deepseek-ai/dsh-tool-bash` on Linux. A market profile can
 enable the corresponding Cordis entry. When the native preset also provides

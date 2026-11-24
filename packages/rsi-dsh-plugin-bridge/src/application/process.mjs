@@ -120,7 +120,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const presets='@deepseek-ai/dsh-agent-preset-registry';
     const presetModule=await load(presets);
     hostModules.set(presets,workbenchPresetRegistry(presetModule.default,RemoteError,sessionScope,
-      (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,modules,boot,load)));
+      (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load)));
     const {Deque}=await load('@deepseek-ai/dsh-deque');
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
       (id,signal,source)=>agents.ensure(id,signal,source)));
