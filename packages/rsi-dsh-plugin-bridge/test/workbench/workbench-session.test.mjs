@@ -13,7 +13,8 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workspaceController} from '../../src/workbench/workspace-controller.mjs';
 import {sessionController} from '../../src/workbench/session-controller.mjs';
 import {catalogObserver} from '../../src/workbench/catalog.mjs';
-import {provideWorkbenchPresets,workbenchProfile} from '../../src/workbench/profile.mjs';
+import {packagedPresetPlugins,workbenchProfile} from '../../src/workbench/profile.mjs';
+import {workbenchPresetRegistry} from '../../src/workbench/presets.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('chat prompts record the Typert caller and canonical time zone before attachment admission',{skip:!root},async t=>{
@@ -112,32 +113,49 @@ test('the workbench skill registry discovers and withdraws an original bundle pr
   assert.equal(officeSkill.provider,'dsh-office');
   assert.match(officeSkill.content,/existing Python/);
   await officeProvider.dispose();assert.equal(await ctx.skills.get('office'),undefined);
-  const {createScope,scopeTarget}=await load('@deepseek-ai/dsh-scope');
+  const scopes=await load('@deepseek-ai/dsh-scope');
+  ctx.baseUrl=pathToFileURL(join(root,'package.json')).href;
+  await ctx.plugin((await load('@deepseek-ai/cordis-plugin-loader')).default);
+  ctx.loader.internal={import:load,resolveSync:name=>({url:pathToFileURL(require.resolve(name)).href})};
+  ctx.loader.builtins.group=(await load('@deepseek-ai/cordis-plugin-group')).default;
   await ctx.plugin((await load('@deepseek-ai/dsh-session')).default);
   await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
-  await provideWorkbenchPresets(ctx,modules,await load('@deepseek-ai/dsh-app-boot'),load);
+  await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
+  const native={withCaller:fn=>fn(),readPresets:async()=>({presets:['standard','minimal','ptc'].map(id=>({id,is_default:id==='standard'}))}),
+    selectPreset:async(_session,id)=>({selected:id})};
+  const Registry=workbenchPresetRegistry((await load('@deepseek-ai/dsh-agent-preset-registry')).default,
+    (await load('@deepseek-ai/dsh-typert-protocol')).RemoteError,native,async()=>{},scopes,
+    await packagedPresetPlugins(ctx,modules,await load('@deepseek-ai/dsh-app-boot'),load));
+  await ctx.plugin(Registry,{default:'standard'});
   const current=session=>ctx.sessionProjections.snapshot(session).values.agentPreset;
   assert.equal(current(ctx.sessions.create('no-preset')),null);
   const session=ctx.sessions.create('changed-preset',{meta:{agentPreset:'minimal'}});
   assert.equal(current(session),'minimal');
   session.append('agent-preset/selected',{agentPreset:'standard'});
   assert.equal(current(session),'standard');
-  const agent={session},world=createScope(ctx,agent);agent.ctx=world.ctx;
+  const agent={id:session.id,session},world=scopes.createScope(ctx,agent);agent.ctx=world.ctx;
   t.after(()=>world.dispose());
-  await ctx.parallel('agent/created',{agent});
+  const cold=await ctx.agentPresets.acquireScope('standard');
+  t.after(()=>cold[Symbol.asyncDispose]());
+  assert.equal((await ctx.skills.get('dsh-doc',{scope:cold.key})).provider,'filesystem');
+  await ctx.agentPresets.bindSession(agent,'standard');
+  assert.equal(scopes.scopeParentOf(agent),cold.key);
   const read=()=>ctx.skills.get('dsh-doc',{scope:agent});
   assert.equal((await read()).provider,'filesystem');
   assert.equal(await ctx.skills.get('dsh-doc'),undefined);
   const local=join(dir,'.agents','skills','workspace-only');await mkdir(local,{recursive:true});
   await writeFile(join(local,'SKILL.md'),'---\nname: workspace-only\ndescription: Owned by native discovery\n---\nFixture');
   assert.deepEqual((await ctx.skills.list({scope:agent,cwd:dir})).map(skill=>skill.name),['dsh-doc']);
-  const select=preset=>ctx.parallel(scopeTarget(session,agent),'session/event',session,
-    session.append('agent-preset/selected',{agentPreset:preset}));
+  const select=preset=>ctx.agentPresets.select(agent,preset);
   await select('ptc');assert.equal((await read()).provider,'filesystem');
   await select('minimal');assert.equal(await read(),undefined);
   await select('standard');assert.equal((await read()).provider,'filesystem');
   await Promise.all([select('minimal'),select('ptc')]);assert.equal((await read()).provider,'filesystem');
   assert.equal(current(session),'ptc');
+  session.append('agent-preset/selected',{agentPreset:'minimal'});
+  await ctx.agentPresets.bindSession(agent,'minimal',true);
+  assert.equal(await read(),undefined);
+  assert.equal((await ctx.skills.get('dsh-doc',{scope:cold.key})).provider,'filesystem');
   const provider=ctx.plugin(await load('@deepseek-ai/dsh-skill-badge'));await provider.await();
   assert.ok((await ctx.skills.list()).some(skill=>skill.name==='dsh-badge'));
   assert.match((await ctx.skills.get('dsh-badge')).content,/726×120/);

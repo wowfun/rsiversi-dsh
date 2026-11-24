@@ -9,44 +9,24 @@ const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-edit
   'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env','dsh-jobs-local','dsh-action-cards'].map(name=>'@deepseek-ai/'+name));
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
 
-/** Project the native Session's preset and mount its packaged skills in Agent scope. */
-export async function provideWorkbenchPresets(ctx,modules,boot,load) {
+/** The existing packaged skill directories supplement the native composition. */
+export async function packagedPresetPlugins(ctx,modules,boot,load) {
   const web=modules.directory('@deepseek-ai/dsh-web-app');
   const manifest=JSON.parse(await readFile(join(web,'package.json'),'utf8'));
-  const patches=new Set(manifest.dsh.bundle.patch),configs=new Map();
+  const patches=manifest.dsh.bundle.patch;
   const name='@deepseek-ai/dsh-skill-filesystem';
-  const [{interpolate},filesystem,{agentPresetProjectionDefinition}]=await Promise.all([
-    load('@deepseek-ai/cordis-plugin-loader'),load(name),load('@deepseek-ai/dsh-agent-preset-registry'),
-  ]);
-  const selection=await ctx.sessionProjections.register(agentPresetProjectionDefinition);
-  function configFor(preset){
+  const {interpolate}=await load('@deepseek-ai/cordis-plugin-loader');
+  return preset=>{
     const patch=`./presets/${preset}.patch.yml`;
-    if(!patches.has(patch))return;
-    if(!configs.has(preset)){
-      const file=join(web,patch);
-      const rows=boot.composeEntries([boot.loadOverlayPatches('rsi-dsh',file)]);
-      const definition=rows.find(row=>row.config?.id===preset);
-      const provider=definition?.config.plugins.find(row=>row.name===name&&row.disabled!==true);
-      const config=provider&&interpolate({ctx,baseUrl:pathToFileURL(file).href},provider.config);
-      configs.set(preset,config&&{...config,includeDefaultRoots:false,watch:false});
-    }
-    return configs.get(preset);
-  }
-  ctx.on('agent/created',async ({agent})=>{
-    let provider,active;
-    const select=preset=>{
-      const config=configFor(preset);
-      if(config===active)return;
-      active=config;
-      const retired=provider?.dispose();
-      provider=config?agent.ctx.plugin(filesystem,config):undefined;
-      return Promise.all([retired,provider?.await()]);
-    };
-    agent.ctx.on('session/event',(session,event)=>{
-      if(session===agent.session&&event.type==='agent-preset/selected')return select(event.data.agentPreset);
-    });
-    await select(selection.stateOf(agent.session));
-  });
+    if(!patches.includes(patch))return [];
+    const file=join(web,patch);
+    const rows=boot.composeEntries([boot.loadOverlayPatches('rsi-dsh',file)]);
+    const definition=rows.find(row=>row.config?.id===preset);
+    const provider=definition?.config.plugins.find(row=>row.name===name&&row.disabled!==true);
+    if(!provider)return [];
+    const config=interpolate({ctx,baseUrl:pathToFileURL(file).href},provider.config);
+    return [{...provider,config:{...config,includeDefaultRoots:false,watch:false}}];
+  };
 }
 
 /** Use the released app's ordered client entries and published dsh.client

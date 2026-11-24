@@ -9,19 +9,18 @@ function metadata({id,name,description,broken}) {
 }
 const nativeSource=Symbol('Host composition');
 
-/** Use the DSH registry's generation and scope lifetime for both sources.
- * Native tools are supplied by the Host, so its Cordis child plugin list is empty. */
-export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{scopeOf}) {
+/** Native tools belong to the Host. Cordis owns its scoped providers and revision leases. */
+export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{scopeOf},nativePlugins=()=>[]) {
   return class extends Registry {
     declarations=new Map();
     sources=new Map();
     changes=orderedOperations();
     selections=orderedOperations();
 
-    async bindSession(agent,nativeId) {
-      if(this.composedPreset(agent.ctx)!==undefined)return;
+    async bindSession(agent,nativeId,nativeChanged=false) {
       const id=this.presetForSession(agent.session);
-      if(id==null)return;
+      const bound=this.composedPreset(agent.ctx);
+      if(id==null||bound===id||bound!==undefined&&!nativeChanged)return;
       const record=this.sources.get(id);
       if(!record&&id===nativeId)await this.useSource(id,true);
       else if(!record||record.source===nativeSource&&id!==nativeId)return;
@@ -41,7 +40,7 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
         if(source===current?.source)return;
         if(current){await current.dispose();this.sources.delete(id);}
         if(source){
-          const dispose=native?await super.register({id,plugins:[]}):await source.install();
+          const dispose=native?await super.register({id,plugins:nativePlugins(id)}):await source.install();
           this.sources.set(id,{source,dispose});
         }
       });

@@ -18,7 +18,7 @@ import {workbenchWorkspaceRegistry} from '../workbench/workspace-registry.mjs';
 import {hostHomePicker,workspaceController} from '../workbench/workspace-controller.mjs';
 import {sessionController} from '../workbench/session-controller.mjs';
 import {jobController} from '../workbench/job-controller.mjs';
-import {provideWorkbenchPresets,workbenchProfile} from '../workbench/profile.mjs';
+import {packagedPresetPlugins,workbenchProfile} from '../workbench/profile.mjs';
 import {workbenchPresetRegistry} from '../workbench/presets.mjs';
 import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
@@ -118,8 +118,9 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     }});
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
     const presets='@deepseek-ai/dsh-agent-preset-registry';
-    hostModules.set(presets,workbenchPresetRegistry((await load(presets)).default,RemoteError,sessionScope,
-      (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope')));
+    const presetModule=await load(presets);
+    hostModules.set(presets,workbenchPresetRegistry(presetModule.default,RemoteError,sessionScope,
+      (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,modules,boot,load)));
     const {Deque}=await load('@deepseek-ai/dsh-deque');
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
       (id,signal,source)=>agents.ensure(id,signal,source)));
@@ -186,7 +187,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     }
     const agentApi=await load('@deepseek-ai/dsh-agent');
     await ctx.plugin(agentApi.AgentRegistry);
-    await provideWorkbenchPresets(ctx,modules,boot,load);
+    await ctx.sessionProjections.register(presetModule.agentPresetProjectionDefinition);
     const loopServices=['agents','sessions','sessionProjections','tools','systemPrompt'];
     if(hasLanguage)loopServices.push('llm');
     await ctx.inject(loopServices,async loop=>{

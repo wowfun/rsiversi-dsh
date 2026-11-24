@@ -67,8 +67,8 @@ list summaries.
 Enabled bundles may register providers with the original DSH skill registry.
 The Web profile loads the Office skill provider from the release's Web bundle
 with its configured Python environment. The provider owns its packaged instructions.
-An Agent selecting a shipped Web preset inherits that preset's packaged skill
-directories through its scoped DSH filesystem provider. Native workspace and
+An Agent and a cold reader of the same shipped Web preset inherit its packaged
+skill directories from the same standing DSH scope. Native workspace and
 personal discovery stay with the Host. Leased package directories are immutable
 for the lifetime of the application and require no filesystem watcher.
 The Session-addressed skill catalog supplies slash suggestions from those

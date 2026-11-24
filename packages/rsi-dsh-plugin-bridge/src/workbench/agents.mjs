@@ -25,7 +25,9 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       const captured=await captureAgentView(scope,history,record.id,signal);
       if(record.closed)throw Error('Agent has retired');
       if(captured.session.seq<record.notified)throw Error('Native Agent history moved backwards');
-      const previous=record.agent.status;record.view=captured;
+      const previous=record.agent.status,presetChanged=record.view.preset!==captured.preset;
+      record.view=captured;
+      if(presetChanged)await ctx.get('agentPresets')?.bindSession?.(record.agent,captured.preset,true);
       publishEvents(record);
       if(record.agent.status!==previous)record.dispatch.emit('agent/status',{status:record.agent.status});
       return record.agent;
