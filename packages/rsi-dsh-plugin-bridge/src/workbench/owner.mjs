@@ -30,11 +30,13 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     let annotations=creation?.annotations;
     if(meta.inherited&&declared?.origin==='subagent')
       header={...header,origin:declared.origin,...(declared.delegationDepth===undefined?{}:{delegationDepth:declared.delegationDepth})};
+    if(meta.plugin_child_depth!==undefined&&declared?.parentSession===meta.parent&&declared.cwd)
+      header={...header,cwd:declared.cwd};
     if(restore)header={...identityHeader(header),...restore.header.agentPreset===undefined?{}:{agentPreset:restore.header.agentPreset}};
     const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome});
-    if(header.origin&&source.current.session.header.parentSession!==declared.parentSession)
+    if(header.origin&&declared&&source.current.session.header.parentSession!==declared.parentSession)
       throw Error('Declared fork parent differs from its native seed');
-    const newOrigin=!persisted&&header.origin!==undefined;
+    const newOrigin=!persisted&&header.origin!==undefined&&(meta.inherited||header.cwd!==meta.cwd);
     let initial;
     if(restore) {
       const ids=new Set(restore.operations.map(row=>row.id));
@@ -69,7 +71,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     async function reconcileClears(signal) {
       if(input.needsClearReconciliation)input.reconcileClears(await inbox.capture(header.id,signal));
     }
-    const row={journal,driver,input,source,meta:undefined,merged:false,
+    const row={journal,driver,input,source,cwd:meta.cwd,meta:undefined,merged:false,
       get version(){return version;},
       onEvent(listener){listeners.add(listener);return ()=>listeners.delete(listener);},
       wait(after,signal) {
@@ -159,7 +161,11 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
         }
         row=await pending;
       }
-      const {parentSession,origin,delegationDepth,...existing}=identityHeader(row.journal.session.header);
+      const existing=identityHeader(row.journal.session.header);
+      if(meta.inherited){
+        delete existing.parentSession;delete existing.origin;delete existing.delegationDepth;
+      }
+      if(meta.plugin_child_depth!==undefined)existing.cwd=row.cwd;
       if(!isDeepStrictEqual(existing,identityHeader(header)))throw Error('Application Session identity changed');
       await row.apply(meta,call,release,signal,first);return row;
     },

@@ -1243,6 +1243,22 @@ Authenticated sidebar WebSockets may establish a global connection without a
 Session URL parameter. The plugin owns its watch-frame protocol; the original
 Side Chat socket carries only stale-thread notifications and reads transcript
 bodies through the ordinary native-authorized HTTP route.
+The released subagent runtime owns provider registration, activation and result
+delivery. At a local start the workbench captures the calling Cordis plugin's
+package from its loader entry. A fresh child records that creator in its Host
+Header and can run while the parent is idle. The original provider prepares
+the child and the manager submits the initial prompt after setup. A running
+application tool also supplies its native effect identity. The Host resolves
+that effect against the live invocation before it admits the child.
+For a plugin action invoked by a browser, the Host checks that browser's access
+to the parent before the trusted manager starts its own activity. A call made by
+a running Tool retains the Tool invocation throughout creation.
+An explicit child working directory is resolved against the parent's current
+directory. The Host pins the result for execution, including a sibling project
+selected by the plugin. The DSH Session header retains its original project,
+and the child records its selected working directory for cold continuation. A
+changed directory queues the release's ordinary non-waking context notice.
+
 The workbench's subagent catalog reads native Session-backed child identities
 in stable pre-order. It exposes direct children and descendants without starting
 an Agent. Unknown live state and program-owned branches are reported as DSH

@@ -9,6 +9,21 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workspaceController} from '../../src/workbench/workspace-controller.mjs';
 import {catalogObserver,watchWorkbenchCatalog} from '../../src/workbench/catalog.mjs';
 
+test('plugin delegation authorizes the browser parent and preserves an executing Tool origin',async()=>{
+  const packets=[],tool={generation:'generation',effect:'effect'};
+  const scope=applicationSessions(async(method,args)=>{
+    packets.push([method,args.request,args.tool]);
+    if(method==='application.actor'&&args.session_id==='hidden')throw Error('unavailable');
+  },{owner:'host'});
+  const start=parent=>scope.withPluginParent(parent,()=>scope.createChild({parent}));
+  const request=await scope.prepare({url:'/api/test',headers:{'x-rsi-upstream-request':'browser'}});
+  await request(async()=>{await assert.rejects(start('hidden'),/unavailable/);await start('visible');});
+  await scope.withToolAgent({id:'visible',session:{header:{}}},()=>start('visible'),undefined,tool);
+  assert.deepEqual(packets,[['application.actor','browser',undefined],['application.actor','browser',undefined],
+    ['application.child.create','host',undefined],['application.child.create','host',tool]]);
+  await scope.close();
+});
+
 test('owner activity escapes the browser lifetime and drains ordered native receipts',async()=>{
   const seen=[],gate=Promise.withResolvers();let browser=true,settled=false;
   const scope=applicationSessions(async(method,args)=>{
@@ -183,8 +198,8 @@ test('Workspace followers share invalidation across a suspended baseline and rea
   for(const stream of [left,right])assert.equal((await stream.next()).value.type,'baseline');
   title='renamed';owner.invalidateWorkspaces();
   const frames=await Promise.all([left.next(),right.next()]);
-  assert.deepEqual(frames.map(({value})=>[value.type,value.value.items[0].workspaceId,value.value.items[0].title]),
-    [['replace','left',title],['replace','right',title]]);
+  assert.deepEqual(frames.map(({value})=>[value.type,value.workspace.workspaceId,value.workspace.title]),
+    [['upsert','left',title],['upsert','right',title]]);
   const pending=[left.next(),right.next()];
   await setImmediate();assert.equal(reads,4);stop.abort();
   for(const result of await Promise.allSettled(pending))assert.equal(result.reason?.name,'AbortError');

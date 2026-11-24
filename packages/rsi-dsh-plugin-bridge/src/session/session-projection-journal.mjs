@@ -1,5 +1,5 @@
 import {isDeepStrictEqual} from 'node:util';
-import {SessionFacade,digest,isDelegatedPolicy,isJournalEvent,remap} from './session.mjs';
+import {SessionFacade,digest,isChildSetupEvent,isJournalEvent,remap} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
 import {restoreJournalEvents,encodeJournalDocument,createSourceDigest} from './journal-document.mjs';
 
@@ -76,7 +76,7 @@ export class SessionProjectionJournal {
       if(native&&!operation)continue;
       const event=this.#session.eventAt(seq);
       if(!native&&!operation&&(seq<cut?seq<annotationStart:!isJournalEvent(event.type)&&
-          !(isDelegatedPolicy(event.type)&&this.#session.header.origin==='subagent')))
+          !(isChildSetupEvent(event.type)&&this.#session.header.origin==='subagent')))
         throw Error('Application journal contains unowned event positions');
       this.#owned.push(event);
     }
@@ -106,7 +106,7 @@ export class SessionProjectionJournal {
     finally{this.#publishing=false;}
   }
   append(type,data,opts={},delegating=false) {
-    if(!isJournalEvent(type)&&!(delegating&&this.#session.header.origin==='subagent'&&isDelegatedPolicy(type)))
+    if(!isJournalEvent(type)&&!(delegating&&this.#session.header.origin==='subagent'&&isChildSetupEvent(type)))
       throw Error('This Session event requires its owning native command');
     return this.#append(type,data,opts,Date.now());
   }

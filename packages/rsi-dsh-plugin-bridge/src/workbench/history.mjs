@@ -8,7 +8,15 @@ import {nativeCapture} from '../history/native-pages.mjs';
 
 export function historyHeader(meta) {
   return {version:4,id:meta.id,createdAt:meta.created_at,...(meta.cwd?{cwd:meta.cwd}:{}),
-    ...(meta.preset?{agentPreset:meta.preset}:{}),isSeeded:meta.inherited};
+    ...(meta.preset?{agentPreset:meta.preset}:{}),isSeeded:meta.inherited,
+    ...(meta.plugin_child_depth===undefined?{}:{parentSession:meta.parent,origin:'subagent',delegationDepth:meta.plugin_child_depth})};
+}
+
+function childCatalog(projected,native) {
+  if(!projected?.length)return native;
+  if(!native.length)return projected;
+  const known=new Set(projected.map(child=>child.id));
+  return [...projected,...native.filter(child=>!known.has(child.id))];
 }
 
 function windowOf(request) {
@@ -53,7 +61,8 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     async function projections(){
       const base=ctx.sessionProjections.snapshot(session),{spawned}=owner.source.current;
       const modelSelection=owner.model(),pending=owner.input.snapshot();
-      const subagentCatalog=spawned.size?(await listChildren(session.id,signal)).filter(child=>spawned.has(child.id)):[];
+      const native=spawned.size?(await listChildren(session.id,signal)).filter(child=>spawned.has(child.id)):[];
+      const subagentCatalog=childCatalog(base.values.subagentCatalog,native);
       const imageLimits=ctx.get('attachments')?.imageLimits;
       return {...base,values:{...base.values,subagentCatalog,modelSelection,inbox:pending,
         ...(imageLimits?{imageLimits}:{})}};
@@ -62,7 +71,9 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     // registry advances its cells incrementally against this bounded log view.
     let prefix,inboxPrefix;
     function* intermediate(previous,next){
-      let {modelSelection,inbox,subagentCatalog,imageLimits}=previous.values;
+      let {modelSelection,inbox,imageLimits}=previous.values;
+      const {spawned}=owner.source.current;
+      let native=previous.values.subagentCatalog.filter(child=>spawned.has(child.id));
       for(let seq=previous.asOfSeq+1;seq<next.asOfSeq;seq++){
         prefix??={header:session.header,inheritedEventCount:session.inheritedEventCount,
           eventAt:index=>session.eventAt(index),snapshotEvents:(start=0,end=prefix.seq)=>session.snapshotEvents(start,end)};
@@ -75,9 +86,9 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
           inbox=inboxPrefix.prefix(seq+1).snapshot();
         }
         if(event.type==='tool/result'&&next.values.subagentCatalog.length){
-          const {spawned}=owner.source.current;
-          subagentCatalog=next.values.subagentCatalog.filter(child=>owner.applicationSeq(spawned.get(child.id))<=seq);
+          native=next.values.subagentCatalog.filter(child=>spawned.has(child.id)&&owner.applicationSeq(spawned.get(child.id))<=seq);
         }
+        const subagentCatalog=childCatalog(base.values.subagentCatalog,native);
         yield {...base,values:{...base.values,subagentCatalog,modelSelection,inbox,...(imageLimits?{imageLimits}:{})}};
       }
     }
@@ -113,6 +124,8 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       const hint=saved?.header?.id===meta.id&&saved.header.createdAt===meta.created_at?saved:undefined;
       const header={...historyHeader(meta),...(meta.parent?{parentSession:meta.parent}:{})};
       const declared=journal?.session.header??hint?.header;
+      if(meta.plugin_child_depth!==undefined&&declared?.parentSession===meta.parent&&declared.cwd)
+        header.cwd=declared.cwd;
       if(meta.inherited&&declared?.parentSession===meta.parent&&declared?.origin==='subagent') {
         header.origin=declared.origin;
         if(declared.delegationDepth!==undefined)header.delegationDepth=declared.delegationDepth;

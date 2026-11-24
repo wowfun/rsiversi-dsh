@@ -12,6 +12,7 @@ import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workbenchAgents} from '../../src/workbench/agents.mjs';
+import {nativeWorkingDirectory} from '../../src/session/working-directory.mjs';
 import {historyPage,historyCapture} from '../fixtures/history-page.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -67,6 +68,38 @@ async function fixture(t) {
   const capture=async()=>history.capture('one',await history.metadata('one'));
   return {ctx,history,options,load,controls,change,capture,persistence,meta,hooks,get reads(){return reads;}};
 }
+
+test('managed child keeps its project of origin and reopens in the Host-selected sibling directory',{skip:!root},async t=>{
+  const f=await fixture(t);
+  const origin=await mkdtemp(join(tmpdir(),'rsi-child-origin-'));
+  const target=await mkdtemp(join(tmpdir(),'rsi-child-target-'));
+  t.after(()=>Promise.all([origin,target].map(path=>rm(path,{recursive:true,force:true}))));
+  const meta={...f.meta(),parent:'parent',plugin_child_depth:1,cwd:target};
+  const read=async(id,op,signal)=>op.type==='open'?meta:op.type==='capture'?historyCapture(meta,op,[],f.controls):
+    op.type==='page_close'?null:f.options.read(id,op,signal);
+  async function open(creationMeta){
+    const history=workbenchHistory({...f.options,read,creationMeta});t.after(()=>history.close());
+    const session=await history.capture('one',meta),owner=history.owner(session);
+    return {history,session,owner};
+  }
+  const {history,session,owner}=await open(()=>({meta:{parentSession:'parent',cwd:origin,origin:'subagent'}}));
+  const notices=[];
+  const agent={session:{header:session.header,lastEvent:type=>session.lastEvent(type),
+    append:(type,data)=>owner.journal.append(type,data,{},true)},inject:message=>notices.push(message)};
+  const working=nativeWorkingDirectory(value=>value===agent.session,value=>value===agent,()=>owner.cwd,f.options.llm.createUserMessage);
+  assert.equal(session.header.cwd,origin);
+  assert.equal(await working.set(agent,target),target);
+  await working.set(agent,target);
+  assert.equal(notices.length,1);
+  assert.deepEqual(notices[0].source,{kind:'working-directory'});
+  assert.equal(notices[0].content[0].text,`The working directory changed from ${JSON.stringify(origin)} to ${JSON.stringify(target)}.`);
+  await owner.flush();await history.close();
+  const cold=await open();
+  assert.equal(cold.session.header.cwd,origin);
+  assert.equal(cold.owner.cwd,target);
+  assert.equal(cold.session.lastEvent('workspace-root/change').data.cwd,target);
+  assert.equal((await cold.history.snapshot(meta)).header.cwd,origin);
+});
 
 test('native draft preset changes preserve the Session and replay the observed choice before its first Turn', {skip:!root},async t=>{
   const f=await fixture(t);

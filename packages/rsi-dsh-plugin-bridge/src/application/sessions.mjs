@@ -44,7 +44,7 @@ export function provideWorkbenchSessions(ctx,SessionStore,live,flush) {
 }
 
 /** Resident DSH Sessions and the current native-authorized request's views. */
-export function applicationSessions(send,{capture,owner,agent,registered=agent,attached,select,decorate}={}) {
+export function applicationSessions(send,{capture,owner,agent,registered=agent,attached,select,decorate,directoryOf,createUserMessage}={}) {
   const scope=new AsyncLocalStorage();
   const activities=applicationActivities(scope,owner);
   const submissionBodies=requestBodies(8*1024*1024);
@@ -83,7 +83,7 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     const active=scope.getStore();
     return agent?.(session?.id)?.session===session ||
       active!==undefined&&!active.released&&(active===session||active.agent?.session===session||active.views?.get(session?.id)===session);
-  },value=>agent?.(value?.id)===value||scope.getStore()?.agent===value);
+  },value=>agent?.(value?.id)===value||scope.getStore()?.agent===value,directoryOf,createUserMessage);
   const sessions={get(id) {
     const owned=agent?.(id);if(owned)return owned.session;
     const active=scope.getStore();
@@ -302,7 +302,17 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     setPresetDefault:(id,expected,signal)=>scoped('application.presets',{operation:{type:'default_write',id,expected}},signal),
     selectPreset:(session_id,id,signal)=>scoped('application.presets',{operation:{type:'select',session_id,id}},signal),
     claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
+    createChild:(args,signal)=>scoped('application.child.create',{...args,tool:scope.getStore()?.tool},signal),
     withCaller:(operation,signal)=>scope.getStore()?operation(requestSignal(signal)):activities.run(operation,signal),
+    async withPluginParent(parent,operation,signal){
+      const active=scope.getStore();
+      if(active){
+        const request=activeRequest();
+        if(request===owner)return operation(requestSignal(signal));
+        await call('application.actor',{request,session_id:parent},signal);
+      }
+      return activities.run(operation,requestSignal(signal));
+    },
     readSubmission:input=>submissionBodies.read(input),
     runOwned:activities.run,observeOwned:activities.observe,observeStream:activities.observeStream,retainDraft,async close(){submissionBodies.close();await activities.close();},
     inbox,
@@ -333,9 +343,9 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     },
     authorize:(id,signal)=>scoped('application.session',{session_id:id},signal),
     interactions:(id,operation,signal)=>scoped('application.interactions',{session_id:id,operation},signal),
-    async withToolAgent(agent,run,signal){
+    async withToolAgent(agent,run,signal,tool){
       const execute=async()=>{
-        const view={...scope.getStore(),id:agent.id,header:agent.session.header,agent};
+        const view={...scope.getStore(),id:agent.id,header:agent.session.header,agent,tool};
         return scope.run(view,async()=>{
           try {
             const result=await run();await view.publication?.finish();return result;

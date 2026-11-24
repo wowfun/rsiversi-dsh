@@ -4,7 +4,7 @@ import {nativeForkSeed} from './fork-seed.mjs';
 import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
 
 /** Original Cordis owns Agent lifetime; native Session services own execution and history. */
-export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget},{agentEvents,AgentModel,modelSelectionProjectionDefinition},snapshotJsonValue) {
+export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget},{agentEvents,AgentModel,modelSelectionProjectionDefinition},snapshotJsonValue,subagents) {
   const modelProjection=await ctx.sessionProjections.register(modelSelectionProjectionDefinition);
   const records=new Map(),opening=new Map(),creating=new Map(),changedDuringSetup=new Set();
   function publishEvents(record) {
@@ -142,9 +142,11 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       append(type,data,opts={}) {
         if(!record.owner)throw Error('This Session event requires its owning native command');
         if(type!=='model/selection'){
+          if(type==='workspace-root/change'&&data?.cwd!==record.owner.cwd)
+            throw Error('Working directory must match the native Session');
           let event;
           stage(record,async()=>{if(event)await record.owner.flush();return false;});
-          event=record.owner.journal.append(type,data,opts);
+          event=record.owner.journal.append(type,data,opts,subagents?.configuring(record.id)&&!ctx.agents.get(record.id));
           publishEvents(record);return event;
         }
         let accepted,id;
@@ -289,7 +291,10 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       const supplied=options.seed??[];
       if(!parent&&(supplied.length||options.parentSource||meta.isSeeded||meta.origin||meta.delegationDepth!==undefined))
         throw Error('Native seeded or delegated creation requires a source Session');
-      const seed=parent?nativeForkSeed(parent,supplied,records.get(parent)?.view.session):undefined;
+      const pluginChild=subagents?.creation(owner,options);
+      if(pluginChild&&(meta.isSeeded||options.seed!==undefined))
+        throw Error('This subagent provider requires a managed native history fork');
+      const seed=parent&&!pluginChild?nativeForkSeed(parent,supplied,records.get(parent)?.view.session):undefined;
       const annotations=snapshotForkAnnotations(supplied,options.inheritedEventCount,snapshotJsonValue);
       if(creating.has(id))throw Error('Agent creation already in progress');
       const receipt=Promise.withResolvers();
@@ -297,7 +302,8 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       const selection=options.agentOptions&&{...options.agentOptions};
       async function prepare(signal) {
         owner.fiber.assertActive();signal?.throwIfAborted();
-        const result=seed?await scope.create({sessionId:id,fork:{source_session_id:parent,point:seed.point,turns:'all'}},signal):
+        const result=pluginChild?await scope.createChild({...pluginChild,session_id:id,preset:meta.agentPreset},signal):
+          seed?await scope.create({sessionId:id,fork:{source_session_id:parent,point:seed.point,turns:'all'}},signal):
           await scope.claimBlank(id,meta,signal);
         receipt.resolve({meta,annotations,createdAt:result.summary.createdAt});
         if(seed?.context){
@@ -350,6 +356,10 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       return row&&row.createdAt===createdAt?row:undefined;
     },
     get:id=>records.get(id)?.agent,
+    directoryOf(session){
+      const record=records.get(session?.id);
+      if(record?.agent.session===session)return record.owner?.cwd;
+    },
     sessions:()=>Array.from(records.values(),record=>record.agent.session),
     async flush(session) {
       const record=records.get(session.id);

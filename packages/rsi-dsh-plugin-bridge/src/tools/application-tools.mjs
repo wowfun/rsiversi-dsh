@@ -97,7 +97,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   async function run(input,signal,view){
     const {name,args,identity}=input;
     const result=await sessions.withToolAgent(view.agent,()=>execute({agent:view.agent,callId:identity.call_id,name,
-      arguments:args,toolSet:view.selection,signal}));
+      arguments:args,toolSet:view.selection,signal}),signal,{generation,effect:input.effect});
     const contexts=toolContextOutput(result.additionalContexts??[]);
     // The pipeline detached and froze plugin data; this fresh envelope stays
     // private until the ledger has published it, so its payloads can be shared.
