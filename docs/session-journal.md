@@ -100,8 +100,13 @@ settings and registered services.
 The original `/feedback <text>` command and `sessionFeedback.record` Remote
 append `feedback/record` to this same journal. The event is log-only and does not
 enter model context or trigger a Turn. The Remote accepts a live Session and
-acknowledges synchronous acceptance; normal Session publication owns the later
-flush. A missing live Session returns the original `session-not-found` result.
+acknowledges synchronous acceptance. Live log-only appends, including SDK
+plugin records, schedule one journal write within 200 ms. Appends during a
+write share the next batch. Reading an unchanged native cut sees live events
+while their batch is pending. Explicit Session flush, Agent disposal and normal
+Host shutdown drain accepted records. A forced exit can lose the latest
+acknowledged batch. A failed write retains the live events for the next flush.
+A missing live Session returns the original `session-not-found` result.
 Command bookkeeping follows the release's `recordInput: false` policy, so the
 remark is stored only in its feedback event.
 

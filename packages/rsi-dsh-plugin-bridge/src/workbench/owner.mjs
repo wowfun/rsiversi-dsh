@@ -86,7 +86,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           signal?.throwIfAborted();if(closed)throw Error('Application Session owner retired');
           if(row.meta&&compare(cut(meta),cut(row.meta))<=0) {
             await reconcileClears(signal);
-            if(journal.hasLocalEvents||persisted)await journal.flush();return;
+            if(journal.hasLocalEvents||persisted)await journal.flush({observed:true});return;
           }
           const nextCut=cut(meta),through=meta.through,controlThrough=nextCut.control_seq??0;
           const acceptedThrough=journal.seq;
@@ -118,7 +118,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
         });
         tail=update;await update;
       },
-      async flush(){await tail.catch(()=>{}); if(row.merged&&(journal.hasLocalEvents||persisted))await journal.flush();},
+      async flush(options){await tail.catch(()=>{}); if(row.merged&&(journal.hasLocalEvents||persisted))await journal.flush(options);},
       cursor(){return {control_seq:source.current.controlThrough,fact_seq:source.current.mapping.factCursor};},
       applicationSeq(nativeSeq){
         if(nativeSeq===-1)return -1;

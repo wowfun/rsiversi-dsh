@@ -5,6 +5,7 @@ import {captureAgentView} from './agent-view.mjs';
 import {nativeForkSeed} from './fork-seed.mjs';
 import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
 import {bindPluginRecords} from '../session/plugin-records.mjs';
+import {isChildSetupEvent} from '../session/session.mjs';
 
 /** Context registrations owned upstream by the working-directory service and Agent loop. */
 export async function registerWorkbenchContext(ctx,workingDirectoryModule) {
@@ -147,11 +148,13 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     return pending;
   }
   function mirror(record,newSession) {
-    function appendOwned(write) {
+    function appendOwned(write,setup=false) {
+      if(record.closing||record.closed)throw Error('Agent has retired');
       if(!record.owner)throw Error('This Session event requires its owning native command');
       let event;
-      stage(record,async()=>{if(event)await record.owner.flush();return false;});
+      if(setup)stage(record,async()=>{if(event)await record.owner.flush();return false;});
       event=write(record.owner.journal);
+      if(!setup)record.owner.journal.scheduleFlush();
       publishEvents(record);
       return event;
     }
@@ -174,7 +177,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         if(type!=='model/selection'){
           if(type==='workspace-root/change'&&data?.cwd!==record.owner.cwd)
             throw Error('Working directory must match the native Session');
-          return appendOwned(journal=>journal.append(type,data,opts,subagents?.configuring(record.id)&&!ctx.agents.get(record.id)));
+          return appendOwned(journal=>journal.append(type,data,opts,subagents?.configuring(record.id)&&!ctx.agents.get(record.id)),isChildSetupEvent(type));
         }
         let accepted,id;
         stage(record,async signal=>{if(!accepted)return false;await record.owner.driver.settle(id,signal);});
@@ -268,6 +271,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       try {
         record.observerStop?.abort();await record.observation;
         await Promise.allSettled([...record.pending]);
+        await record.owner?.flush();
         if(created)await scope.runOwned(async signal=>{
           if(!record.view.inbox.driver_active&&!record.view.inbox.active_turn_id)return;
           await scope.cancel({sessionId:id,keepInbox:true},signal);
@@ -397,7 +401,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       const record=records.get(session.id);
       if(record?.agent.session!==session)throw Error('Session is not registered');
       const listeners=ctx.events.dispatch('emit',[record.sessionCarrier,'session/flush',session]);
-      const results=await Promise.allSettled([record.tail,...Array.from(listeners,async fn=>fn(session))]);
+      const results=await Promise.allSettled([record.tail,record.owner?.flush(),...Array.from(listeners,async fn=>fn(session))]);
       const failed=results.find(result=>result.status==='rejected');
       if(failed)throw failed.reason;
       return true;

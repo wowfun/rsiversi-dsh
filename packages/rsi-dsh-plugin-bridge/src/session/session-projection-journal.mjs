@@ -14,6 +14,7 @@ export class SessionProjectionJournal {
   #modelSelectionId;#revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
   #sourceDigest=createSourceDigest();#nativePreset;
+  #liveTimer;#liveWrite=false;#liveRevision=-1;
   constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,adoptRestore=false,native,transitions,nativeEventState,nativePreset}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
     this.#sharedNative=nativeEventState==='shared-frozen';
@@ -267,7 +268,21 @@ export class SessionProjectionJournal {
       native===selected?undefined:native);
   }
 
-  flush() {
+  scheduleFlush() {
+    this.#liveRevision=this.#revision;
+    if(this.#liveTimer||this.#liveWrite)return;
+    this.#liveTimer=setTimeout(async()=>{
+      this.#liveTimer=undefined;
+      this.#liveWrite=true;
+      try{
+        while(this.#saved<this.#liveRevision)await this.flush();
+      }catch(error){this.#report(error);}
+      finally{this.#liveWrite=false;}
+    },200);
+  }
+  flush({observed=false}={}) {
+    if(observed&&this.#revision===this.#liveRevision)return Promise.resolve();
+    clearTimeout(this.#liveTimer);this.#liveTimer=undefined;
     if(this.#saved===this.#revision)return Promise.resolve();
     if(this.#queued?.revision===this.#revision)return this.#queued.promise;
     if(!this.#save)return Promise.reject(Error('Application journal has no persistence writer'));

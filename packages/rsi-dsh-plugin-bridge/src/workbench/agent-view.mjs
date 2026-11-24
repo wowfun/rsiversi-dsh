@@ -16,7 +16,7 @@ export async function captureAgentView(scope,history,id,signal) {
     if(owner) {
       owner.input.reconcileClears(inbox);
       if(inbox.kind==='draft')owner.input.observeDraft(inbox);
-      await owner.flush();
+      await owner.flush({observed:true});
     }
     return {session,inbox,options,preset:meta.preset};
   }
