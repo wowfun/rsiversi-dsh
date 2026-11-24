@@ -965,7 +965,9 @@ The bridge reconstructs entered messages from that Fact at its committed time,
 including IDs and sources, so a plugin can recognize its input after restart.
 
 The release application and registry importer are separately installed
-selections. Starting the workbench verifies its runtime closure. Registry
+selections. The importer worker loads the registry and packaging code from its
+lease. Workbench modules load in the application worker. Starting the workbench
+verifies its runtime closure. Registry
 inspection acquires the exact internal npm payload on demand. The importer
 and Discover share an npm cache in the Host-owned state for this profile.
 Opening the application moves its earlier npm cache out of the portable

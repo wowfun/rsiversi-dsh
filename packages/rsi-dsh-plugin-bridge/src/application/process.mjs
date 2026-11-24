@@ -6,11 +6,10 @@ import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 import {installReleaseResolver} from '../../../rsi-dsh-cordis/src/release/resolver.mjs';
 import {createApplication} from './application.mjs';
 import {requestBoundary} from './request-boundary.mjs';
-import {drainsOnCancel} from './entry.mjs';
+import {drainsOnCancel,readWorkerLaunch} from './entry.mjs';
 import {leasedPluginPackages} from './package-metadata.mjs';
 import {provideHttp} from './http.mjs';
 import {languageCalls,provideLanguage} from './language.mjs';
-import {importRelease} from '../../../rsi-dsh-cordis/src/release/import.mjs';
 import {createMarketProfile} from '../market/market-profile.mjs';
 import {linkProfilePackage} from '../market/profile-files.mjs';
 import {applicationSessions,provideWorkbenchSessions} from './sessions.mjs';
@@ -37,14 +36,7 @@ import {applicationTools} from '../tools/application-tools.mjs';
 import {workbenchInteractions} from '../workbench/interactions.mjs';
 import {watchWorkbenchCatalog} from '../workbench/catalog.mjs';
 
-const [generation,layoutFile,...paths] = process.argv.slice(2);
-if (!generation || !layoutFile || paths.length % 2) throw new Error('Invalid package launch');
-for (const name of ['log','info','warn','debug']) console[name] = console.error;
-const roots = new Map();
-for (let i=0;i<paths.length;i+=2) roots.set(paths[i],paths[i+1]);
-const npmRoot=roots.get('--npm');
-roots.delete('--npm');
-const layout = JSON.parse(await readFile(layoutFile,'utf8'));
+const {generation,roots,layout}=await readWorkerLaunch();
 let modules, app, opening, nativeSessions, language, workbench;
 async function open({protocol,profile,key,owner,importer,timings=false,tools=false,language:hasLanguage=false}) {
   const start=performance.now();
@@ -244,10 +236,6 @@ const peer = new Peer({port:workerData,generation,drainOnCancel:drainsOnCancel,h
   if(method==='application.language.events'&&language)return language.deliver(args,signal);
   if(method==='application.language.read'&&language)return language.read(args);
   if (method==='application.submit.read' && nativeSessions && !closing) return nativeSessions.readSubmission(args);
-  if (method==='package.import' && npmRoot && !opening && !closing) {
-    opening=importRelease(layout,npmRoot,args,signal,roots);
-    return opening;
-  }
   if (method!=='application.open' || opening || closing) throw new Error('Application operation unavailable');
   opening = open(args);
   return opening;

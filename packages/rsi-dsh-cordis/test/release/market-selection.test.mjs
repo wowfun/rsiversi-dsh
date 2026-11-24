@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
 import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {writeNpmToolchain,writeSelection} from '../../../../scripts/market-selection.mjs';
+import {Peer} from '../../src/runtime/transport.mjs';
 
 test('only the importer leases npm at launch and declares both native interfaces',async t=>{
   const root=await mkdtemp(join(tmpdir(),'rsi-selection-'));
@@ -47,4 +50,19 @@ test('only the importer leases npm at launch and declares both native interfaces
   assert.equal(typeof (await load('application/sessions.mjs')).applicationSessions,'function');
   assert.equal(typeof (await load('tools/application-tools.mjs')).applicationTools,'function');
   assert.equal(typeof (await load('history/history.mjs')).factObserver,'function');
+
+  // An importer can handle its request even if the workbench cannot start.
+  await writeFile(join(extracted,'rsi-dsh-plugin-bridge/src/application/process.mjs'),"throw Error('workbench started in the importer');");
+  const args=launch.arguments.map(arg=>arg.kind==='generation'?'import-fixture':arg.kind==='literal'?arg.value:
+    arg.location.package===toolchain.name?npm:arg.location.package===runtime.name?root:join(extracted,arg.location.path));
+  const child=spawn(process.execPath,args,{stdio:['pipe','pipe','inherit'],windowsHide:true});
+  const exited=once(child,'exit');
+  const peer=new Peer({input:child.stdout,output:child.stdin,generation:'import-fixture',handler:()=>assert.fail('unexpected callback')});
+  try {
+    assert.deepEqual(await peer.request('extension.hello',{protocol:2}),{protocol:2});
+    await assert.rejects(peer.request('package.import',{format:0}),/Invalid release import/);
+    assert.equal(await peer.request('extension.close',{}),null);
+  } finally {
+    child.stdin.end();peer.close();await exited;
+  }
 });

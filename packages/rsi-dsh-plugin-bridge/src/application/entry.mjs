@@ -1,7 +1,17 @@
 import {MessageChannel,Worker} from 'node:worker_threads';
+import {readFile} from 'node:fs/promises';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 
 export const drainsOnCancel = method => method === 'application.stage';
+
+export async function readWorkerLaunch() {
+  const [generation,layoutFile,...paths]=process.argv.slice(2);
+  if(!generation||!layoutFile||paths.length%2)throw Error('Invalid package launch');
+  for(const name of ['log','info','warn','debug'])console[name]=console.error;
+  const roots=new Map();
+  for(let i=0;i<paths.length;i+=2)roots.set(paths[i],paths[i+1]);
+  return {generation,roots,layout:JSON.parse(await readFile(layoutFile,'utf8'))};
+}
 
 // The worker owns the Cordis tree, including its sockets. Synchronous module
 // loads and bundle compilation must not block the process protocol's pumps.
@@ -40,5 +50,6 @@ export function serveApplication(input,output,generation,arguments_,entry) {
 
 if(import.meta.main) {
   const args=process.argv.slice(2);
-  serveApplication(process.stdin,process.stdout,args[0],args,new URL('./process.mjs',import.meta.url));
+  const worker=args.at(-2)==='--npm'?'./import-worker.mjs':'./process.mjs';
+  serveApplication(process.stdin,process.stdout,args[0],args,new URL(worker,import.meta.url));
 }
