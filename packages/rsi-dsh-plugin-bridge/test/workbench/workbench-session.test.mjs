@@ -80,18 +80,22 @@ test('the standard workbench serves whole-history statistics and navigable turn 
   const profile=await workbenchProfile(modules,await load('dsh-app-boot'),dir);
   const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
   await ctx.plugin((await load('dsh-session')).default);await ctx.plugin((await load('dsh-session-projection')).default);
-  for(const id of ['session-stats','session-turn-outline']){
+  for(const id of ['session-stats','session-turn-outline','token-meter']){
     const row=profile.rows.find(entry=>entry.id===id);assert.ok(row,id);
-    await ctx.plugin(await import(pathToFileURL(require.resolve(row.name))),row.config);
+    const plugin=await import(pathToFileURL(require.resolve(row.name)));
+    await ctx.plugin(plugin.default??plugin,row.config);
   }
   const session=ctx.sessions.create('long-history');
+  session.append('request/context',{provider:'fixture',model:'configured',contextWindow:8192});
   const coordinates=[];
   for(let turn=1;turn<=45;turn++){
     coordinates.push([turn,session.append('turn/start',{turn}).seq]);
     session.append('step/start',{turn,step:1});session.append('step/end',{turn,step:1});
     session.append('turn/end',{turn,reason:{kind:'completed'}});
   }
-  const {sessionStats:{turns,steps},turnOutline}=ctx.sessionProjections.snapshot(session).values;
+  const {sessionStats:{turns,steps},turnOutline,contextPressure}=ctx.sessionProjections.snapshot(session).values;
+  assert.deepEqual(ctx.tokenMeter.contextPressure(session),{contextWindow:8192});
+  assert.equal(contextPressure.contextWindow,8192);
   assert.deepEqual({turns,steps},{turns:45,steps:45});
   assert.deepEqual(turnOutline.map(entry=>[entry.turn,entry.seq]),coordinates);
   assert.ok(!ctx.sessionProjections.summaryKeys().has('turnOutline'));

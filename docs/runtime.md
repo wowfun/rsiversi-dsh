@@ -244,6 +244,8 @@ published manifests. Their preset entries use the original DSH declaration and
 registry. A matching native ID selects the native composition and configuration
 document. The native composition can use the packaged skill directories from
 that declaration. Presets supplied only by DSH retain their declared child tree.
+The original token meter publishes its Session projections and supplies the
+measurements used by preset-scoped compaction plugins.
 
 The DSH standard preset's model tools are `@deepseek-ai/dsh-tool-pwsh` on
 Windows and `@deepseek-ai/dsh-tool-bash` on Linux. A market profile can
