@@ -1,6 +1,7 @@
 import {MessageChannel,Worker} from 'node:worker_threads';
 import {readFile} from 'node:fs/promises';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
+import {receiveGoal} from './goal-control.mjs';
 
 export const drainsOnCancel = method => method === 'application.stage';
 
@@ -17,7 +18,9 @@ export async function readWorkerLaunch() {
 // loads and bundle compilation must not block the process protocol's pumps.
 export function serveApplication(input,output,generation,arguments_,entry) {
   let worker,backend,closing;
+  const lifetime=new AbortController();
   const close=()=>closing??=Promise.resolve().then(async()=>{
+    lifetime.abort();
     backend?.close(new Error('Application carrier closed'));
     await worker?.terminate();
   });
@@ -25,6 +28,7 @@ export function serveApplication(input,output,generation,arguments_,entry) {
     if(method==='extension.hello' && payload?.protocol===2) return {protocol:2};
     if(method==='extension.ping') return null;
     if(method==='extension.close') {
+      lifetime.abort();
       if(backend) await backend.request(method,payload,{signal});
       await close();
       return null;
@@ -34,6 +38,9 @@ export function serveApplication(input,output,generation,arguments_,entry) {
       if(!['package.import','application.open'].includes(method))throw new Error('Application has not opened');
       const {port1,port2}=new MessageChannel();
       worker=new Worker(entry,{argv:arguments_,stdout:true,stderr:true,workerData:port2,transferList:[port2]});
+      if(method==='application.open')worker.on('message',message=>{
+        if(message?.type==='commit-goal')void receiveGoal(carrier,message,lifetime.signal,worker).catch(error=>carrier.close(error));
+      });
       worker.stdout.pipe(process.stderr,{end:false});
       worker.stderr.pipe(process.stderr,{end:false});
       backend=new Peer({port:port1,generation,

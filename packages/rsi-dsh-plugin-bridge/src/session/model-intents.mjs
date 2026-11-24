@@ -109,7 +109,12 @@ export function modelObservationCorrelations(journal,driver,events,origins) {
         previous.operation:{id:previous.operation,reconcile:true});
       continue;
     }
-    const origin=origins.get(event.seq),id=origin?driver.observe(origin):undefined;
+    const origin=origins.get(event.seq);
+    if(event.type==='goal/change'&&origin?.goal?.command){
+      correlations.set(event.seq,origin.goal.command.request_id);
+      continue;
+    }
+    const id=origin?driver.observe(origin):undefined;
     if(!id){fold(event);continue;}
     const operation=journal.operation(id);
     if(isDeepStrictEqual(pending??lastUsed,event.data)||pendingOperation?.seq>operation.seq)

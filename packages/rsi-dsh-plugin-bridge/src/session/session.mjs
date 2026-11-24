@@ -12,7 +12,7 @@ export const isJournalEvent = type => journalEvents.has(type);
 export const isChildSetupEvent = type => type==='sandbox/mode'||type==='permission/preset'||type==='workspace-root/change';
 const allowed = new Set([...journalEvents, 'todo/write', 'plan/mode', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
-  'tool/call', 'tool/result', 'session/end-seed', 'model/selection', 'agent/inbox/spliced']);
+  'tool/call', 'tool/result', 'session/end-seed', 'model/selection', 'goal/change', 'agent/inbox/spliced']);
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 export const presetId = value => typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
 const shape = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
@@ -27,7 +27,7 @@ function envelope(event, seq, api) {
     throw new Error('unsupported or invalid event envelope');
   const data = event.data;
   if (isForkAnnotation(event.type)) assertForkAnnotation(event);
-  if (event.surfaceOp !== undefined && (isJournalEvent(event.type)||isChildSetupEvent(event.type)))
+  if (event.surfaceOp !== undefined && (isJournalEvent(event.type)||isChildSetupEvent(event.type)||event.type==='goal/change'))
     throw new Error('Log-only Session event cannot edit the message surface');
   if(event.type==='workspace-root/change') {
     if(!shape(data,['cwd'])||typeof data.cwd!=='string'||!isAbsolute(data.cwd))throw Error('Invalid working directory');
@@ -214,6 +214,7 @@ export class SessionFacade {
   append(type, data, opts = {}) {
     if (!this.#active || this.#retired) throw new Error('append outside owning transaction');
     if(type==='model/selection')throw new Error('Model selection requires the native Session command');
+    if(type==='goal/change')throw new Error('Goal changes require the native Session command');
     if (!shape(opts, ['surfaceOp', 'sourceEventSeqs'])) throw new Error('invalid append metadata');
     return this.#admit({ type, seq: this.seq, time: Date.now(), data, ...opts }, true);
   }

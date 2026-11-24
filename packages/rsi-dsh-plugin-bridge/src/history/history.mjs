@@ -41,13 +41,13 @@ function closeStep(session, mapping, time) {
     data:{turn:mapping.turn,step:mapping.step}});
   mapping.stepOpen = false;
 }
-export function factObserver(session, mapping, readFact, llm) {
+export function factObserver(session, mapping, readFact, llm, projectMessage) {
   const observeRequest = requestObserver(readFact);
-  return fact => observeFact(session, mapping, fact, readFact, llm, observeRequest);
+  return fact => observeFact(session, mapping, fact, readFact, llm, observeRequest, projectMessage);
 }
 
 /** Only lifecycle Facts affect these counters; provider attempts do not fabricate acceptance. */
-async function observeFact(session, mapping, fact, readFact, llm, observeRequest) {
+async function observeFact(session, mapping, fact, readFact, llm, observeRequest, projectMessage) {
   if (!integer(fact.timestamp_ms) || fact.timestamp_ms === 0) throw new Error('invalid canonical Fact time');
   if (fact.type === 'model_intent') {
     await observeRequest(session, fact, mapping);
@@ -70,7 +70,7 @@ async function observeFact(session, mapping, fact, readFact, llm, observeRequest
     claimInput(mapping, fact);
   } else if (fact.type === 'step_inputs_prepared') {
     if (mapping.turnId !== fact.turn_id || mapping.stepId !== fact.step_id) throw Error('prepared Step is outside captured history');
-    const messages = await preparedMessages(session, mapping, fact, readFact);
+    const messages = await preparedMessages(session, mapping, fact, readFact, projectMessage);
     if (messages !== null && (messages.length || mapping.step > 0)) {
       prepareStep(session, mapping, fact.turn_id, fact.step_id, fact.timestamp_ms);
       for (const message of messages) observeInput(session, mapping, message, fact.timestamp_ms);

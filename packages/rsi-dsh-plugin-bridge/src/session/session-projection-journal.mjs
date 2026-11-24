@@ -252,6 +252,8 @@ export class SessionProjectionJournal {
     const events=this.#owned.map(event=>{
       if(event.type==='agent-preset/selected')selected=event.data.agentPreset;
       const operation=this.operationAt(event.seq);
+      if(event.type==='goal/change'&&operation?.source!==undefined&&this.#sources[operation.source].seq===event.seq)
+        return {...event,data:null};
       if(event.type==='agent/inbox/spliced'&&event.data.inserted.length===1&&
         operation?.source!==undefined&&this.#sources[operation.source].seq===event.seq)
         return {...event,data:{...event.data,inserted:null}};

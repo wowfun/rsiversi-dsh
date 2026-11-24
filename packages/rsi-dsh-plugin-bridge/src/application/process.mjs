@@ -2,6 +2,7 @@ import {readFile,stat} from 'node:fs/promises';
 import {basename,dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workerData} from 'node:worker_threads';
+import {commitGoal} from './goal-control.mjs';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 import {installReleaseResolver} from '../../../rsi-dsh-cordis/src/release/resolver.mjs';
 import {createApplication} from './application.mjs';
@@ -32,6 +33,7 @@ import {workbenchPersistence} from '../workbench/persistence.mjs';
 import {registerWorkbenchContext,workbenchAgents} from '../workbench/agents.mjs';
 import {installSessionRecordWriter} from '../session/plugin-records.mjs';
 import {workbenchSubagents} from '../workbench/subagents.mjs';
+import {workbenchGoalMutations} from '../workbench/goal-mutations.mjs';
 import {terminalController} from '../terminal/controller.mjs';
 import {applicationTools} from '../tools/application-tools.mjs';
 import {workbenchInteractions} from '../workbench/interactions.mjs';
@@ -83,7 +85,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     let persistence,agents,history;
     const storage=sessionJournalStore(join(profileState(profile),'sessions'),await load('@deepseek-ai/dsh-atomic-write'),()=>ctx.emit('rsi/catalog-projection'));
     const llm=await load('@deepseek-ai/dsh-llm');
-    sessionScope=applicationSessions(call,{ctx,owner,createUserMessage:llm.createUserMessage,agent:id=>agents?.get(id),registered:id=>ctx.get('agents')?.get(id),
+    sessionScope=applicationSessions(call,{ctx,owner,commitGoal,createUserMessage:llm.createUserMessage,agent:id=>agents?.get(id),registered:id=>ctx.get('agents')?.get(id),
       attached:()=>agents?.sessions(),decorate:storage.decorate,directoryOf:session=>agents?.directoryOf(session)??history?.owner(session)?.cwd,
       select:(request,signal)=>history.selectModel(request,signal),
       capture:async(id,signal)=>agents?.get(id)?(await agents.refresh(id,signal)).session:persistence.capture(id,signal)});
@@ -143,9 +145,12 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     ctx.provide('sessionPersistence',persistence);
     ctx.provide('workingDirectory',sessionScope.workingDirectory);
     const subagentName='@deepseek-ai/dsh-subagent';
-    const subagents=workbenchSubagents((await load(subagentName)).default,(await load('@deepseek-ai/cordis')).symbols.caller,
-      sessionScope);
+    const caller=(await load('@deepseek-ai/cordis')).symbols.caller;
+    const subagents=workbenchSubagents((await load(subagentName)).default,caller,sessionScope);
     hostModules.set(subagentName,subagents.Runtime);
+    const goalName='@deepseek-ai/dsh-goal';
+    const goals=workbenchGoalMutations((await load(goalName)).default,caller);
+    hostModules.set(goalName,goals.Runtime);
     await provideHttp(ctx,load,key,sessionScope);
     await ctx.plugin(leasedPluginPackages(boot,modules));
     let packageManager;
@@ -194,7 +199,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     if(hasLanguage)loopServices.push('llm');
     await ctx.inject(loopServices,async loop=>{
       await registerWorkbenchContext(loop,modules.entry('@deepseek-ai/dsh-working-directory'));
-      agents=await workbenchAgents(loop,sessionScope,history,await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue,subagents);
+      agents=await workbenchAgents(loop,sessionScope,history,await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue,subagents,goals);
       watchWorkbenchCatalog(loop,sessionScope,agents.sharedBlankChanged);
     }).await();
     if(tools){

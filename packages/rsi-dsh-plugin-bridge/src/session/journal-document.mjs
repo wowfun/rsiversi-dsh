@@ -70,6 +70,12 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
   let previous=-1;
   for(let event of state.events) {
     if(!integer(event?.seq)||event.seq>=events.length||event.seq<=previous)throw Error('Invalid local application event position');
+    if(event.type==='goal/change'&&event.data===null) {
+      const operation=at.get(event.seq),source=state.sources[operation?.source],observed=native[operation?.source];
+      if(!source||source.seq!==event.seq||source.operation!==operation.id||observed?.type!==event.type)
+        throw Error('Retained Goal has no correlated native change');
+      event={...event,data:observed.data};
+    }
     if(state.version>=5&&event.type==='agent/inbox/spliced'&&event.data?.inserted===null) {
       const operation=at.get(event.seq),source=state.sources[operation?.source],observed=native[operation?.source];
       if(!source||source.seq!==event.seq||source.operation!==operation.id||

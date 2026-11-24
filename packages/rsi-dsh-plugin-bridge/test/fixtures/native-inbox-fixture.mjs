@@ -24,10 +24,10 @@ export function nativeMessagePage(message,op) {
 }
 
 export const message=(id,text=id)=>({id,role:'user',source:{kind:'plugin:test',tag:{n:1}},content:[{type:'text',text},{type:'text',text:'第二块'}]});
-export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
+export async function nativeInboxFixture(t,{kind='draft',pending=[],context,goals,commitGoal,activateGoal}={}) {
   const root=process.env.RSI_DSH_MARKET_COHORT,require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
-  const ctx=new (await load('cordis')).Context();
+  const ctx=context??new (await load('cordis')).Context();
   await ctx.plugin((await load('dsh-session-projection')).default);
   await ctx.plugin((await load('dsh-agent')).AgentRegistry);
   const directory=await mkdtemp(join(tmpdir(),'rsi-public-inbox-'));t.after(()=>rm(directory,{recursive:true,force:true}));
@@ -87,6 +87,7 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
       return {session_id:args.session_id};
     }
     if(method==='application.command') {
+      if(op.type==='goal'&&activateGoal)return activateGoal(op.control);
       if(op.type==='list')return {commands:[{id:'native-context',name:'context-input'}],revision:meta().selection_cursor.kind==='draft'
         ?{kind:'draft',revision:state.revision}:{kind:'durable',control_seq:state.control}};
       if(op.type==='status')return state.receipts.get(op.request_id)??null;
@@ -174,13 +175,13 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[]}={}) {
       return receipt;
     }
     throw Error(method);
-  },{owner:'owner',agent:id=>agents?.get(id)});
+  },{owner:'owner',agent:id=>agents?.get(id),commitGoal});
   scope.inbox.capture=async()=>snapshot();
   const options={ctx,api,llm:await load('dsh-llm'),read,authorize:async()=>{},listChildren:async()=>[],command:scope.command,submit:scope.submit,inbox:scope.inbox,
     storage:{read:async id=>documents.get(id),save:async(id,value)=>{await state.saveGate?.promise;if(state.failSave)throw Error('disk unavailable');documents.set(id,value);}}};
-  const history=workbenchHistory(options);agents=await workbenchAgents(ctx,scope,history,await load('dsh-scope'),await load('dsh-agent'),api.snapshotJsonValue);
+  const history=workbenchHistory(options);agents=await workbenchAgents(ctx,scope,history,await load('dsh-scope'),await load('dsh-agent'),api.snapshotJsonValue,undefined,goals);
   const agent=await scope.runOwned(()=>agents.ensure('one'));
-  t.after(async()=>{state.executeGate?.resolve();state.withdrawGate?.resolve();state.saveGate?.resolve();state.submitGate?.resolve();state.statusGate?.resolve();state.cancelGate?.resolve();await ctx.fiber.dispose();await history.close();await scope.close();});
+  t.after(async()=>{state.executeGate?.resolve();state.withdrawGate?.resolve();state.saveGate?.resolve();state.submitGate?.resolve();state.statusGate?.resolve();state.cancelGate?.resolve();if(!context)await ctx.fiber.dispose();await history.close();await scope.close();});
   return {ctx,scope,history,agent,agents,state,calls,options,documents,snapshot,control,changed,
     observerWaiters:()=>waiters.size,draftOwners,
     owner:history.owner((await history.capture('one',meta()))),

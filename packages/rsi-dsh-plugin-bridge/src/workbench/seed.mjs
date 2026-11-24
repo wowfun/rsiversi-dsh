@@ -9,7 +9,7 @@ async function projectFacts(session,mapping,fetch,through,signal,llm,observed){
   return factProjector(session,mapping,fetch,through,signal,llm,observed)(through);
 }
 
-export function factProjector(session,mapping,fetch,horizon,signal,llm,observed){
+export function factProjector(session,mapping,fetch,horizon,signal,llm,observed,projectMessage){
   const advance=factPageReader(fetch,mapping.factCursor,horizon,signal);
   let page;
   const readFact=async seq=>{
@@ -20,7 +20,7 @@ export function factProjector(session,mapping,fetch,horizon,signal,llm,observed)
     if(fact?.seq!==seq)throw new Error('Referenced Fact is unavailable');
     return fact;
   };
-  const observe=factObserver(session,mapping,readFact,llm);
+  const observe=factObserver(session,mapping,readFact,llm,projectMessage);
   return async through=>{
     session.begin();
     try{

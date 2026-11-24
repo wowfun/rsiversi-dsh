@@ -50,7 +50,7 @@ export function clearClaims(mapping) {
   captured.delete(mapping);
 }
 
-export async function preparedMessages(session, mapping, fact, readFact) {
+export async function preparedMessages(session, mapping, fact, readFact, projectMessage) {
   const { decision } = fact;
   if (decision.kind === 'reject') {
     clearClaims(mapping); mapping.pendingMessages = [];
@@ -74,6 +74,7 @@ export async function preparedMessages(session, mapping, fact, readFact) {
         const original = await originalFact(mapping, row, readFact);
         message = takeCommittedMessage(mapping, original) ?? inputMessage(session.id, original, entry.claim.ordinal);
         originals.set(key, message);
+        if (projectMessage && original.source?.type === 'continuation') message = projectMessage(message, original.source.source);
       }
       result.push(message);
     } else if (entry.kind === 'replacement' || entry.kind === 'added') {

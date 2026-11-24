@@ -525,6 +525,30 @@ without cancelling the claimed Turn. Draft inputs use native identity-based
 withdrawal, with no fabricated durable slot or cursor. An empty clear remains
 a no-op. Writable Session log events still require their own native contracts.
 
+The workbench reads Goal changes at the same native Fact/control cut as messages
+and model selections. An explicit completion therefore appears in Session history
+even when the Goal finished before the first Turn. Goal reads have no scheduling
+authority. Round counts advance when a Goal input enters the conversation.
+
+The synchronous Goal API publishes a mutation to its caller after the native
+Host accepts the command at the observed revision. A refused write leaves the
+Session event stream and Goal revision intact. The last accepted Goal change
+in a synchronous callback refreshes the native view once. A refused change
+does not trigger a view refresh. The application carrier forwards
+this command for its existing Cordis worker with the current request credential.
+The synchronous caller receives the reply through the worker's parent port.
+The separate extension protocol port continues to carry requests and heartbeats.
+The caller's Loader entry supplies the identity for an explicit plugin
+completion. A create followed by completion in the same callback spends no
+round. The native controller can arm the surviving active choice when the
+callback yields.
+If that activation receipt reports a disarmed controller, the live workbench
+view also disarms the same revision.
+Once its native control is observed, the journal retains the local event
+position and time and restores the Goal body from the native record.
+Closing the carrier cancels an outstanding Goal command before draining the
+worker. A lost acknowledgement is reconciled with the original request ID.
+
 Durable inbox transitions replay as original `agent/inbox/spliced` Session events
 at their native Fact/control anchors. Accepted message bodies come from history
 controls at the captured cut. Durable inbox capture returns metadata in one call,

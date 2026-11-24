@@ -21,7 +21,7 @@ export async function registerWorkbenchContext(ctx,workingDirectoryModule) {
 }
 
 /** Original Cordis owns Agent lifetime; native Session services own execution and history. */
-export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget},{agentEvents,AgentModel,modelSelectionProjectionDefinition},snapshotJsonValue,subagents) {
+export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget},{agentEvents,AgentModel,modelSelectionProjectionDefinition},snapshotJsonValue,subagents,goals) {
   const modelProjection=await ctx.sessionProjections.register(modelSelectionProjectionDefinition);
   const records=new Map(),opening=new Map(),creating=new Map(),changedDuringSetup=new Set();
   function publishEvents(record) {
@@ -170,6 +170,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       isOwnSeq:seq=>record.view.session.isOwnSeq(seq),
       append(type,data,opts={}) {
         if(!record.owner)throw Error('This Session event requires its owning native command');
+        if(type==='goal/change'&&goals)return goals.commit(record,scope,data,opts,stage,publishEvents);
         if(type!=='model/selection'){
           if(type==='workspace-root/change'&&data?.cwd!==record.owner.cwd)
             throw Error('Working directory must match the native Session');

@@ -3,7 +3,7 @@ import {relative,resolve} from 'node:path';
 
 const runtime='@deepseek-ai/dsh-subagent';
 
-function loaderEntry(ctx) {
+export function loaderEntry(ctx) {
   for(let fiber=ctx?.fiber;fiber;){
     if(fiber.entry)return fiber.entry;
     const parent=fiber.parent.fiber;

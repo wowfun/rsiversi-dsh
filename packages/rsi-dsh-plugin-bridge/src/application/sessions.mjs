@@ -44,7 +44,7 @@ export function provideWorkbenchSessions(ctx,SessionStore,live,flush) {
 }
 
 /** Resident DSH Sessions and the current native-authorized request's views. */
-export function applicationSessions(send,{ctx,capture,owner,agent,registered=agent,attached,select,decorate,directoryOf,createUserMessage}={}) {
+export function applicationSessions(send,{ctx,capture,owner,agent,registered=agent,attached,select,decorate,directoryOf,createUserMessage,commitGoal}={}) {
   const scope=new AsyncLocalStorage();
   const activities=applicationActivities(scope,owner);
   const submissionBodies=requestBodies(8*1024*1024);
@@ -322,6 +322,13 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
     runOwned:activities.run,observeOwned:activities.observe,observeStream:activities.observeStream,retainDraft,async close(){submissionBodies.close();await activities.close();},
     inbox,
     command:(id,operation,signal)=>scoped('application.command',{session_id:id,operation},signal),
+    commitGoal(id,control) {
+      const active=scope.getStore();
+      const request=active?activeRequest():owner;
+      if(!request||!commitGoal)throw Error('Native Goal commands unavailable');
+      active?.signal?.throwIfAborted();
+      return commitGoal(request,id,control);
+    },
     stage(operation) {
       const active=scope.getStore(),publication=writablePublication(active);
       if(!publication)throw Error(active?.response?'Cannot stage a native write after response publication':'Native write requires an active publication');

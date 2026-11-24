@@ -8,8 +8,65 @@ import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {followAssistant} from '../../src/workbench/assistant.mjs';
 import {workbenchSource} from '../../src/workbench/source.mjs';
 import {historyPage} from '../fixtures/history-page.mjs';
+import {nativeInboxFixture} from '../fixtures/native-inbox-fixture.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+
+test('released Goal service reads completion from the live native mirror without scheduling a turn',
+  {skip:!root||!process.env.RSI_DSH_INBOX_SOURCE},async t=>{
+    const require=createRequire(join(root,'package.json'));
+    const f=await nativeInboxFixture(t,{kind:'durable'});
+    await f.ctx.plugin((await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-goal')))).default);
+    const current={id:'review',objective:'Review the draft',phase:'active',max_rounds:2};
+    const change=(action,phase,published_at_ms)=>f.control({kind:'goal',time:published_at_ms+10,
+      goal:{current:{...current,phase},command:{action,request_id:action,published_at_ms}}});
+    change('create','active',10);
+    await f.refresh();
+    assert.equal(f.ctx.goals.get(f.agent).phase,'active');
+    change('complete','completed',12);
+    await f.refresh();
+    assert.deepEqual(f.ctx.goals.get(f.agent),{id:'review',revision:2,objective:'Review the draft',
+      phase:'complete',maxGoalRounds:2,roundsStarted:0,createdAt:10,updatedAt:12,activation:'disarmed'});
+    assert.ok(f.calls.every(({method,op})=>method!=='application.submit'&&
+      !(method==='application.command'&&op.type==='execute')));
+  });
+
+test('released Goal fold reads native completion and counts only admitted round messages',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const {foldGoal}=await load('dsh-goal');
+  const baseline={model:{deployment:'native',model:'configured'}};
+  const current={id:'review',objective:'Review the draft',phase:'active',max_rounds:2,reason:null};
+  for(const withRound of [false,true]){
+    const facts=withRound?[
+      {type:'message_turn_accepted',turn_id:'one'},
+      {type:'step_started',turn_id:'one',step_id:'step'},
+      {type:'input_message_claimed',turn_id:'one',step_id:'step',source:{type:'continuation',message_id:'round',
+        source:{domain:{id:'rsi.goal',version:4},owner:'review',round:1}},content:[{type:'text',text:'Review the draft'}]},
+      {type:'step_inputs_prepared',turn_id:'one',step_id:'step',decision:{kind:'enter',messages:[{kind:'claimed',claim:{fact_seq:3,ordinal:0}}]}},
+    ].map((fact,i)=>({...fact,seq:i+1,timestamp_ms:11+i})):[];
+    const controls=[
+      {kind:'model',selection:baseline,goal:{current},seq:1,time:10,after_fact_seq:0},
+      {kind:'goal',goal:{current:{...current,phase:'completed'},command:{action:'complete',request_id:'finish',published_at_ms:14}},
+        seq:2,time:15,after_fact_seq:facts.length},
+    ];
+    const call=async op=>historyPage((op.type==='fact'?facts:controls).slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
+    const source=await workbenchSource({ctx,api,llm:await load('dsh-llm'),header:{version:4,id:'review',createdAt:1,isSeeded:false},
+      meta:{model_baseline:baseline,selection_cursor:{kind:'durable',fact_seq:facts.length,control_seq:2}},call});
+    const initial=await source.stage(call,async()=>{},undefined,0,1);initial.commit();
+    await source.stage(call,async()=>{},undefined,facts.length,2);
+    assert.equal(foldGoal(source.current.session.snapshotEvents()).goal.phase,'active');
+    const end=await source.stage(call,async()=>{},undefined,facts.length,2);end.commit();
+    const events=source.current.session.snapshotEvents();
+    assert.deepEqual(events.filter(e=>e.type==='goal/change').map(e=>e.data.operation),['create','complete']);
+    assert.equal(events.filter(e=>e.type==='model/selection').length,1);
+    const view=foldGoal(events);
+    assert.deepEqual(view.goal,{id:'review',revision:2,phase:'complete',objective:'Review the draft',maxGoalRounds:2});
+    assert.deepEqual([view.roundsStarted,view.createdAt,view.updatedAt],[withRound?1:0,10,14]);
+  }
+});
 
 test('one control page reconstructs a full native inbox without per-message reads',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
