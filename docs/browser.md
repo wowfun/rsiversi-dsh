@@ -56,6 +56,12 @@ The turn navigator uses DSH's whole-session outline. A reader can preview an
 unloaded turn and jump directly to it. The outline is excluded from Session
 list summaries.
 Enabled bundles may register providers with the original DSH skill registry.
+The Web profile loads the Office skill provider from the release's Web bundle
+with its configured Python environment. The provider owns its packaged instructions.
+An Agent selecting a shipped Web preset inherits that preset's packaged skill
+directories through its scoped DSH filesystem provider. Native workspace and
+personal discovery stay with the Host. Leased package directories are immutable
+for the lifetime of the application and require no filesystem watcher.
 The Session-addressed skill catalog supplies slash suggestions from those
 providers. Tool-enabled applications expose the original skill loader to the
 Agent. Provider registration and withdrawal follow the bundle's Cordis fiber.

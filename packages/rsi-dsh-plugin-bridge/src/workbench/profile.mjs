@@ -1,12 +1,50 @@
 import {mkdir,readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 
 const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-editor','dsh-settings','dsh-api-settings-controller',
   'dsh-host-directory-picker-auto','dsh-host-open-in-app','dsh-host-plugin-inventory','dsh-commands','dsh-session-title','dsh-session-stats','dsh-session-turn-outline','dsh-storage',
-  'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
+  'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-skill-office','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy','dsh-fs-sandbox',
   'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env','dsh-jobs-local','dsh-action-cards'].map(name=>'@deepseek-ai/'+name));
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
+
+/** Mount the shipped preset's filesystem skill provider in its Agent scope. */
+export async function providePresetSkills(ctx,modules,boot,load) {
+  const web=modules.directory('@deepseek-ai/dsh-web-app');
+  const manifest=JSON.parse(await readFile(join(web,'package.json'),'utf8'));
+  const patches=new Set(manifest.dsh.bundle.patch),configs=new Map();
+  const name='@deepseek-ai/dsh-skill-filesystem';
+  const [{interpolate},filesystem]=await Promise.all([load('@deepseek-ai/cordis-plugin-loader'),load(name)]);
+  function configFor(preset){
+    const patch=`./presets/${preset}.patch.yml`;
+    if(!patches.has(patch))return;
+    if(!configs.has(preset)){
+      const file=join(web,patch);
+      const rows=boot.composeEntries([boot.loadOverlayPatches('rsi-dsh',file)]);
+      const definition=rows.find(row=>row.config?.id===preset);
+      const provider=definition?.config.plugins.find(row=>row.name===name&&row.disabled!==true);
+      const config=provider&&interpolate({ctx,baseUrl:pathToFileURL(file).href},provider.config);
+      configs.set(preset,config&&{...config,includeDefaultRoots:false,watch:false});
+    }
+    return configs.get(preset);
+  }
+  ctx.on('agent/created',async ({agent})=>{
+    let provider,active;
+    const select=preset=>{
+      const config=configFor(preset);
+      if(config===active)return;
+      active=config;
+      const retired=provider?.dispose();
+      provider=config?agent.ctx.plugin(filesystem,config):undefined;
+      return Promise.all([retired,provider?.await()]);
+    };
+    agent.ctx.on('session/event',(session,event)=>{
+      if(session===agent.session&&event.type==='agent-preset/selected')return select(event.data.agentPreset);
+    });
+    await select(agent.session.lastEvent('agent-preset/selected')?.data.agentPreset??agent.session.header.agentPreset);
+  });
+}
 
 /** Use the released app's ordered client entries and published dsh.client
  * declarations. A backend requiring a missing service remains pending; third

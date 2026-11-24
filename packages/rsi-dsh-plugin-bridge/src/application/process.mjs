@@ -18,7 +18,7 @@ import {workbenchWorkspaceRegistry} from '../workbench/workspace-registry.mjs';
 import {hostHomePicker,workspaceController} from '../workbench/workspace-controller.mjs';
 import {sessionController} from '../workbench/session-controller.mjs';
 import {jobController} from '../workbench/job-controller.mjs';
-import {workbenchProfile} from '../workbench/profile.mjs';
+import {providePresetSkills,workbenchProfile} from '../workbench/profile.mjs';
 import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
 import {moveRegistryCache,profileState,registryCache,viewNpm} from '../../../rsi-dsh-cordis/src/registry/npm-install.mjs';
@@ -182,6 +182,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     }
     const agentApi=await load('@deepseek-ai/dsh-agent');
     await ctx.plugin(agentApi.AgentRegistry);
+    await providePresetSkills(ctx,modules,boot,load);
     const loopServices=['agents','sessions','sessionProjections','tools','systemPrompt'];
     if(hasLanguage)loopServices.push('llm');
     await ctx.inject(loopServices,async loop=>{
