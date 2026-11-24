@@ -875,8 +875,12 @@ the changed source prefix. They are not silently rewritten or discarded.
 
 Fork cuts are immutable completed-turn selections. A complete prefix preserves
 admitted events and their original sequence numbers, including positions inside
-opaque `plugin:` records. Restored records use the selected DSH cohort's
-`pluginRecordOf` grammar and remain log-only. Last(n) preserves the exact projection baseline
+opaque `plugin:` records. A workbench Agent's `appendPluginRecord` writes to
+the same ordered Session journal as other application events. It returns the
+assigned position synchronously and publishes the frozen record once. The SDK
+keeps its original writer for upstream Session instances. Restored records use the
+selected DSH cohort's `pluginRecordOf` grammar and remain log-only.
+Last(n) preserves the exact projection baseline
 while excluding omitted conversation messages. Renumbering requires a known
 reference schema for each event. Every fork checks its projection seed versions.
 A manual fork starts as a draft, and

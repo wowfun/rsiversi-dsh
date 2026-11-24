@@ -75,7 +75,7 @@ export class SessionProjectionJournal {
       const native=used.has(seq),operation=positions.has(seq);
       if(native&&!operation)continue;
       const event=this.#session.eventAt(seq);
-      if(!native&&!operation&&(seq<cut?seq<annotationStart:!isJournalEvent(event.type)&&
+      if(!native&&!operation&&(seq<cut?seq<annotationStart:!this.#isLocalEvent(event)&&
           !(isChildSetupEvent(event.type)&&this.#session.header.origin==='subagent')))
         throw Error('Application journal contains unowned event positions');
       this.#owned.push(event);
@@ -100,6 +100,7 @@ export class SessionProjectionJournal {
   operation(id){return this.#operations.get(id);}
   operationAt(seq){return this.#operations.get(this.#operationIds[seq]);}
   #entry(){if(this.#publishing)throw Error('Reentrant application journal mutation');}
+  #isLocalEvent(event){return isJournalEvent(event?.type)||!!this.#api.pluginRecordOf?.(event);}
   #publish(events) {
     this.#publishing=true;
     try {for(const event of events)try{this.#notify(this.#session,event);}catch(error){try{this.#report(error);}catch{}}}
@@ -110,13 +111,17 @@ export class SessionProjectionJournal {
       throw Error('This Session event requires its owning native command');
     return this.#append(type,data,opts,Date.now());
   }
+  appendPluginRecord(type,data) {
+    if(!this.#api.pluginRecordOf({type,ignorable:true}))throw Error('Invalid plugin record type');
+    return this.#append(type,data,{ignorable:true},Date.now());
+  }
   /** Persistence callers supply exact coordinates and times, not new commands. */
   appendStored(input) {
     this.#entry();
     const events=this.#snapshot(input);
     if(!Array.isArray(events))throw TypeError('Expected an event batch');
     for(const [index,event] of events.entries()) {
-      if(!isJournalEvent(event?.type))throw Error('This Session event requires its owning native command');
+      if(!this.#isLocalEvent(event))throw Error('This Session event requires its owning native command');
       if(event.seq!==this.seq+index)throw Error('Stored event batch does not continue the Session');
     }
     if(!events.length)return;

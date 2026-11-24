@@ -4,6 +4,7 @@ import {isAbsolute} from 'node:path';
 import {captureAgentView} from './agent-view.mjs';
 import {nativeForkSeed} from './fork-seed.mjs';
 import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
+import {bindPluginRecords} from '../session/plugin-records.mjs';
 
 /** Context registrations owned upstream by the working-directory service and Agent loop. */
 export async function registerWorkbenchContext(ctx,workingDirectoryModule) {
@@ -28,7 +29,10 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     const events=record.view.session.snapshotEvents(record.notified,through);record.notified=through;
     for(const event of events) {
       try {
-        ctx.emit(record.sessionCarrier,'session/event',record.agent.session,event);
+        const previous=record.publishingEvent;
+        record.publishingEvent=true;
+        try{ctx.emit(record.sessionCarrier,'session/event',record.agent.session,event);}
+        finally{record.publishingEvent=previous;}
         if(event.type==='agent/inbox/spliced')
           for(const notification of record.owner.input.notifications().get(event.seq)??[])
             record.dispatch.emit(notification.type,notification.data);
@@ -143,6 +147,14 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     return pending;
   }
   function mirror(record,newSession) {
+    function appendOwned(write) {
+      if(!record.owner)throw Error('This Session event requires its owning native command');
+      let event;
+      stage(record,async()=>{if(event)await record.owner.flush();return false;});
+      event=write(record.owner.journal);
+      publishEvents(record);
+      return event;
+    }
     const session={id:record.id,
       firstLiveSeq:record.view.session.seq,
       firstLifecycleSeq:newSession&&record.view.session.header.isSeeded?record.view.session.inheritedEventCount:record.view.session.seq,
@@ -161,10 +173,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         if(type!=='model/selection'){
           if(type==='workspace-root/change'&&data?.cwd!==record.owner.cwd)
             throw Error('Working directory must match the native Session');
-          let event;
-          stage(record,async()=>{if(event)await record.owner.flush();return false;});
-          event=record.owner.journal.append(type,data,opts,subagents?.configuring(record.id)&&!ctx.agents.get(record.id));
-          publishEvents(record);return event;
+          return appendOwned(journal=>journal.append(type,data,opts,subagents?.configuring(record.id)&&!ctx.agents.get(record.id)));
         }
         let accepted,id;
         stage(record,async signal=>{if(!accepted)return false;await record.owner.driver.settle(id,signal);});
@@ -172,6 +181,10 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         publishEvents(record);return accepted;
       },
     };
+    bindPluginRecords(session,(type,data)=>{
+      if(!record.sessionAnnounced||record.publishingEvent)throw Error('Session cannot append a plugin record during publication');
+      return appendOwned(journal=>journal.appendPluginRecord(type,data)).seq;
+    });
     const input=()=>{if(!record.owner)throw Error('Agent inbox requires its shared Session owner');return record.owner.input;};
     function change(action) {
       let accepted=false,through;
@@ -289,6 +302,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       if(record.closing)throw Error('Agent owner retired during draft acquisition');
       records.set(id,record);
       announced=true;await ctx.parallel(scopeTarget(agent.session,agent),'session/created',agent.session);
+      record.sessionAnnounced=true;
       const setup=await options.setup?.(agent.ctx,agent);
       await ctx.get('agentPresets')?.bindSession?.(agent,record.view.preset);
       owner.fiber.assertActive();options.signal?.throwIfAborted();
