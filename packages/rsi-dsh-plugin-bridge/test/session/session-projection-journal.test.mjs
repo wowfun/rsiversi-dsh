@@ -22,6 +22,21 @@ async function fixture(t,options={}) {
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
 
+test('a cold owner adopts its private decoded events and preserves lossless JSON checks', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t);
+  journal.accept('choose','model/selection',selection,{},1);
+  const bytes=journal.encode();
+  const open=document=>new SessionProjectionJournal(ctx,api,{header},{restore:document,adoptRestore:true,nativeEventState:'shared-frozen'});
+  const restored=readJournalDocument(bytes);
+  const cold=open(restored);
+  assert.equal(cold.session.eventAt(0),restored.events[0]);
+  assert.ok(Object.isFrozen(restored.events[0].data));
+  for(const number of ['1e999','-0']){
+    const damaged=readJournalDocument(bytes.replace('"time":1','"time":'+number));
+    assert.throws(()=>open(damaged),/lossless JSON/);
+  }
+});
+
 test('the release action-card service recovers decisions from the ordinary Session journal', {skip:!root},async t=>{
   const {ctx,api,load,journal}=await fixture(t);
   await ctx.plugin((await load('dsh-session-projection')).default);

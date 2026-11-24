@@ -14,13 +14,16 @@ export class SessionProjectionJournal {
   #modelSelectionId;#revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
   #sourceDigest=createSourceDigest();#nativePreset;
-  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,native,transitions,nativeEventState,nativePreset}={}) {
+  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,adoptRestore=false,native,transitions,nativeEventState,nativePreset}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
     this.#sharedNative=nativeEventState==='shared-frozen';
     this.#nativePreset=nativePreset;
     if(restore!==undefined) {
       if(!isDeepStrictEqual(restore.header,seed.header))throw Error('Invalid application journal identity');
-      restore=this.#snapshot(restore);
+      if(adoptRestore) {
+        if(!api.isJsonValue(restore))throw Error('Application journal requires lossless JSON');
+        api.deepFreeze(restore);
+      } else restore=this.#snapshot(restore);
       const sources=restore.version===7?restore.sources.map((source,index)=>{
         const event=native?.[index];
         if(event?.seq!==index)throw Error('Native event prefix moved backwards');

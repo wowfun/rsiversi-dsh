@@ -450,7 +450,11 @@ operation that needs normalization. A log with no native queue transitions
 requires no inbox projection.
 
 Cold loading validates source content and rebuilds the same dense application log
-before exposing it. Missing or changed native history is an error, never a reason
+before exposing it. The reader transfers its privately parsed document to the
+Session owner. The owner checks the original DSH lossless JSON rules, freezes
+that graph, and shares its application events with the restored Session.
+Callers retaining their own writable recovery data receive a detached snapshot.
+Missing or changed native history is an error, never a reason
 to substitute a cached body. Restoration uses the same native read batch as the
 first observation. Older documents are validated and normalized once: version 1
 uses its complete log, and version 1/2 input invocations must agree exactly with

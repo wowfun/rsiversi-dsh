@@ -47,7 +47,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     const publish=event=>{
       changed();for(const listener of listeners)try{listener(event);}catch(error){report(error);}
     };
-    const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{restore,nativeEventState:'shared-frozen',
+    const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{restore,adoptRestore:true,nativeEventState:'shared-frozen',
       native:initial?.value.session.snapshotEvents(),transitions:initial?.value.inbox.transitions,nativePreset:()=>row.meta?.preset,
       save:storage?value=>storage.save(header.id,value):undefined,report,
       notify:(_session,event)=>batch?batch.push(event):publish(event)});
