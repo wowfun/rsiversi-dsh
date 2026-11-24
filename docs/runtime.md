@@ -853,7 +853,8 @@ provider request extensions require an explicit adapter instead of partial heade
 Entered user and developer inputs preserve their role, canonical source and stable
 message identity. A dormant empty system head precedes the first input; it denotes
 that no request has established instructions yet. Each conversation ModelIntent
-replaces that head with its authenticated system evidence. No placeholder is used
+replaces that head when its authenticated system content changes. The comparison
+preserves block order and disregards JSON object member order. No placeholder is used
 as model-request evidence. Native semantic text blocks (`type: text`,
 `content.text`) become DSH text blocks (`type: text`, `text`) at this evidence
 boundary. Projected system messages must round-trip through the original DSH

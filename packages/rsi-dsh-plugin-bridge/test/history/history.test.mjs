@@ -22,6 +22,32 @@ const evidence = () => ({ availability: 'available',
   tools: inline({ definitions: [{ name: 'todo_write', description: 'Actual schema', input_schema: { type: 'object' } }], hosted: [], choice: { type: 'auto' } }),
   system: inline([{ role: 'system', content: [{ type: 'text', content: {text:'Actual instructions'} }] }]) });
 
+integration('prepared requests preserve an unchanged system head restored from a DSH Session', async t => {
+  const cohort = await loadCohort(cohortRoot);
+  const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
+  t.after(() => ctx.fiber.dispose());
+  const api = {...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session', 'surface'), ...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const writer = api.Session.create('restored-system');
+  const head = writer.append('system/message', {turn:1,step:1,message:{id:'original-head',role:'system',
+    source:{kind:'system-prompt'},content:[{text:'Actual instructions',type:'text'}]}}, {surfaceOp:'append'});
+  const session = new SessionFacade(ctx,api,{header:writer.header,events:writer.snapshotEvents()},false);
+  const fact = {type:'model_intent',seq:1,timestamp_ms:12,purpose:{kind:'conversation'},snapshot,evidence:evidence()};
+  const observe = requestObserver(), position = {turn:1,step:1};
+  session.begin();
+  try {
+    await observe(session,fact,position);
+    assert.deepEqual(session.surface.nodes,[head.seq]);
+    assert.equal(session.lastEvent('system/message').data.message.id,'original-head');
+    fact.evidence.system = inline([{role:'system',content:[{type:'text',content:{text:'Changed'}}]}]);
+    await observe(session,fact,position);
+    const changed = session.lastEvent('system/message');
+    assert.deepEqual(changed.sourceEventSeqs,[head.seq]);
+    assert.deepEqual(changed.data.message.content,[{type:'text',text:'Changed'}]);
+    assert.deepEqual(session.surface.nodes,[changed.seq]);
+  } finally { session.end(); }
+});
+
 integration('request headers compare JSON values and preserve series and ordered changes', async t => {
   const cohort = await loadCohort(cohortRoot);
   const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
