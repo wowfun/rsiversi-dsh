@@ -67,19 +67,24 @@ test('a released Claude Code Mod can deny the original DSH Todo before its body'
 test('a published Mods fiber activates in the Agent bridge with the canonical local working directory', {skip:!root},async t=>{
   const original=await loadCohort(root);
   const observed=new Map(),probe='@test/working-directory';
+  const callbacks=[]; let escaped;
   const cohort={...original,import:id=>id===probe?{default(ctx) {
     ctx.on('tools/execute',async(exec,next)=>{
       try {observed.set(exec.agent.id,await ctx.workingDirectory.ensure(exec.agent,exec.signal));}
       catch(error) {observed.set(exec.agent.id,error.message);}
       if(exec.agent.id==='mods-local') {
         assert.equal(await ctx.workingDirectory.set(exec.agent,'.',exec.signal),root);
-        await assert.rejects(ctx.workingDirectory.set(exec.agent,'..',exec.signal),/requires a new Session/);
+        const moved=await ctx.workingDirectory.set(exec.agent,'..',exec.signal);
+        assert.equal(moved,ctx.workingDirectory.get(exec.agent.session));
+        escaped=()=>ctx.workingDirectory.set(exec.agent,root);
       }
       return next();
     });
   }}:original.import(id)};
   const bridge=await createBridge({cohortRoot:root,cohortLoader:async()=>cohort,
-    configuration:{format:1,plugins:[name,probe]}});
+    configuration:{format:1,plugins:[name,probe]},request:async(method,args)=>{
+      assert.equal(method,'agent.tool.directory');callbacks.push(args);return join(root,'..');
+    }});
   t.after(()=>bridge.close());
   bridge.beginAgentLoad({ reload: false, session_id:'mods-local',created_at:1,local_cwd:root,revision:0,count:0});
   await bridge.finishAgentLoad({session_id:'mods-local',checkpoint:null});
@@ -106,6 +111,8 @@ test('a published Mods fiber activates in the Agent bridge with the canonical lo
   await bridge.receipt('mods-child','after-move',updated.token,'committed',2);
   assert.equal(observed.get('mods-child'),root);
   assert.equal(observed.get('mods-local'),root);
+  assert.deepEqual(callbacks,[{session_id:'mods-local',operation_id:'cwd-mods-local',path:'..'}]);
+  await assert.rejects(escaped(),/active Tool operation/);
   assert.match(observed.get('mods-remote'),/no available local working directory/);
 });
 test('an original prompt.submit drop stages journal changes and consumes no Step input', {skip:!root},async t=>{

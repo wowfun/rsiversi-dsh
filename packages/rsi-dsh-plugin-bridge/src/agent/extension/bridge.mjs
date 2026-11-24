@@ -1,3 +1,4 @@
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {agentOperations} from './operations.mjs';
 import {sessionMirrors} from './session-mirrors.mjs';
 import {stagedMutations} from './mutations.mjs';
@@ -27,6 +28,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
   const ctx = new cordis.Context();
   const records = new Map(); const catalogScope = Object.freeze({}); let closing;
   const lifetime = new AbortController();
+  const activeTool = new AsyncLocalStorage();
   await ctx.plugin(projections.default);
   const toolsFiber = await ctx.plugin(tools.default);
   await ctx.plugin(prompt.default);
@@ -36,6 +38,14 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
   await ctx.plugin(commands.default);
   ctx.provide('workingDirectory',nativeWorkingDirectory({ctx,lifetime:lifetime.signal,
     directoryOf:session=>records.get(session.id)?.cwd,
+    async updateDirectory(agent,path,signal){
+      const record=records.get(agent.id),operation=activeTool.getStore();
+      if(!operation||record?.active!==operation||operation.signal.aborted)throw Error('Directory change requires an active Tool operation');
+      const selected=await request('agent.tool.directory',{session_id:agent.id,operation_id:operation.id,...(path===null?{}:{path})},signal);
+      if(record.active!==operation)throw Error('Tool operation ended during directory selection');
+      record.cwd=selected;
+      return selected;
+    },
     ownsSession:session=>!lifetime.signal.aborted&&records.get(session.id)?.session===session,
     ownsAgent:agent=>!lifetime.signal.aborted&&records.get(agent.id)?.agent===agent}));
   ctx.provide('userQuestions', { async ask(request) {
@@ -151,7 +161,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
         const selection = await ctx.tools.resolve({ agent: owner, signal: operation.signal });
         try {
           if (!selection.view(owner).has(name)) throw new Error('tool not admitted for this Step');
-          const result=await executeTool({agent:owner, callId, name, arguments:args, toolSet:selection, signal:operation.signal});
+          const result=await activeTool.run(operation,()=>executeTool({agent:owner, callId, name, arguments:args, toolSet:selection, signal:operation.signal}));
           if(operation.inputs.some(input=>input.kind!=='inject'))throw Error('Tool steering requires native interrupt admission');
           const deferred=[...operation.inputs.map(input=>input.message),...(result.additionalContexts??[])];
           operation.inputs=[];

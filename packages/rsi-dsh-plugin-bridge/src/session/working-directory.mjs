@@ -44,7 +44,7 @@ export function nativeWorkingDirectory({ctx,lifetime,ownsSession,ownsAgent,direc
       if(!(await stat(actual)).isDirectory())throw Error('Session working directory is no longer available');
       current(agent,control);
       const recorded=agent.session.lastEvent?.('workspace-root/change')?.data.cwd??agent.session.header.cwd;
-      if(relative(recorded,cwd)!==''){
+      if(createUserMessage&&relative(recorded,cwd)!==''){
         agent.session.append('workspace-root/change',{cwd});
         try {
           agent.inject(createUserMessage({source:{kind:'working-directory'},content:[{type:'text',

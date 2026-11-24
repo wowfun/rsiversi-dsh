@@ -604,9 +604,9 @@ reasoning effort IDs.
 The application and Agent adapter expose the native Session directory to DSH
 plugins through `workingDirectory.get` and `ensure`. A market tool hook owns
 its captured Agent and Session only inside its execution scope. A sidebar
-request can resolve its authorized Session. Setting an equivalent directory
-returns the existing cwd. Changing native Session coordinates requires a new
-Session.
+request can resolve its authorized Session. An executing native Agent tool can change its own Session directory with
+`workingDirectory.set`. The Host binds the callback to the active Tool operation
+and commits the path and model notice. Its next `get` observes the selected path.
 
 The workbench presents a followed root's pending human interactions through
 the original DSH Remote Event waterfall and client cards. Authenticated browser
