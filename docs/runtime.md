@@ -339,8 +339,14 @@ A failed catalog read preserves the last complete view and retries; it never
 turns a partial or unavailable read into removals. Listing starts no Agent and
 reads no transcript. The observer stops and drains with its Cordis owner.
 
-Workspace followers share the application change signal. Each reads its own
-authorized baseline before emitting the original Workspace frames. Registration,
+Workspace followers share the application change signal. Each connection starts
+with its authorized baseline. A changed Workspace is sent as an `upsert`.
+The account order, archives and pins have their own frames. A newly visible
+Workspace is published before the order that refers to it. A native directory
+notification can coalesce deletion and access changes. When a previously
+visible ID disappears, `replace` installs the current authorized view and lets
+a later grant restore that ID. A shared reader receives changes from a single
+authorization read together when they require multiple frames. Registration,
 Navigation metadata, grants, drafts and durable Session changes wake followers.
 The Agent registry's Cordis scope owns one native directory observation.
 Opening it reconciles the resident shared drafts. It then waits for native

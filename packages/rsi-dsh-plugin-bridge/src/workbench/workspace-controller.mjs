@@ -35,7 +35,29 @@ function mergeActivity(reported,native) {
   return activity;
 }
 
-/** The original Workspace client consumes one baseline per physical follow. */
+function workspaceChanges(previous,value,reader) {
+  const frames=[];
+  const reordered=value.items.length!==previous.items.length ||
+    value.items.some((row,i)=>row.workspaceId!==previous.items[i].workspaceId);
+  const missing=reordered?new Map(previous.items.map(row=>[row.workspaceId,row])):undefined;
+  for(const [i,workspace] of value.items.entries()) {
+    const before=missing?missing.get(workspace.workspaceId):previous.items[i];
+    if(!isDeepStrictEqual(workspace,before))frames.push({type:'upsert',workspace});
+    missing?.delete(workspace.workspaceId);
+  }
+  // The native cut is scoped. An absent ID can be a withdrawn grant; DSH's
+  // remove frame permanently tombstones it, even if a later grant restores it.
+  if(missing?.size)return [{type:'replace',value}];
+  if(reordered)frames.push({type:'order',workspaceIds:value.items.map(row=>row.workspaceId)});
+  if(!isDeepStrictEqual(value.archivedSessionIds,previous.archivedSessionIds))
+    frames.push({type:'archived',archivedSessionIds:value.archivedSessionIds});
+  if(!isDeepStrictEqual(value.pinnedSessionIds,previous.pinnedSessionIds))
+    frames.push({type:'pinned',pinnedSessionIds:value.pinnedSessionIds});
+  // Keep the filtered reader cut atomic across downstream backpressure.
+  return reader && frames.length>1?[{type:'replace',value}]:frames;
+}
+
+/** Each physical follow starts with its caller's current Workspace baseline. */
 export function workspaceController(TypertRemoteService,scope,RemoteError) {
   function selected(row){
     const view=workspaceView(row);
@@ -87,7 +109,9 @@ export function workspaceController(TypertRemoteService,scope,RemoteError) {
         if(!change.aborted)await once(change,'abort',{signal});
         change=scope.workspaceChange();
         const next=await read();
-        if(!isDeepStrictEqual(next,value)){value=next;yield {type:'replace',value};}
+        const frames=workspaceChanges(value,next,reader);
+        value=next;
+        yield* frames;
       }
     }
     archiveSession({sessionId,stopActivity=false},signal){

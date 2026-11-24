@@ -140,6 +140,47 @@ test('Workspace baseline uses native account order and moves return the updated 
   assert.equal(result.workspace.updatedAt,new Date(999).toISOString());
   assert.equal(calls.filter(call=>call.type==='insert_session_before').length,1);
 });
+test('Workspace followers send changed rows, order and navigation sets and can restore withdrawn visibility',async()=>{
+  let changed=new AbortController(),allowed=true;
+  const records=[{id:'one',path:'/one',title:'One',created:1}],members=[];
+  const scope={workspaceChange:()=>changed.signal,drafts:async()=>[],observeOwned:run=>run(),
+    async workspace({type}){return type==='list'?{items:records,order:records.map(row=>row.id)}:{members};}};
+  const Controller=workspaceController(class {constructor(ctx){this.ctx=ctx;}},scope,RemoteError);
+  const stop=new AbortController();
+  const owner=new Controller({}).follow(stop.signal);
+  const reader=new Controller({invocation:{peer:{principal:{kind:'reader'}}},remoteAccess:{
+    allows:({kind,id})=>kind==='session'?id==='visible':id==='one'&&allowed,
+  }}).follow(stop.signal);
+  const change=()=>{const last=changed;changed=new AbortController();last.abort();};
+  const next=async feed=>(await feed.next()).value;
+  try {
+    assert.equal((await next(owner)).type,'baseline');
+    assert.equal((await next(reader)).type,'baseline');
+    records.unshift({id:'two',path:'/two',title:'Two',created:2});change();
+    const added=await next(owner);assert.equal(added.type,'upsert');assert.equal(added.workspace.workspaceId,'two');
+    assert.deepEqual(await next(owner),{type:'order',workspaceIds:['two','one']});
+    const readerRename=next(reader);
+    records[1]={...records[1],title:'First'};change();
+    for(const frame of [await next(owner),await readerRename]){
+      assert.equal(frame.type,'upsert');assert.equal(frame.workspace.title,'First');
+    }
+    members.push({session:'hidden',workspace:'one',account_position:1,archived:true,last_activity_ms:'1'},
+      {session:'visible',workspace:'one',account_position:0,pinned:true,last_activity_ms:'2'});change();
+    assert.deepEqual((await next(owner)).workspace.sessionIds,['visible','hidden']);
+    assert.deepEqual(await next(owner),{type:'archived',archivedSessionIds:['hidden']});
+    assert.deepEqual(await next(owner),{type:'pinned',pinnedSessionIds:['visible']});
+    const filtered=await next(reader);assert.equal(filtered.type,'replace');
+    assert.deepEqual(filtered.value.items.map(row=>row.workspaceId),['one']);
+    assert.deepEqual(filtered.value.items[0].sessionIds,['visible']);
+    assert.deepEqual(filtered.value.archivedSessionIds,[]);assert.deepEqual(filtered.value.pinnedSessionIds,['visible']);
+    allowed=false;change();const revoked=await next(reader);
+    assert.equal(revoked.type,'replace');assert.deepEqual(revoked.value.items,[]);
+    allowed=true;change();const restored=await next(reader);
+    assert.equal(restored.type,'replace');assert.deepEqual(restored.value.items.map(row=>row.workspaceId),['one']);
+    records.shift();change();const removed=await next(owner);
+    assert.equal(removed.type,'replace');assert.deepEqual(removed.value.items.map(row=>row.workspaceId),['one']);
+  }finally{stop.abort();await Promise.all([reader.return(),owner.return()]);}
+});
 test('Workspace move errors retain DSH business identities',async()=>{
   let status='unknown',calls=0;
   const scope={workspace:async()=>{calls++;return {status};}};
