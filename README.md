@@ -24,7 +24,9 @@ adapter tests does not establish installation into a released RSI executable.
 installs an isolated Application process using the real application Session
 adapter and a deterministic local provider. It verifies startup, paged submission
 of 1 MiB escaped native-valid text, exact durable acceptance readback, and
-idempotent same-message submission. The new Home retains hashes and results;
+idempotent same-message submission. The probe uses the repository's esbuild
+development dependency to find its static imports and packages the original
+modules at their source-relative paths. The new Home retains hashes and results;
 the fixture stops its Host and provider. Market fixtures select config, data,
 state, cache and scratch below the chosen Home, including when reopening it.
 Their native Host reads personal instructions, agents and skills from the

@@ -2,9 +2,10 @@ import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
-import {mkdir,readFile,stat,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
 import {writePayloadFiles} from '../../packages/rsi-dsh-cordis/src/archive/payload.mjs';
 import {digest,json} from '../../packages/rsi-dsh-cordis/src/release/artifacts.mjs';
 import {runtimeEnvironment} from '../../packages/rsi-dsh-cordis/src/runtime/node.mjs';
@@ -14,16 +15,12 @@ const [bin,home,document]=process.argv.slice(2).map(path=>resolve(path));
 await mkdir(home,{recursive:false});
 const source=join(home,'source');await mkdir(source);
 const workspace=join(home,'workspace');await mkdir(workspace);
-const files=[];
-for(const [path,located] of [['entry.mjs','./small-process.mjs'],
-  ...['transport','frames'].map(name=>[name+'.mjs','../../packages/rsi-dsh-cordis/src/runtime/'+name+'.mjs']),
-  ...['application/sessions','application/activities','application/inbox','application/request-publication','application/native-publication',
-    'agent/file-input','session/working-directory','request-body'].map(name=>['bridge/'+name+'.mjs','../../packages/rsi-dsh-plugin-bridge/src/'+name+'.mjs'])]) {
-  const file=fileURLToPath(new URL(located,import.meta.url));files.push({path,source:file,bytes:(await stat(file)).size});
-}
+const checkout=fileURLToPath(new URL('../../',import.meta.url)),entry='fixtures/market/small-process.mjs';
+const {metafile}=await build({absWorkingDir:checkout,entryPoints:[entry],bundle:true,platform:'node',format:'esm',metafile:true,write:false});
+const files=Object.keys(metafile.inputs).sort().map(path=>({path,source:join(checkout,path),bytes:metafile.inputs[path].bytes}));
 const tree=await writePayloadFiles(files,join(source,'runtime.rsi'));
 const processDescriptor=json({format:1,cwd:{payload:'runtime',path:''},arguments:[
-  {kind:'path',location:{payload:'runtime',path:'entry.mjs'}},{kind:'generation'}]});
+  {kind:'path',location:{payload:'runtime',path:entry}},{kind:'generation'}]});
 await writeFile(join(source,'process.json'),processDescriptor);
 const manifest=json({format:2,name:'sample-application',version:'1',target:'portable',
   dependencies:[],requires:[{name:'rsi.extension.process',version:2}],files:[
