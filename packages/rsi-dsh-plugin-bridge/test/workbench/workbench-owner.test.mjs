@@ -86,13 +86,46 @@ test('managed child keeps its project of origin and reopens in the Host-selected
   const notices=[];
   const agent={session:{header:session.header,lastEvent:type=>session.lastEvent(type),
     append:(type,data)=>owner.journal.append(type,data,{},true)},inject:message=>notices.push(message)};
-  const working=nativeWorkingDirectory(value=>value===agent.session,value=>value===agent,()=>owner.cwd,f.options.llm.createUserMessage);
+  const lifetime=new AbortController();
+  const working=nativeWorkingDirectory({ctx:f.ctx,lifetime:lifetime.signal,ownsSession:value=>value===agent.session,
+    ownsAgent:value=>value===agent,directoryOf:()=>owner.cwd,createUserMessage:f.options.llm.createUserMessage});
+  const accesses=[],entered=Promise.withResolvers(),release=Promise.withResolvers();
+  let reject=true;
+  f.ctx.on('working-directory/access',async(request,next)=>{
+    assert.equal(request.agent,agent);assert.ok(request.signal instanceof AbortSignal);
+    accesses.push(request.path);
+    if(reject)throw Error('checkout is being removed');
+    if(request.path===target){entered.resolve();await release.promise;}
+    return next();
+  });
   assert.equal(session.header.cwd,origin);
-  assert.equal(await working.set(agent,target),target);
+  await assert.rejects(working.set(agent,target),/checkout is being removed/);
+  assert.equal(notices.length,0);assert.equal(session.lastEvent('workspace-root/change'),undefined);
+  reject=false;
+  const move=working.set(agent,target);
+  await entered.promise;
+  const check=working.ensure(agent);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(accesses,[target,target]);
+  release.resolve();
+  assert.deepEqual(await Promise.all([move,check]),[target,target]);
+  assert.deepEqual(accesses,[target,target,null]);
   await working.set(agent,target);
   assert.equal(notices.length,1);
   assert.deepEqual(notices[0].source,{kind:'working-directory'});
   assert.equal(notices[0].content[0].text,`The working directory changed from ${JSON.stringify(origin)} to ${JSON.stringify(target)}.`);
+  const blocked=Promise.withResolvers(),continueAccess=Promise.withResolvers();
+  f.ctx.on('working-directory/access',async({path,signal},next)=>{
+    if(path==='.'){
+      blocked.resolve(signal);await continueAccess.promise;
+    }
+    return next();
+  });
+  const stale=working.set(agent,'.'),control=await blocked.promise;
+  lifetime.abort(Error('Host retired'));assert.ok(control.aborted);
+  continueAccess.resolve();
+  await assert.rejects(stale,/Host retired/);
+  assert.equal(notices.length,1);
   await owner.flush();await history.close();
   const cold=await open();
   assert.equal(cold.session.header.cwd,origin);
@@ -289,7 +322,8 @@ test('intervening external model selection requires a new effective event withou
     const directory=await mkdtemp(join(tmpdir(),'rsi-original-sidechat-'));t.after(()=>rm(directory,{recursive:true,force:true}));
     const outfile=join(directory,'core.mjs');
     const {build}=await import('esbuild');
-    await build({entryPoints:[join(root,'node_modules/dsh-better-sidebar/src/sidechat-core.ts')],
+    const modules=join(root,'node_modules');
+    await build({entryPoints:[join(modules,'dsh-better-sidebar/src/sidechat-core.ts')],nodePaths:[modules],
       outfile,bundle:true,format:'esm',platform:'node',logLevel:'silent'});
     const {effectiveModelSelection}=await import(pathToFileURL(outfile));
     assert.deepEqual(effectiveModelSelection(session.snapshotEvents()),{...base,reasoningEffort:'high'});

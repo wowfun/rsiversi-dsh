@@ -43,7 +43,7 @@ export function applicationActivities(scope,owner) {
       try{await scope.run(active,()=>source.return?.());}finally{active.released=true;}
     }
   }
-  return {run:(operation,signal)=>enter(operation,signal,true),observeStream,
+  return {signal:lifetime.signal,run:(operation,signal)=>enter(operation,signal,true),observeStream,
     observe:(operation,signal)=>enter(operation,signal,false),close(){
     return closing??=(async()=>{
       lifetime.abort(Error('Application activities retired'));

@@ -44,7 +44,7 @@ export function provideWorkbenchSessions(ctx,SessionStore,live,flush) {
 }
 
 /** Resident DSH Sessions and the current native-authorized request's views. */
-export function applicationSessions(send,{capture,owner,agent,registered=agent,attached,select,decorate,directoryOf,createUserMessage}={}) {
+export function applicationSessions(send,{ctx,capture,owner,agent,registered=agent,attached,select,decorate,directoryOf,createUserMessage}={}) {
   const scope=new AsyncLocalStorage();
   const activities=applicationActivities(scope,owner);
   const submissionBodies=requestBodies(8*1024*1024);
@@ -79,11 +79,11 @@ export function applicationSessions(send,{capture,owner,agent,registered=agent,a
     if(active.publication)return active.publication.accepting?active.publication:undefined;
     if(response)return active.publication=requestPublication(response);
   }
-  const workingDirectory=nativeWorkingDirectory(session=>{
+  const workingDirectory=nativeWorkingDirectory({ctx,lifetime:activities.signal,directoryOf,createUserMessage,ownsSession:session=>{
     const active=scope.getStore();
     return agent?.(session?.id)?.session===session ||
       active!==undefined&&!active.released&&(active===session||active.agent?.session===session||active.views?.get(session?.id)===session);
-  },value=>agent?.(value?.id)===value||scope.getStore()?.agent===value,directoryOf,createUserMessage);
+  },ownsAgent:value=>agent?.(value?.id)===value||scope.getStore()?.agent===value});
   const sessions={get(id) {
     const owned=agent?.(id);if(owned)return owned.session;
     const active=scope.getStore();

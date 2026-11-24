@@ -89,7 +89,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     let persistence,agents,history;
     const storage=sessionJournalStore(join(profileState(profile),'sessions'),await load('@deepseek-ai/dsh-atomic-write'),()=>ctx.emit('rsi/catalog-projection'));
     const llm=await load('@deepseek-ai/dsh-llm');
-    sessionScope=applicationSessions(call,{owner,createUserMessage:llm.createUserMessage,agent:id=>agents?.get(id),registered:id=>ctx.get('agents')?.get(id),
+    sessionScope=applicationSessions(call,{ctx,owner,createUserMessage:llm.createUserMessage,agent:id=>agents?.get(id),registered:id=>ctx.get('agents')?.get(id),
       attached:()=>agents?.sessions(),decorate:storage.decorate,directoryOf:session=>agents?.directoryOf(session)??history?.owner(session)?.cwd,
       select:(request,signal)=>history.selectModel(request,signal),
       capture:async(id,signal)=>agents?.get(id)?(await agents.refresh(id,signal)).session:persistence.capture(id,signal)});

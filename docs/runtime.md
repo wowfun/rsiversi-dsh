@@ -1383,7 +1383,12 @@ same driver. Other native execution-event writes still require their owning
 native command. The [journal contract](session-journal.md) owns persistence,
 correlation and recovery semantics.
 On the Agent side, working-directory reads use the current native Session
-mirror's canonical local cwd. Changing a native Session's execution coordinates
+mirror's canonical local cwd. Directory validation and selection run in arrival
+order for that Session. Both dispatch the released `working-directory/access`
+waterfall before inspecting the directory. A waiting plugin receives the
+requested path (null for validation), Agent and cancellation signal. Its
+rejection leaves the recorded directory and the Agent inbox untouched.
+Changing a native Session's execution coordinates
 requires a new Session. A remote or missing local directory cannot fall back
 to the adapter process's own directory.
 Invalid JSON or an oversized sidebar JSON request has the plugin's HTTP 400

@@ -312,12 +312,12 @@ test('a captured Cordis registration settles once in its own Session and survive
     const load=name=>import(pathToFileURL(require.resolve(name)));
     const {Context}=await load('@deepseek-ai/cordis');
     const tools=await load('@deepseek-ai/dsh-tools');
-    const sessions=applicationSessions(()=>{throw Error('tool authority cannot become an HTTP request');});
     const key=randomUUID();
     let ctx;
     t.after(async()=>{await ctx?.fiber.dispose();await rm(directory,{recursive:true,force:true});});
     async function open() {
       ctx=new Context();
+      const sessions=applicationSessions(()=>{throw Error('tool authority cannot become an HTTP request');},{ctx});
       ctx.provide('sessions',sessions.sessions);
       ctx.provide('workingDirectory',sessions.workingDirectory);
       for(const name of ['dsh-session-projection','dsh-system-prompt'])

@@ -34,9 +34,9 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
   const runtimeContext = runtimeContextProjection({...prompt,...llm});
   const executeTool = toolPipeline(ctx,await cohort.subpath('@deepseek-ai/dsh-tools','pipeline'),tools);
   await ctx.plugin(commands.default);
-  ctx.provide('workingDirectory',nativeWorkingDirectory(
-    session=>!lifetime.signal.aborted&&records.get(session.id)?.session===session,
-    agent=>!lifetime.signal.aborted&&records.get(agent.id)?.agent===agent));
+  ctx.provide('workingDirectory',nativeWorkingDirectory({ctx,lifetime:lifetime.signal,
+    ownsSession:session=>!lifetime.signal.aborted&&records.get(session.id)?.session===session,
+    ownsAgent:agent=>!lifetime.signal.aborted&&records.get(agent.id)?.agent===agent}));
   ctx.provide('userQuestions', { async ask(request) {
     const record = records.get(request.agent.id); const operation = record?.active;
     if (!operation || operation.session.seq !== (operation.observedThrough ?? operation.start) || operation.inputs.length) throw new Error('question requires a canonical-prefix barrier');

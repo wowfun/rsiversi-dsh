@@ -1,37 +1,49 @@
 import {realpath,stat} from 'node:fs/promises';
 import {relative,resolve} from 'node:path';
 
-export function nativeWorkingDirectory(ownsSession,ownsAgent,directoryOf,createUserMessage){
+export function nativeWorkingDirectory({ctx,lifetime,ownsSession,ownsAgent,directoryOf,createUserMessage}){
+  const pending=new WeakMap();
   function get(session){
     if(!ownsSession(session)||!session?.header?.cwd)throw Error('Session has no available local working directory');
     return directoryOf?.(session)??session.header.cwd;
   }
-  async function ensure(agent,signal){
-    signal?.throwIfAborted();
+  function current(agent,signal){
+    signal.throwIfAborted();
     if(!ownsAgent(agent))throw Error('Agent no longer owns this Session view');
-    const current=get(agent.session);
-    const actual=await realpath(current);
-    if(relative(actual,current)!==''||!(await stat(actual)).isDirectory())throw Error('Session working directory is no longer available');
-    signal?.throwIfAborted();
-    if(!ownsAgent(agent))throw Error('Agent no longer owns this Session view');
-    return current;
+    return get(agent.session);
   }
-  return {get,ensure,async set(agent,path,signal){
-    if(typeof path!=='string'||!path)throw Error('Working directory must not be empty');
-    const current=await ensure(agent,signal);
-    const requested=resolve(current,path);
-    if(relative(current,requested)!==''&&relative(current,await realpath(requested))!=='')
-      throw Error('Changing the native working directory requires a new Session');
-    signal?.throwIfAborted();
-    if(!ownsAgent(agent))throw Error('Agent no longer owns this Session view');
-    const recorded=agent.session.lastEvent?.('workspace-root/change')?.data.cwd??agent.session.header.cwd;
-    if(relative(recorded,current)!==''){
-      agent.session.append('workspace-root/change',{cwd:current});
-      try {
-        agent.inject(createUserMessage({source:{kind:'working-directory'},content:[{type:'text',
-          text:`The working directory changed from ${JSON.stringify(recorded)} to ${JSON.stringify(current)}.` }]}));
-      }catch(error){agent.ctx.logger.warn('Working directory committed but its notice could not be queued:',error);}
-    }
-    return current;
-  }};
+  function access(agent,path,signal,inspect){
+    const session=agent.session,control=signal?AbortSignal.any([lifetime,signal]):lifetime;
+    const run=()=>{
+      current(agent,control);
+      return ctx.waterfall('working-directory/access',{agent,path,signal:control},()=>inspect(control));
+    };
+    const operation=(pending.get(session)??Promise.resolve()).then(run,run);
+    const settled=operation.finally(()=>{if(pending.get(session)===settled)pending.delete(session);});
+    pending.set(session,settled);
+    return settled;
+  }
+  return {get,
+    ensure:(agent,signal)=>access(agent,null,signal,async control=>{
+      const cwd=current(agent,control),actual=await realpath(cwd);
+      if(relative(actual,cwd)!==''||!(await stat(actual)).isDirectory())throw Error('Session working directory is no longer available');
+      return current(agent,control);
+    }),
+    set:(agent,path,signal)=>access(agent,path,signal,async control=>{
+      if(typeof path!=='string'||!path)throw Error('Working directory must not be empty');
+      const cwd=current(agent,control),actual=await realpath(resolve(cwd,path));
+      if(relative(cwd,actual)!=='')throw Error('Changing the native working directory requires a new Session');
+      if(!(await stat(actual)).isDirectory())throw Error('Session working directory is no longer available');
+      current(agent,control);
+      const recorded=agent.session.lastEvent?.('workspace-root/change')?.data.cwd??agent.session.header.cwd;
+      if(relative(recorded,cwd)!==''){
+        agent.session.append('workspace-root/change',{cwd});
+        try {
+          agent.inject(createUserMessage({source:{kind:'working-directory'},content:[{type:'text',
+            text:`The working directory changed from ${JSON.stringify(recorded)} to ${JSON.stringify(cwd)}.` }]}));
+        }catch(error){ctx.logger.warn('Working directory committed but its notice could not be queued:',error);}
+      }
+      return cwd;
+    }),
+  };
 }
