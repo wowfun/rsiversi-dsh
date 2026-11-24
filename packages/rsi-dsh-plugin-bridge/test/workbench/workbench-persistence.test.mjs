@@ -8,6 +8,7 @@ import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {historyPage,historyCapture} from '../fixtures/history-page.mjs';
 import {journalCatalog} from '../../src/session/session-journal-store.mjs';
+import {provideWorkbenchSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('stored revisions track owned appends rather than native mirror catch-up',{skip:!root},async t=>{
@@ -46,6 +47,20 @@ test('stored revisions track owned appends rather than native mirror catch-up',{
   const restored=await cold.open('stored','read');t.after(()=>restored.close());
   assert.equal((await restored.read()).events.length,3);
   assert.deepEqual(await cold.stat('stored'),changed);
+  const live=new Map();
+  provideWorkbenchSessions(ctx,api.SessionStore,{get:id=>live.get(id),list:()=>[...live.values()]},()=>assert.fail('a read flushed a writer'));
+  ctx.provide('sessionPersistence',cold);
+  await ctx.plugin((await load('dsh-session-projection')).default);
+  await ctx.plugin((await load('dsh-session-query-sqlite')).default,{path:':memory:',openAt:'never'});
+  const observation=await ctx.sessionQuery.observeSession('stored');
+  try{
+    assert.equal(observation.header.id,'stored');assert.ok(observation.projections);
+    assert.equal(ctx.sessions.get('stored'),undefined);
+    assert.deepEqual(ctx.sessions.list(),[]);
+  }finally{observation[Symbol.dispose]();}
+  live.set('session-1',session);
+  assert.equal(ctx.sessions.prepare().id,'session-2');
+  assert.throws(()=>ctx.sessions.prepare('session-1'),/already exists/);
 });
 test('a delayed capture does not hold other Sessions; point reads stay at the opening cut without copying the log',async()=>{
   const gate=Promise.withResolvers(),entered=Promise.withResolvers(),order=[];

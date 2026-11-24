@@ -13,7 +13,7 @@ import {languageCalls,provideLanguage} from './language.mjs';
 import {importRelease} from '../../../rsi-dsh-cordis/src/release/import.mjs';
 import {createMarketProfile} from '../market/market-profile.mjs';
 import {linkProfilePackage} from '../market/profile-files.mjs';
-import {applicationSessions} from './sessions.mjs';
+import {applicationSessions,provideWorkbenchSessions} from './sessions.mjs';
 import {workbenchWorkspaceRegistry} from '../workbench/workspace-registry.mjs';
 import {hostHomePicker,workspaceController} from '../workbench/workspace-controller.mjs';
 import {sessionController} from '../workbench/session-controller.mjs';
@@ -139,7 +139,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const terminalName='@deepseek-ai/dsh-api-terminal-controller';
     const terminal=await load(terminalName);
     hostModules.set(terminalName,terminalController({TypertRemoteService,RemoteError},sessionScope,terminal.default.Config({})));
-    ctx.provide('sessions',{...sessionScope.sessions,flush:session=>agents.flush(session)});
+    provideWorkbenchSessions(ctx,api.SessionStore,sessionScope.sessions,session=>agents.flush(session));
     ctx.provide('sessionPersistence',persistence);
     ctx.provide('workingDirectory',sessionScope.workingDirectory);
     ctx.provide('subagents',sessionScope.subagents);

@@ -28,6 +28,21 @@ export function orderedOperations() {
   };
 }
 
+/** Prepare unpublished DSH Sessions while native services own attached identities and writes. */
+export function provideWorkbenchSessions(ctx,SessionStore,live,flush) {
+  // The workbench controller owns the public Typert Session lookup.
+  const detached=new SessionStore(ctx.isolate('sessions').isolate('typert'));
+  ctx.provide('sessions',{...live,flush,prepare(id,options){
+    if(id!==undefined){
+      if(live.get(id))throw Error('session "'+id+'" already exists');
+      return detached.prepare(id,options);
+    }
+    let session;
+    do{session=detached.prepare(undefined,options);}while(live.get(session.id));
+    return session;
+  }});
+}
+
 /** Resident DSH Sessions and the current native-authorized request's views. */
 export function applicationSessions(send,{capture,owner,agent,registered=agent,attached,select,decorate}={}) {
   const scope=new AsyncLocalStorage();

@@ -10,6 +10,11 @@ Agents, workbench history and cold persistence. Native Kernel owns execution.
 The attached Agent's model-selection append and the ordinary workbench model
 selector both use this log and its native command driver.
 
+A cold Session query can prepare a detached DSH Session from the persisted
+header and events. Preparation preserves the seed's ownership mode and
+inherited boundary, checks for an attached Session with the same ID, and
+leaves the live registry and native store untouched.
+
 A native draft can change Agent preset without changing Session identity.
 The application retains its original creation Header and records a changed
 native choice as `agent-preset/selected`, before the events in the same newly
