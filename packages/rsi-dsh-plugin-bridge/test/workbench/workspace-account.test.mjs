@@ -240,3 +240,35 @@ test('a draft published between the two workspace reads keeps its durable positi
     await feed.return();
   }
 });
+
+test('an empty workspace feed publishes detached navigation even when drafts are unavailable', async () => {
+  let change = new AbortController();
+  const rows = [];
+  const scope = {
+    workspaceChange: () => change.signal,
+    async workspace({type}) {
+      if (type === 'list') return {items:rows, order:rows.map(row => row.id), next:null};
+      return {members:[{session:'archived', archived:true}, {session:'pinned', pinned:true}], next:null};
+    },
+    async drafts() {
+      assert.ok(rows.length, 'empty workspace list requested private drafts');
+      return [{id:'draft', workspace:workspaceId}];
+    },
+  };
+  const Controller = workspaceController(class {}, scope, RemoteError);
+  const feed = new Controller().follow(new AbortController().signal);
+  try {
+    assert.deepEqual((await feed.next()).value, {type:'baseline', value:{
+      items:[], archivedSessionIds:['archived'], pinnedSessionIds:['pinned'],
+    }});
+    rows.push({id:workspaceId, path:'/project', title:'Project', created:1});
+    const previous = change;
+    change = new AbortController();
+    previous.abort();
+    const next = (await feed.next()).value;
+    assert.equal(next.type, 'upsert');
+    assert.deepEqual(next.workspace.sessionIds, ['draft']);
+  } finally {
+    await feed.return();
+  }
+});

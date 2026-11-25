@@ -1509,8 +1509,10 @@ places each attached Session at its native account position. Pins and archives
 include visible detached Sessions independently of workspace placement.
 It publishes a baseline, observes the native directory subscription, and sends
 a replacement when the visible registrations or Navigation membership change.
-The feed includes the browser owner's native ready drafts until publication
-or expiry. The draft list and the durable navigation seed share Session IDs.
+The feed includes the browser owner's native ready drafts in visible workspaces
+until publication or expiry. With no visible workspace, it reads the detached
+archive and pin memberships without requesting private drafts. The draft list
+and the durable navigation seed share Session IDs.
 The feed reads private drafts first and lets a published identity take its
 durable position if it becomes visible during that read.
 Workspace creation, rename and deletion use the native registry. An existing

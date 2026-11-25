@@ -16,7 +16,7 @@ export async function readWorkspaceBaseline(scope,signal,header) {
     after=page.next;
   }while(after);
   items.sort((a,b)=>order.get(a.id)-order.get(b.id));
-  const drafts = new Map(header ? [] : (await scope.drafts(signal)).map(draft => [draft.id, draft]));
+  const drafts = new Map(header || !items.length ? [] : (await scope.drafts(signal)).map(draft => [draft.id, draft]));
   const byWorkspace = new Map(), archives = [], pins = [];
   do {
     const page=await scope.workspace({type:'membership',after,headers:!!header},signal);
