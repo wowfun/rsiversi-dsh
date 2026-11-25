@@ -1,4 +1,4 @@
-import {createHash} from 'node:crypto';
+import {hash} from 'node:crypto';
 import {open,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
@@ -21,22 +21,36 @@ export function journalCatalog(document) {
 
 /** The application profile owns one writer; atomic replacement gives cold readers a complete log. */
 export function sessionJournalStore(directory,{writeFileAtomic},changed) {
-  let plainFiles;
-  async function file(id) {
-    // The single writer creates only packed journals. Existing flat files keep their encoding.
-    plainFiles??=readdir(directory).then(names=>new Set(names.filter(name=>name.endsWith('.json'))),error=>{
-      if(error.code==='ENOENT')return new Set();
-      plainFiles=undefined;
-      throw error;
-    });
-    const stem=createHash('sha256').update(id).digest('hex'),plain=stem+'.json';
-    return (await plainFiles).has(plain)?join(directory,plain):join(directory,'packed',stem+'.journal');
-  }
+  const packedDirectory=join(directory,'packed');
   const catalog=new Map();
-  async function readCatalog(id) {
+  let root,discovery,unread;
+  async function names(path) {
+    try{return await readdir(path);}
+    catch(error){if(error.code==='ENOENT')return [];throw error;}
+  }
+  function rootNames() {
+    return root??=names(directory).then(items=>new Set(items)).catch(error=>{root=undefined;throw error;});
+  }
+  async function pathFor(stem) {
+    const plain=stem+'.json';
+    return (await rootNames()).has(plain)?join(directory,plain):join(packedDirectory,stem+'.journal');
+  }
+  async function discover() {
+    const flat=await rootNames(),stems=new Set();
+    for(const name of flat)if(name.endsWith('.json'))stems.add(name.slice(0,-5));
+    if(flat.has('packed'))for(const name of await names(packedDirectory)) {
+      if(name.endsWith('.journal'))stems.add(name.slice(0,-8));
+    }
+    for(const [id,hint] of catalog)if(!(hint instanceof Promise))stems.delete(hash('sha256',id));
+    return unread=stems;
+  }
+  function catalogFiles() {
+    return discovery??=discover().catch(error=>{discovery=undefined;throw error;});
+  }
+  async function readCatalog(path) {
     let handle;
     try {
-      handle=await open(await file(id),'r');
+      handle=await open(path,'r');
       const chunks=[];let length=0;
       for(;;){
         const buffer=Buffer.allocUnsafe(4096),{bytesRead}=await handle.read(buffer);
@@ -53,11 +67,17 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
   }
   async function metadata(id) {
     if(catalog.has(id))return catalog.get(id);
-    const pending=readCatalog(id);
+    const stem=hash('sha256',id);
+    if(unread&&!unread.has(stem))return;
+    const pending=pathFor(stem).then(readCatalog);
     catalog.set(id,pending);
     try {
       const hint=await pending;
-      if(catalog.get(id)===pending)catalog.set(id,hint);
+      if(catalog.get(id)===pending){
+        if(hint===undefined)catalog.delete(id);
+        else catalog.set(id,hint);
+      }
+      unread?.delete(stem);
       return hint;
     }catch(error){if(catalog.get(id)===pending)catalog.delete(id);throw error;}
   }
@@ -65,10 +85,14 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     metadata,
     async decorate(rows,signal) {
       signal?.throwIfAborted();
-      const visible=new Set(rows.map(row=>row.id));
-      for(const id of catalog.keys())if(!visible.has(id))catalog.delete(id);
+      if(!rows.length)return rows;
+      const files=await catalogFiles().catch(error=>{console.warn('Session catalog hint:',error.message);});
+      signal?.throwIfAborted();
+      if(!files?.size&&!catalog.size)return rows;
       for(const row of rows) {
-        const hint=await metadata(row.id).catch(error=>{console.warn('Session catalog hint:',error.message);});
+        const id=row.id;
+        if(!files?.size&&!catalog.has(id))continue;
+        const hint=await metadata(id).catch(error=>{console.warn('Session catalog hint:',error.message);});
         signal?.throwIfAborted();
         const {header,catalogTitle}=hint??{};
         if(header?.id!==row.id||header.createdAt!==row.createdAt)continue;
@@ -81,7 +105,7 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     async read(id) {
       let handle;
       try {
-        const path=await file(id);
+        const path=await pathFor(hash('sha256',id));
         handle=await open(path,'r');
         const info=await handle.stat();
         const packed=path.endsWith('.journal');
@@ -98,7 +122,7 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
       finally{await handle?.close();}
     },
     async save(id,value) {
-      const path=await file(id),after=journalCatalog(value);
+      const stem=hash('sha256',id),path=await pathFor(stem),after=journalCatalog(value);
       let bytes=value;
       if(path.endsWith('.journal')){
         const body=value.indexOf('\n')+1;
@@ -108,6 +132,7 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
       await writeFileAtomic(path,bytes,{mode:0o600,dirMode:0o700});
       const before=catalog.get(id);
       catalog.set(id,after);
+      unread?.delete(stem);
       if(before?.catalogTitle?.seq!==after?.catalogTitle?.seq || before?.header?.origin!==after?.header?.origin)changed?.();
     },
   };

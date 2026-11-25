@@ -560,12 +560,17 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   t.after(()=>rm(temporary,{recursive:true,force:true}));
   let changes=0;
   const atomic=await load('dsh-atomic-write'),storage=sessionJournalStore(directory,atomic,()=>changes++);
+  const nativeOnly=[{get id(){assert.fail('an empty journal directory needs no native identity lookups');}}];
+  assert.equal(await storage.decorate(nativeOnly),nativeOnly);
+  assert.equal(await storage.metadata(header.id),undefined);
   const child={...header,origin:'subagent',parentSession:'parent',delegationDepth:1,isSeeded:true};
   const journal=new SessionProjectionJournal(ctx,api,{header:child},{save:value=>storage.save(child.id,value)});
   const title='Side: 第一条会话',row={id:child.id,createdAt:child.createdAt};
   journal.accept('rename','session/title',{title,source:{kind:'user'},messageSeqs:[]});
   await journal.flush();
   const expected={...row,parent:'parent',projections:{kind:'cached',asOfSeq:0,values:{title}}};
+  const unrelated={id:'native-only',createdAt:2};
+  assert.deepEqual(await storage.decorate([unrelated,{...row}]),[unrelated,expected]);
   const packed=join(directory,'packed'),file=join(packed,(await readdir(packed))[0]);
   const bytes=await readFile(file),body=bytes.indexOf(10)+1,document=journal.encode();
   assert.equal(bytes.readUInt32LE(body),0xfd2fb528);
