@@ -52,6 +52,11 @@ test('released Goal fold reads native completion and counts only admitted round 
       {kind:'goal',goal:{current:{...current,phase:'completed'},command:{action:'complete',request_id:'finish',published_at_ms:14}},
         seq:2,time:15,after_fact_seq:facts.length},
     ];
+    controls.push(
+      {kind:'goal',goal:{current:{...current,phase:'completed',objective:'Amended text',max_rounds:20},
+        command:{action:'edit',request_id:'revise',published_at_ms:16}},seq:3,time:17,after_fact_seq:facts.length},
+      {kind:'goal',goal:{current:null,command:{action:'clear',request_id:'remove',published_at_ms:18}},
+        seq:4,time:19,after_fact_seq:facts.length});
     const call=async op=>historyPage((op.type==='fact'?facts:controls).slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
     const source=await workbenchSource({ctx,api,llm:await load('dsh-llm'),header:{version:4,id:'review',createdAt:1,isSeeded:false},
       meta:{model_baseline:baseline,selection_cursor:{kind:'durable',fact_seq:facts.length,control_seq:2}},call});
@@ -65,6 +70,13 @@ test('released Goal fold reads native completion and counts only admitted round 
     const view=foldGoal(events);
     assert.deepEqual(view.goal,{id:'review',revision:2,phase:'complete',objective:'Review the draft',maxGoalRounds:2});
     assert.deepEqual([view.roundsStarted,view.createdAt,view.updatedAt],[withRound?1:0,10,14]);
+    (await source.stage(call,async()=>{},undefined,facts.length,3)).commit();
+    const revised=foldGoal(source.current.session.snapshotEvents());
+    assert.deepEqual(revised.goal,{id:'review',revision:3,phase:'complete',objective:'Amended text',maxGoalRounds:20});
+    assert.deepEqual([revised.roundsStarted,revised.createdAt,revised.updatedAt],[withRound?1:0,10,16]);
+    (await source.stage(call,async()=>{},undefined,facts.length,4)).commit();
+    assert.deepEqual(source.current.session.lastEvent('goal/change').data,
+      {kind:'goal/change',version:1,operation:'clear',cleared:{id:'review',revision:4},clearedAt:18});
   }
 });
 

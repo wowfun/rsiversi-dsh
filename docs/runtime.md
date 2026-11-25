@@ -545,6 +545,10 @@ The caller's Loader entry supplies the identity for an explicit plugin
 completion. A create followed by completion in the same callback spends no
 round. The native controller can arm the surviving active choice when the
 callback yields.
+A plugin can edit the objective or round limit at the current revision. A
+synchronous create followed by an edit starts the edited choice when the
+callback yields. Paused and disarmed Goals retain their activation state.
+Clearing publishes the upstream tombstone and releases the native Goal slot.
 An in-process plugin can block its active Goal at the observed revision.
 Its policy code and trimmed explanation return from the original service and
 from cold replay. The native controller stops scheduling when it accepts the block.

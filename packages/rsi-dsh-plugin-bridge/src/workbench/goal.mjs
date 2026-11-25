@@ -31,6 +31,8 @@ export function observeGoal(state,{goal:{current:native,command},time}) {
       phase:'active',maxGoalRounds:native.max_rounds},publishedAt);
   }
   const current=state.goal.goal;
+  if(command?.action==='edit')return snapshot(state,time,'edit',{...current,revision:current.revision+1,
+    objective:native.objective.trim(),maxGoalRounds:native.max_rounds},publishedAt);
   const phase=native.phase==='completed'?'complete':native.phase;
   if(phase===current.phase&&command?.action!=='resume')return appended;
   const operation={active:'resume',paused:'pause',blocked:'block',complete:'complete'}[phase];

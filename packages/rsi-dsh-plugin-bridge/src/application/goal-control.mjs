@@ -36,7 +36,7 @@ async function commitChange(command,control,signal) {
     expected = await command({type:'prepare',expected_draft_revision:expected.revision});
   }
   const accepted = {...control, expected_revision:expected};
-  const starts = ['create','resume'].includes(accepted.action.action);
+  const starts = ['create','resume','edit'].includes(accepted.action.action);
   let receipt;
   try {
     receipt = starts

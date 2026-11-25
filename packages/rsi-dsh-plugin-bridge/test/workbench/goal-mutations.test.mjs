@@ -35,15 +35,14 @@ test('the standard Goal service publishes native commands and revokes scheduling
       const a=control.action;
       lastControl=control;
       if(a.action==='create')current={id:a.id,objective:a.objective,phase:'active',max_rounds:a.max_rounds};
+      else if(a.action==='clear')current=null;
+      else if(a.action==='edit')current={...current,objective:a.objective??current.objective,max_rounds:a.max_rounds??current.max_rounds};
       else if(a.action==='resume')current={...current,phase:'active',reason:null,block_code:null};
       else if(a.action==='block')current={...current,phase:'blocked',reason:a.message,block_code:a.code};
       else {assert.equal(a.action,'complete');current={...current,phase:'completed'};}
       accepted.push(a);
       f.control({kind:'goal',goal:{current,command:{request_id:control.request_id,action:a.action,published_at_ms:control.published_at_ms}}});
-      const args=a.action==='create'?{action:'create',id:a.id,objective:a.objective,constraints:a.constraints,max_rounds:a.max_rounds}:
-        a.action==='resume'?{action:'resume',id:a.id}:a.action==='block'?{action:'block',id:a.id,code:a.code,message:a.message}:
-          {action:'complete',id:a.id,source:a.source};
-      args.published_at_ms=control.published_at_ms;
+      const args={...a,published_at_ms:control.published_at_ms};
       const invocation={command:'rsi.goal.command',request_id:control.request_id,expected_revision:control.expected_revision,
         arguments:args};
       return {control,receipt:{command:invocation.command,request_id:control.request_id,
@@ -66,7 +65,7 @@ test('the standard Goal service publishes native commands and revokes scheduling
       await app.reconcile([[{insert:[{id:'review',name:guest}]}]]);
       const {remoteMethods}=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-typert-protocol')));
       const exports=remoteMethods(plugin.goals).map(marker=>marker.exportName??marker.method);
-      for(const name of ['create','pause','resume','complete','get'])assert.ok(exports.includes(name),name);
+      for(const name of ['create','edit','clear','pause','resume','complete','get'])assert.ok(exports.includes(name),name);
       assert.throws(()=>plugin.goals.disarm({id:f.agent.id}),/not live/);
       assert.equal(disarms,0);
       assert.equal(plugin.goals.disarm(f.agent),undefined);
@@ -150,6 +149,34 @@ test('the standard Goal service publishes native commands and revokes scheduling
         assert.deepEqual(last.goal.blockedReason,reason);
         assert.equal(last.goal.revision,blocked.revision);
       } finally {await cold.close();}
+      let cleared,replacement,edited;
+      await f.scope.runOwned(()=>{
+        assert.throws(()=>plugin.goals.create(f.agent,{objective:'Must retain blocked review'}));
+        cleared=plugin.goals.clear(f.agent,blocked);
+        assert.deepEqual(cleared,{id:blocked.id,revision:blocked.revision+1});
+        assert.equal(plugin.goals.get(f.agent),undefined);
+        replacement=plugin.goals.create(f.agent,{objective:'Second review',maxGoalRounds:2});
+        edited=plugin.goals.edit(f.agent,replacement,{objective:'  Revised review  ',maxGoalRounds:20});
+      });
+      assert.deepEqual(accepted.slice(-3),[{action:'clear',id:blocked.id},
+        {action:'create',id:replacement.id,objective:'Second review',constraints:'',max_rounds:2},
+        {action:'edit',id:replacement.id,objective:'Revised review',max_rounds:20}]);
+      assert.equal(edited.activation,'armed');
+      assert.equal(edited.roundsStarted,0);
+      assert.equal(edited.revision,replacement.revision+1);
+      assert.equal(f.calls.filter(call=>call.op?.type==='goal').length,starts+1);
+      await f.refresh();
+      assert.deepEqual(plugin.goals.get(f.agent),edited);
+      await f.owner.flush();
+      const restored=workbenchHistory(f.options);
+      try {
+        const events=(await restored.capture('one')).snapshotEvents().filter(e=>e.type==='goal/change').slice(-3);
+        assert.deepEqual(events.map(e=>e.data.operation),['clear','create','edit']);
+        assert.deepEqual(events[0].data.cleared,cleared);
+        assert.ok(Number.isSafeInteger(events[0].data.clearedAt));
+        assert.equal(events[2].data.goal.maxGoalRounds,20);
+        assert.equal(events[2].data.goal.objective,'Revised review');
+      } finally {await restored.close();}
       await app.reconcile([]);
       assert.equal(cleanup?.activation,'disarmed','the disposer can revoke scheduling');
       assert.equal(disarms,4);
