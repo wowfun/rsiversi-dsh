@@ -64,7 +64,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.ok(!selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'),
     'must not offer permission writes without a native authority adapter');
   const names=new Set(['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway',
-    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-agent-preset-registry']);
+    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-agent-preset-registry','dsh-tool-subagent/model-selection-settings']);
   const rows=selected.rows.filter(row=>names.has(row.name.replace('@deepseek-ai/','')));
   rows.push({id:'probe',name:'settings-probe',config:{token:'isolated-test-secret'}});
   let app,stored=null,revision=1;
@@ -121,6 +121,14 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const apps=await fetch(app.ctx.webServer.getOrigin()+'/open-in-app/apps',{headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key}});
   assert.equal(apps.status,200);assert.ok(Array.isArray((await apps.json()).apps));
   const before=await rpc('settings/describe');assert.equal(before.ok,true,JSON.stringify(before));
+  const modelNs='subagent-model-selection-settings';
+  const modelForm=before.value.namespaces.find(row=>row.ns===modelNs);
+  assert.deepEqual(modelForm?.value,{enabled:false,allowedModels:[]});
+  assert.equal(app.ctx.subagentModelSelection.allowedRoutes(),undefined);
+  const allowed=[{provider:'fixture',model:'small'}];
+  const modelChoice=await rpc('settings/update',{ns:modelNs,patch:{enabled:true,allowedModels:allowed},expectedRevision:modelForm.revision});
+  assert.equal(modelChoice.ok,true,JSON.stringify(modelChoice));
+  assert.deepEqual(app.ctx.subagentModelSelection.allowedRoutes(),allowed);
   const loopForm=before.value.namespaces.find(row=>row.ns==='agent-loop');
   assert.deepEqual(loopForm.base,{maxParallelToolCalls:2});
   assert.deepEqual(loopForm.value,loopForm.base);assert.deepEqual(loopForm.user,{});
@@ -182,6 +190,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.equal((await stat(generated[0])).mode&0o777,privateMode);
   assert.deepEqual(app.ctx.settingsProbe.read(),{count:7,token:'isolated-test-secret'});
   const restored=await rpc('settings/describe');assert.equal(restored.ok,true);
+  assert.deepEqual(app.ctx.subagentModelSelection.allowedRoutes(),allowed);
   assert.equal(restored.value.namespaces.find(row=>row.ns==='probe').value.count,7);
   assert.ok(!JSON.stringify(restored).includes('isolated-test-secret'));
   await app.close();app=undefined;

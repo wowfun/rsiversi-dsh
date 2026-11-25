@@ -1316,7 +1316,10 @@ Session URL parameter. The plugin owns its watch-frame protocol; the original
 Side Chat socket carries only stale-thread notifications and reads transcript
 bodies through the ordinary native-authorized HTTP route.
 The released subagent runtime owns provider registration, activation and result
-delivery. At a local start the workbench captures the calling Cordis plugin's
+delivery. The workbench loads the released Web profile's subagent model-selection
+settings export. Its configuration starts disabled. The Subagent card and plugins
+read the same Host-owned settings, including the owner's list of allowed provider
+and model pairs. At a local start the workbench captures the calling Cordis plugin's
 package from its loader entry. A fresh child records that creator in its Host
 Header and can run while the parent is idle. The original provider prepares
 the child and the manager submits the initial prompt after setup. A running
