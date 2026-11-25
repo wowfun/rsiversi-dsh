@@ -264,6 +264,11 @@ effect at the next batch across Sessions. Reset restores the active Host
 configuration. The Host owns the single durable override. Forms for
 DSH-owned plugins use the original DSH profile editor.
 
+The permission form saves its configured default preset in Host Agent
+settings. The original permission service resolves the selected name. All
+clients capture its sandbox and approval policy when creating a Session.
+An owner can change an existing Session independently through `/permission`.
+
 The DSH standard preset's model tools are `@deepseek-ai/dsh-tool-pwsh` on
 Windows and `@deepseek-ai/dsh-tool-bash` on Linux. A market profile can
 enable the corresponding Cordis entry. When the native preset also provides

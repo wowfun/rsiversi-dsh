@@ -1,4 +1,4 @@
-const presets='agent-preset-registry', loop='agent-loop';
+const presets='agent-preset-registry', loop='agent-loop', permissions='permission';
 
 /** Each native registration has its own CAS version. DSH clients observe a revision
  * that keeps increasing across withdrawal and replacement of that registration. */
@@ -20,12 +20,13 @@ function hostField(key,read,write,valid,changed) {
 }
 
 /** Retain the original Loader schemas, staged forms, path edits and validation.
- * The native executor runs the loop and Host Settings owns both overrides. */
+ * Host-owned fields share the original form's revision and reset semantics. */
 export async function workbenchHostSettings(modules,load,sessions) {
   const settingsName='@deepseek-ai/dsh-settings',controllerName='@deepseek-ai/dsh-api-settings-controller';
   const loopName='@deepseek-ai/dsh-agent-loop';
-  const [{default:Settings,SettingsConflictError},{default:Controller},{default:AgentLoop}]=
-    await Promise.all([load(settingsName),load(controllerName),load(loopName)]);
+  const permissionName='@deepseek-ai/dsh-permission-presets';
+  const [{default:Settings,SettingsConflictError},{default:Controller},{default:AgentLoop},{default:PermissionPresets}]=
+    await Promise.all([load(settingsName),load(controllerName),load(loopName),load(permissionName)]);
   modules.set(loopName,{Config:AgentLoop.Config,apply(){}});
   let owner;
   const changed=ns=>revision=>owner?.emit('settings/document-updated',ns,revision);
@@ -33,8 +34,35 @@ export async function workbenchHostSettings(modules,load,sessions) {
     snapshot=>typeof snapshot?.id==='string',changed(presets));
   const parallel=hostField('maxParallelToolCalls',sessions.loopSettings,sessions.setLoopSettings,
     snapshot=>snapshot===null||Number.isInteger(snapshot?.base)&&snapshot.base>=1,changed(loop));
-  const fields=new Map([[presets,preset],[loop,parallel]]);
-  const refreshAll=signal=>sessions.withCaller(stop=>Promise.all([preset.refresh(stop),parallel.refresh(stop)]),signal);
+  function permissionView(snapshot){
+    if(snapshot==null||snapshot.code)return snapshot;
+    return {...snapshot,selected:snapshot.selected?.preset??null};
+  }
+  const permission=hostField('defaultPreset',async signal=>permissionView(await sessions.permissionSettings(signal)),
+    async(name,expected,signal)=>{
+      const service=owner.get('permissionPresets');
+      let choice=null;
+      if(name!=null){
+        if(!service?.catalog().defaultOptions.some(option=>option.value===name))throw Error('Unknown default permission preset: '+name);
+        const {sandbox,approval}=service.resolve(name);
+        choice={preset:name,sandbox,approval};
+      }
+      return permissionView(await sessions.setPermissionSettings(choice,expected,signal));
+    },snapshot=>snapshot===null||typeof snapshot?.base==='string',changed(permissions));
+  let permissionBase;
+  modules.set(permissionName,class extends PermissionPresets {
+    constructor(ctx,config){
+      const base=()=>Object.keys(config.presets).find(name=>{
+        const spec=config.presets[name];
+        return spec.sandbox===permission.current?.base&&spec.approval==='ask';
+      })??config.defaultPreset.get();
+      super(ctx,{...config,defaultPreset:{get:()=>permission.current?.selected??base()}});
+      permissionBase=base;
+      ctx.effect(()=>()=>{if(permissionBase===base)permissionBase=undefined;});
+    }
+  });
+  const fields=new Map([[presets,preset],[loop,parallel],[permissions,permission]]);
+  const refreshAll=signal=>sessions.withCaller(stop=>Promise.all([...fields.values()].map(field=>field.refresh(stop))),signal);
   await refreshAll();
   modules.set(settingsName,class extends Settings {
     constructor(ctx) {
@@ -70,8 +98,10 @@ export async function workbenchHostSettings(modules,load,sessions) {
         if(!field)return [row];
         const snapshot=field.current;
         if(!snapshot)return [];
-        const user=field.values(snapshot.selected),base=field.values(snapshot.base);
-        return [{...row,revision:field.revision,value:{...base,...user},user,base}];
+        const baseValue=field===permission?permissionBase?.():snapshot.base;
+        const user={...row.user,...field.values(snapshot.selected)},base={...row.base,...field.values(baseValue)};
+        if(snapshot.selected==null)delete user[field.key];
+        return [{...row,revision:field.revision,value:{...row.value,...base,...user},user,base}];
       });
     }
   });

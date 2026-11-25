@@ -43,7 +43,7 @@ export function appendPermission(ctx,presets,record,scope,type,data,opts) {
   const observed=source.current.permission;
   const previous=(record.permission?.controlSeq??0)>(observed?.controlSeq??0)?record.permission:observed;
   const [field,key]=fields[type];
-  const prior=previous??{sandbox:meta.sandbox??ctx.get('shell')?.sandboxMode,approval:meta.plugin_child_depth===undefined?'ask':'never'};
+  const prior=previous??meta.permission??{sandbox:meta.sandbox??ctx.get('shell')?.sandboxMode,approval:meta.plugin_child_depth===undefined?'ask':'never'};
   let selected={preset:prior.preset??'custom',sandbox:prior.sandbox,approval:prior.approval};
   if(type==='permission/preset'){
     if(!presets)throw Error('Session permission presets are unavailable');
@@ -76,8 +76,8 @@ export function seedNativePermission(ctx,record){
   if(!owner?.meta?.sandbox||owner.journal.session.lastEvent('sandbox/mode'))return;
   const service=ctx.get('permissionPresets',false);
   const sandbox=owner.meta.sandbox;
-  const approval=owner.meta.plugin_child_depth===undefined?'ask':'never';
-  const preset=service?.names.find(name=>{
+  const approval=owner.meta.permission?.approval??(owner.meta.plugin_child_depth===undefined?'ask':'never');
+  const preset=owner.meta.permission?.preset??service?.names.find(name=>{
     if(name==='auto')return false;
     const spec=service.resolve(name);
     return spec.sandbox===sandbox&&spec.approval===approval;

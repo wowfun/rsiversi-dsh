@@ -24,7 +24,7 @@ export function nativeMessagePage(message,op) {
 }
 
 export const message=(id,text=id)=>({id,role:'user',source:{kind:'plugin:test',tag:{n:1}},content:[{type:'text',text},{type:'text',text:'第二块'}]});
-export async function nativeInboxFixture(t,{kind='draft',pending=[],context,goals,commitControl,activateGoal,sandbox}={}) {
+export async function nativeInboxFixture(t,{kind='draft',pending=[],context,goals,commitControl,activateGoal,sandbox,permission}={}) {
   const root=process.env.RSI_DSH_MARKET_COHORT,require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
   const ctx=context??new (await load('cordis')).Context();
@@ -47,7 +47,7 @@ export async function nativeInboxFixture(t,{kind='draft',pending=[],context,goal
     state.messages.set(row.message_id,row.message);
     if(kind==='durable')control({kind:'accepted',message_id:row.message_id,target:row.target});
   }
-  const meta=()=>({id:'one',created_at:1,cwd:process.cwd(),sandbox,inherited:false,through:0,model_baseline:baseline,model_selection:baseline,
+  const meta=()=>({id:'one',created_at:1,cwd:process.cwd(),sandbox,permission,inherited:false,through:0,model_baseline:baseline,model_selection:baseline,
     selection_cursor:state.kind==='draft'?{kind:'draft',revision:state.revision}:{kind:'durable',...cursor()}});
   const snapshot=()=>structuredClone({kind:state.kind,session_id:'one',pending:state.pending,active_turn_id:state.activeTurn?'turn':null,
     driver_active:!!(state.activeTurn||state.activationActive||(!state.paused&&state.pending.some(row=>row.target==='next_turn'))),

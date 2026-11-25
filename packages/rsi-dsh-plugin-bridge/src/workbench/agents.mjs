@@ -320,7 +320,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       if(record.closing)throw Error('Agent owner retired during setup');
       setup?.commit();
       detach=ctx.agents.enter(agent,options.parentAgent);
-      if(options.resumeSessionId)seedNativePermission(ctx,record);
+      if(options.resumeSessionId||record.owner?.meta.plugin_child_depth===undefined)seedNativePermission(ctx,record);
       await ctx.agents.announce(agent,source,options.signal);
       record.dispose=dispose;
       if(!record.passive)observe(record);

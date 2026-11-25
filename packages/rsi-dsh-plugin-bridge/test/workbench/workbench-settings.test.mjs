@@ -18,7 +18,7 @@ test('a late settings read cannot restore a retired Host default',async()=>{
   const replacement={id:'current',selected:'current',version:{scope_id:'second',revision:0}};
   const delayed=Promise.withResolvers();
   const replies=[original,delayed.promise,replacement];
-  const sessions={withCaller:fn=>fn(),presetDefault:()=>replies.shift(),loopSettings:async()=>null};
+  const sessions={withCaller:fn=>fn(),presetDefault:()=>replies.shift(),loopSettings:async()=>null,permissionSettings:async()=>null};
   const defaults=await workbenchHostSettings(new Map(),async()=>({default:class{}}),sessions);
   const reading=defaults.refresh();
   assert.equal((await defaults.refresh()).id,'current');
@@ -65,14 +65,19 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.deepEqual(permissions.config.presets['danger-full-access'],{sandbox:'danger-full-access',approval:'never'});
   assert.ok(selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'&&selected.clientOnly.has(row.id)));
   const names=new Set(['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway',
-    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-agent-preset-registry','dsh-tool-subagent/model-selection-settings']);
+    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-permission-presets','dsh-agent-preset-registry','dsh-tool-subagent/model-selection-settings']);
   const rows=selected.rows.filter(row=>names.has(row.name.replace('@deepseek-ai/','')));
+  permissions.config.presets['team-review']={sandbox:'read-only',approval:'never'};
   rows.push({id:'probe',name:'settings-probe',config:{token:'isolated-test-secret'}});
   let app,stored=null,revision=1;
   const snapshot=()=>({id:stored??'standard',selected:stored,version:{scope_id:'test',revision}});
   let cap=null,loopRevision=0;
   const loopSnapshot=()=>({base:2,selected:cap,version:{scope_id:'loop',revision:loopRevision}});
-  const sessions={withCaller:fn=>fn(),loopSettings:async()=>loopSnapshot(),async setLoopSettings(value,expected){
+  let permission=null,permissionRevision=0;
+  const permissionSnapshot=()=>({base:'workspace-write',selected:permission,version:{scope_id:'agent',revision:permissionRevision}});
+  const sessions={withCaller:fn=>fn(),permissionSettings:async()=>permissionSnapshot(),async setPermissionSettings(value,expected){
+    assert.deepEqual(expected,permissionSnapshot().version);permission=value;permissionRevision++;return permissionSnapshot();
+  },loopSettings:async()=>loopSnapshot(),async setLoopSettings(value,expected){
     assert.deepEqual(expected,loopSnapshot().version);cap=value;loopRevision++;return loopSnapshot();
   },presetDefault:async()=>snapshot(),async setPresetDefault(id,expected){
     assert.deepEqual(expected,snapshot().version);
@@ -86,6 +91,8 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
       await ctx.plugin((await load('@deepseek-ai/dsh-session')).default);
       await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
       await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
+      ctx.provide('shell',{sandboxMode:'workspace-write'});ctx.provide('approval',{config:{policy:'ask'}});
+      if(!ctx.get('sessions'))ctx.provide('sessions',{});
       await provideHttp(ctx,load,key);
       ctx.effect(()=>ctx.webServer.register({kind:'exact',path:'/fixture/listener',handler:(req,res)=>{
         res.end(JSON.stringify([ctx.webServer.getOrigin(),req.socket.remoteAddress,req.socket.remotePort,req.socket.remoteFamily]));
@@ -122,6 +129,20 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const apps=await fetch(app.ctx.webServer.getOrigin()+'/open-in-app/apps',{headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key}});
   assert.equal(apps.status,200);assert.ok(Array.isArray((await apps.json()).apps));
   const before=await rpc('settings/describe');assert.equal(before.ok,true,JSON.stringify(before));
+  const permissionForm=before.value.namespaces.find(row=>row.ns==='permission');
+  assert.equal(permissionForm?.value.defaultPreset,'workspace-write');
+  const savePermission=name=>[{op:'set',path:['defaultPreset'],value:name}];
+  const savedPermission=await rpc('settings/mutate',{ns:'permission',ops:savePermission('danger-full-access'),expectedRevision:permissionForm.revision});
+  assert.equal(savedPermission.ok,true,JSON.stringify(savedPermission));
+  assert.deepEqual(permission,{preset:'danger-full-access',sandbox:'danger-full-access',approval:'never'});
+  assert.equal(app.ctx.permissionPresets.catalog().defaultPreset,'danger-full-access');
+  await assert.rejects(app.ctx.settings.mutate('permission',savePermission('not-in-this-catalog')));
+  assert.equal(permissionRevision,1);
+  await app.ctx.settings.mutate('permission',[{op:'unset',path:['defaultPreset']}]);
+  assert.equal(permission,null);
+  assert.equal(app.ctx.permissionPresets.catalog().defaultPreset,'workspace-write');
+  await app.ctx.settings.mutate('permission',savePermission('team-review'));
+  assert.deepEqual(permission,{preset:'team-review',sandbox:'read-only',approval:'never'});
   const modelNs='subagent-model-selection-settings';
   const modelForm=before.value.namespaces.find(row=>row.ns===modelNs);
   assert.deepEqual(modelForm?.value,{enabled:false,allowedModels:[]});
@@ -212,6 +233,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const aliasMode=(await stat(alias)).mode;
   await start();
   assert.equal((await stat(alias)).nlink,1);
+  assert.equal(app.ctx.permissionPresets.catalog().defaultPreset,'team-review');
   assert.notEqual((await stat(generated[0],{bigint:true})).ino,(await stat(alias,{bigint:true})).ino);
   assert.equal((await stat(alias)).mode,aliasMode);
   if(process.platform!=='win32'){
