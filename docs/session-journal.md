@@ -7,7 +7,8 @@ publication.
 
 New journals keep the UTF-8 catalog line followed by one checksummed Zstandard
 frame containing the remaining JSON bytes. A cold title or count reads through
-the first newline. A full read restores the original bounded UTF-8 document.
+the first newline. A full read consumes the complete encoded body and restores
+the original bounded UTF-8 document. Unconsumed trailing bytes fail recovery.
 The writer replaces both parts atomically. These files live under
 `sessions/packed/`. Existing flat JSON journals keep their original paths and
 encoding, including on subsequent writes. Each Session has one writable file.

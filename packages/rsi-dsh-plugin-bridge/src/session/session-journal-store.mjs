@@ -91,7 +91,8 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
         if(!packed)return await handle.readFile('utf8');
         const bytes=await handle.readFile(),body=bytes.indexOf(10)+1;
         if(!body||body>=maximumJournalBytes)throw Error('Invalid application journal catalog');
-        const json=await decompress(bytes.subarray(body),{maxOutputLength:maximumJournalBytes-body});
+        const {buffer:json,engine}=await decompress(bytes.subarray(body),{info:true,maxOutputLength:maximumJournalBytes-body});
+        if(engine.bytesWritten!==bytes.length-body)throw Error('Trailing bytes in application journal');
         return bytes.toString('utf8',0,body)+json.toString('utf8');
       }catch(error){if(error.code!=='ENOENT')throw error;}
       finally{await handle?.close();}

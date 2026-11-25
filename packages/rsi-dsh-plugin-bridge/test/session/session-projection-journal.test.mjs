@@ -589,6 +589,8 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   assert.deepEqual(part,row);
   assert.deepEqual(await cold.decorate([{...row,createdAt:7}]),[{...row,createdAt:7}]);
   await assert.rejects(cold.read(child.id));
+  await writeFile(file,Buffer.concat([bytes,Buffer.from('x')]));
+  await assert.rejects(cold.read(child.id),/trailing/i);
   await writeFile(file,bytes);
   assert.equal(JSON.parse(document).events[0].data.title,title);
   const saved=new SessionProjectionJournal(ctx,api,{header:child},{restore:readJournalDocument(document)});
