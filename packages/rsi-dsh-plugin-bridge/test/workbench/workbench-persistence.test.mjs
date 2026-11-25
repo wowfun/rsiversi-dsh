@@ -11,6 +11,35 @@ import {journalCatalog} from '../../src/session/session-journal-store.mjs';
 import {provideWorkbenchSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('a stored empty Header precedes draft preset changes and the first durable control', {skip:!root}, async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();t.after(()=>ctx.fiber.dispose());
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const baseline={model:{deployment:'native',model:'configured'},reasoning_effort:'high'};
+  const control={kind:'model',seq:1,after_fact_seq:0,time:2,selection:baseline};
+  const documents=new Map();
+  const history=workbenchHistory({ctx,api,llm:await load('dsh-llm'),storage:{
+    read:async id=>documents.get(id),save:async(id,document)=>documents.set(id,document),
+  },async read(_id,op){
+    assert.equal(op.type,'controls');
+    return historyPage([control],1,op.offset);
+  }});
+  t.after(()=>history.close());
+  const capture=(cursor,preset)=>history.captureAgent('blank',{id:'blank',created_at:1,inherited:false,
+    through:0,model_baseline:baseline,model_selection:baseline,preset,selection_cursor:cursor});
+  const header={kind:'durable',fact_seq:0,control_seq:0},published={...header,control_seq:1};
+  const initial={kind:'draft',revision:0},selected={kind:'draft',revision:1};
+  assert.deepEqual((await capture(header,'standard')).sourceCursor,header);
+  assert.deepEqual((await capture(initial,'standard')).sourceCursor,initial);
+  const before=await capture(selected,'minimal');
+  assert.deepEqual(before.sourceCursor,selected);
+  assert.equal(before.preset,'minimal');
+  assert.deepEqual((await capture(header,'standard')).sourceCursor,selected);
+  assert.deepEqual((await capture(published,'minimal')).sourceCursor,published);
+  assert.deepEqual((await capture(selected,'minimal')).sourceCursor,published);
+});
+
 test('stored revisions track owned appends rather than native mirror catch-up',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));

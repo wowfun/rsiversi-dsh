@@ -28,6 +28,8 @@ inherited boundary, checks for an attached Session with the same ID, and
 leaves the live registry and native store untouched.
 
 A native draft can change Agent preset without changing Session identity.
+Its stored Header with zero Facts and controls establishes the identity. Draft
+revisions follow that Header and precede the first durable Fact or control.
 The application retains its original creation Header and records a changed
 native choice as `agent-preset/selected`, before the events in the same newly
 observed cut. Re-reading a cut adds nothing; an older draft revision cannot

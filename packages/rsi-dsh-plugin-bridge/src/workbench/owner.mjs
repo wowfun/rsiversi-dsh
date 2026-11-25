@@ -12,7 +12,12 @@ import {readJournalDocument} from '../session/journal-document.mjs';
 const cut=meta=>meta.selection_cursor??{kind:'durable',fact_seq:meta.through,control_seq:0};
 const identityHeader=({agentPreset,...header})=>header;
 function compare(a,b) {
-  if(a.kind!==b.kind)return a.kind==='durable'?1:-1;
+  if(a.kind!==b.kind){
+    const durable=a.kind==='durable'?a:b;
+    // A stored Header exists before the editable draft. The first row publishes it.
+    const durableOrder=durable.fact_seq===0&&durable.control_seq===0?-1:1;
+    return a.kind==='durable'?durableOrder:-durableOrder;
+  }
   if(a.kind==='draft')return Math.sign(a.revision-b.revision);
   const fact=Math.sign(a.fact_seq-b.fact_seq),control=Math.sign(a.control_seq-b.control_seq);
   if(fact*control===-1)throw Error('Native observation cuts are incomparable');
