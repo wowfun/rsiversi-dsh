@@ -10,7 +10,7 @@ import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
 import {provideHttp} from '../fixtures/application-http.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
-import {workbenchPresetSettings} from '../../src/workbench/preset-settings.mjs';
+import {workbenchHostSettings} from '../../src/workbench/host-settings.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('a late settings read cannot restore a retired Host default',async()=>{
@@ -18,8 +18,8 @@ test('a late settings read cannot restore a retired Host default',async()=>{
   const replacement={id:'current',selected:'current',version:{scope_id:'second',revision:0}};
   const delayed=Promise.withResolvers();
   const replies=[original,delayed.promise,replacement];
-  const sessions={withCaller:fn=>fn(),presetDefault:()=>replies.shift()};
-  const defaults=await workbenchPresetSettings(new Map(),async()=>({default:class{}}),sessions);
+  const sessions={withCaller:fn=>fn(),presetDefault:()=>replies.shift(),loopSettings:async()=>null};
+  const defaults=await workbenchHostSettings(new Map(),async()=>({default:class{}}),sessions);
   const reading=defaults.refresh();
   assert.equal((await defaults.refresh()).id,'current');
   delayed.resolve(original);
@@ -64,12 +64,16 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.ok(!selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'),
     'must not offer permission writes without a native authority adapter');
   const names=new Set(['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway',
-    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-preset-registry']);
+    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-agent-preset-registry']);
   const rows=selected.rows.filter(row=>names.has(row.name.replace('@deepseek-ai/','')));
   rows.push({id:'probe',name:'settings-probe',config:{token:'isolated-test-secret'}});
   let app,stored=null,revision=1;
   const snapshot=()=>({id:stored??'standard',selected:stored,version:{scope_id:'test',revision}});
-  const sessions={withCaller:fn=>fn(),presetDefault:async()=>snapshot(),async setPresetDefault(id,expected){
+  let cap=null,loopRevision=0;
+  const loopSnapshot=()=>({base:2,selected:cap,version:{scope_id:'loop',revision:loopRevision}});
+  const sessions={withCaller:fn=>fn(),loopSettings:async()=>loopSnapshot(),async setLoopSettings(value,expected){
+    assert.deepEqual(expected,loopSnapshot().version);cap=value;loopRevision++;return loopSnapshot();
+  },presetDefault:async()=>snapshot(),async setPresetDefault(id,expected){
     assert.deepEqual(expected,snapshot().version);
     revision++;stored=id;return snapshot();
   }};
@@ -77,7 +81,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   async function start(){
     const hostModules=new Map();
     app=await createApplication({profile,modules,baseRows:rows,hostModules,provide:async(ctx,load)=>{
-      await workbenchPresetSettings(hostModules,load,sessions);
+      await workbenchHostSettings(hostModules,load,sessions);
       await ctx.plugin((await load('@deepseek-ai/dsh-session')).default);
       await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
       await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
@@ -117,6 +121,21 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const apps=await fetch(app.ctx.webServer.getOrigin()+'/open-in-app/apps',{headers:{'x-rsi-upstream-owner':'1','x-rsi-upstream-key':key}});
   assert.equal(apps.status,200);assert.ok(Array.isArray((await apps.json()).apps));
   const before=await rpc('settings/describe');assert.equal(before.ok,true,JSON.stringify(before));
+  const loopForm=before.value.namespaces.find(row=>row.ns==='agent-loop');
+  assert.deepEqual(loopForm.base,{maxParallelToolCalls:2});
+  assert.deepEqual(loopForm.value,loopForm.base);assert.deepEqual(loopForm.user,{});
+  const setCap=value=>[{op:'set',path:['maxParallelToolCalls'],value}];
+  await assert.rejects(app.ctx.settings.mutate('agent-loop',setCap(0)));
+  assert.equal(loopRevision,0);
+  const savedLoop=await rpc('settings/mutate',{ns:'agent-loop',ops:setCap(10),expectedRevision:loopForm.revision});
+  assert.equal(savedLoop.ok,true,JSON.stringify(savedLoop));
+  assert.deepEqual(savedLoop.value.user,{maxParallelToolCalls:10});assert.equal(cap,10);
+  cap=7;loopRevision++;
+  const staleLoop=await rpc('settings/mutate',{ns:'agent-loop',ops:setCap(9),expectedRevision:savedLoop.value.revision});
+  assert.equal(staleLoop.error?.code,'settings/conflict');assert.equal(cap,7);
+  await app.ctx.settings.mutate('agent-loop',[{op:'unset',path:['maxParallelToolCalls']}]);
+  assert.equal(cap,null);
+  assert.deepEqual(app.ctx.settings.describe().find(row=>row.ns==='agent-loop').value,loopForm.base);
   const ns='agent-preset-registry',preset=before.value.namespaces.find(row=>row.ns===ns);
   assert.deepEqual(preset.value,{});
   assert.deepEqual(preset.user,{});
@@ -147,7 +166,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.equal(credentials.ok,false);assert.match(credentials.error.message,/credentials service is absent/);
   await app.close();app=undefined;
   assert.match(await readFile(join(profile,'cordis.patch.yml'),'utf8'),/count: 7/);
-  assert.doesNotMatch(await readFile(join(profile,'cordis.patch.yml'),'utf8'),/selectedDefault|agent-preset-registry/);
+  assert.doesNotMatch(await readFile(join(profile,'cordis.patch.yml'),'utf8'),/maxParallelToolCalls|selectedDefault|agent-preset-registry/);
   const bundle=join(profile,'node_modules/@rsiversi/dsh-workbench');
   const manifest=join(profile,'package.json');
   const generated=[join(bundle,'package.json'),join(bundle,'cordis.patch.yml')];

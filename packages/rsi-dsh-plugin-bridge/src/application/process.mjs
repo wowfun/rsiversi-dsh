@@ -20,7 +20,7 @@ import {sessionController} from '../workbench/session-controller.mjs';
 import {jobController} from '../workbench/job-controller.mjs';
 import {packagedPresetPlugins,workbenchProfile} from '../workbench/profile.mjs';
 import {workbenchPresetRegistry} from '../workbench/presets.mjs';
-import {workbenchPresetSettings} from '../workbench/preset-settings.mjs';
+import {workbenchHostSettings} from '../workbench/host-settings.mjs';
 import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
 import {moveRegistryCache,profileState,registryCache,viewNpm} from '../../../rsi-dsh-cordis/src/registry/npm-install.mjs';
@@ -119,7 +119,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
     const presets='@deepseek-ai/dsh-agent-preset-registry';
     const presetModule=await load(presets);
-    const defaults=await workbenchPresetSettings(hostModules,load,sessionScope);
+    const defaults=await workbenchHostSettings(hostModules,load,sessionScope);
     hostModules.set(presets,workbenchPresetRegistry(presetModule.default,RemoteError,sessionScope,
       (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load),defaults));
     const {Deque}=await load('@deepseek-ai/dsh-deque');

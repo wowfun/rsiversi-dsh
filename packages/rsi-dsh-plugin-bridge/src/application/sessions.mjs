@@ -303,6 +303,9 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
     readPresets,resolvePreset:(id,signal)=>scoped('application.presets',{operation:{type:'resolve',id}},signal),
     presetDefault:(signal)=>scoped('application.presets',{operation:{type:'default_read'}},signal),
     setPresetDefault:(id,expected,signal)=>scoped('application.presets',{operation:{type:'default_write',id,expected}},signal),
+    loopSettings:signal=>scoped('application.loop-settings',{operation:{type:'read'}},signal),
+    setLoopSettings:(value,expected,signal)=>scoped('application.loop-settings',{
+      operation:value==null?{type:'reset',expected}:{type:'set',value,expected}},signal),
     selectPreset:(session_id,id,signal)=>scoped('application.presets',{operation:{type:'select',session_id,id}},signal),
     claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
     createChild:(args,signal)=>scoped('application.child.create',{...args,tool:scope.getStore()?.tool},signal),
