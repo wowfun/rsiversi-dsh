@@ -27,7 +27,7 @@ test('the standard Goal service publishes native commands and revokes scheduling
     assert.ok(!rows.some(row=>row.name==='@deepseek-ai/dsh-goal-round-driver'));
     const hostModules=new Map(),accepted=[];
     let f,plugin,current,reject=false,lastControl,arm=false,disarms=0,cleanup;
-    function commitGoal(request,session,control) {
+    function commitControl(request,session,control) {
       assert.equal(request,'owner');assert.equal(session,'one');
       if(reject)throw Error('native revision conflict');
       if(control.type==='disarm_goal'){disarms++;return null;}
@@ -50,8 +50,8 @@ test('the standard Goal service publishes native commands and revokes scheduling
     }
     const app=await createApplication({modules,profile,hostModules,baseRows:[goalRow],async provide(ctx,load){
       const goals=workbenchGoalMutations((await load(runtime)).default,(await load('@deepseek-ai/cordis')).symbols.caller,
-        id=>f.scope.commitGoal(id,{type:'disarm_goal'}));
-      f=await nativeInboxFixture(t,{kind:'durable',context:ctx,goals,commitGoal,activateGoal(control){
+        id=>f.scope.commitControl(id,{type:'disarm_goal'}));
+      f=await nativeInboxFixture(t,{kind:'durable',context:ctx,goals,commitControl,activateGoal(control){
         assert.deepEqual(control,lastControl);
         return {live:{armed:arm}};
       }});

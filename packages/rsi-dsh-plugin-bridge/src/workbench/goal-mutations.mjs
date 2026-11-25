@@ -47,9 +47,9 @@ export function workbenchGoalMutations(Runtime,caller,disarm) {
       if(operation==='complete')action.source={kind:'plugin',name};
       if(operation==='block')Object.assign(action,goal.blockedReason);
       const captured=record.owner.meta.selection_cursor;
-      const expected=captured.kind==='draft'&&record.goalControlSeq===undefined
+      const expected=captured.kind==='draft'&&record.controlSeq===undefined
         ?{kind:'draft',revision:captured.revision}
-        :{kind:'durable',control_seq:Math.max(captured.control_seq??0,record.goalControlSeq??0)};
+        :{kind:'durable',control_seq:Math.max(captured.control_seq??0,record.controlSeq??0)};
       const time=Date.now(),id=randomUUID();
       const journal=record.owner.journal;
       let event,accepted;
@@ -59,12 +59,12 @@ export function workbenchGoalMutations(Runtime,caller,disarm) {
         const {live}=await scope.command(record.id,{type:'goal',control:accepted.control},signal);
         if(!live.armed&&journal.session.lastEvent('goal/change')?.seq===event.seq)Runtime.prototype.disarm.call(service,record.agent);
       });
-      accepted=scope.commitGoal(record.id,{
+      accepted=scope.commitControl(record.id,{
         request_id:id,expected_revision:expected,action,published_at_ms:publishedAt});
       const {control,receipt}=accepted;
       commandReceipt({id,invocation:{command:'rsi.goal.command',request_id:id,
         expected_revision:control.expected_revision,arguments:{...action,published_at_ms:publishedAt}}},receipt);
-      record.goalControlSeq=receipt.outcome.control_seq;
+      record.controlSeq=receipt.outcome.control_seq;
       event=journal.accept(id,'goal/change',change,opts,time);
       publish(record);
       return event;

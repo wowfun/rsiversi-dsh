@@ -6,7 +6,7 @@ const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-edit
   'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-skill-office','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy','dsh-fs-sandbox',
   'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env','dsh-jobs-local','dsh-action-cards',
-  'dsh-user-questions','dsh-web','dsh-web-fetch-http','dsh-ptc-runtime-node',
+  'dsh-user-questions','dsh-permission-presets','dsh-web','dsh-web-fetch-http','dsh-ptc-runtime-node',
   'dsh-subagent','dsh-subagent-spawn-in-process','dsh-tool-subagent/model-selection-settings'].map(name=>'@deepseek-ai/'+name));
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
 
@@ -42,8 +42,6 @@ export async function workbenchProfile(modules,boot,state,{importer=false,langua
       rows.push({id:entry.id,name,config:{openBrowser:false,printUrl:false}});
       continue;
     }
-    // Its DSH journal setters cannot change the native Turn's permissions.
-    if(name==='@deepseek-ai/dsh-client-ui-permission-presets') continue;
     // Client declarations belong to package roots. Host entries may select a public subpath.
     const root=name.split('/').length===(name.startsWith('@')?2:1);
     const client=root&&JSON.parse(await readFile(join(modules.directory(name),'package.json'),'utf8')).dsh?.client?.platform==='web';

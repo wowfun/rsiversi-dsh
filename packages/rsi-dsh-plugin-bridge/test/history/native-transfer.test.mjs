@@ -67,7 +67,8 @@ test('native projection transfers converted events without freezing borrowed obs
   const frozen=value=>{if(value&&typeof value==='object'){assert.ok(Object.isFrozen(value));for(const child of Object.values(value))frozen(child);}};
   for(const event of session.snapshotEvents())frozen(event);
   assert.equal(session.encodedBytes,session.snapshotEvents().reduce((n,event)=>n+Buffer.byteLength(JSON.stringify(event)),0));
-  const external={policy:{enabled:true}};session.begin();session.appendObserved('approval/policy',external,13);session.end();
-  external.policy.enabled=false;
-  assert.equal(session.lastEvent('approval/policy').data.policy.enabled,true,'external append keeps snapshot isolation');
+  const external={title:'Review',source:{kind:'user'},messageSeqs:[]};
+  session.begin();session.appendObserved('session/title',external,13);session.end();
+  external.source.kind='changed';
+  assert.equal(session.lastEvent('session/title').data.source.kind,'user','external append keeps snapshot isolation');
 });

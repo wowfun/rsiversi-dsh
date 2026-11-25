@@ -1265,11 +1265,12 @@ The native executor admits full-access
 Turns directly and otherwise obtains per-call approval, retaining any independent
 approval policy. The application process's operator authority is not a substitute
 for the caller's Turn mode. No separate creator grant is required.
-The workbench does not publish DSH's permission selector or default-permission
-settings. Its DSH journal setters do not change native Turn authority, and this
-application has no native permission-selection command. Native Session settings
-and per-call approval remain authoritative; changing a DSH shell policy is not
-a way to grant native Full access.
+The workbench permission selector uses the upstream preset catalog and
+confirmation dialog. Selecting a preset commits its name, sandbox and approval
+policy together through the native Session owner. The selected pair survives
+a Host restart and applies to the same Session in each client. Under `never`,
+a Tool that requires approval receives a denial before an answerer or Tool body
+runs. A trusted plugin selecting a preset uses the same Session operation.
 The management Tool queues its authorized mutation and returns an operation ID
 with `application: pending`. Its own response batch must release before mutation
 can run. `plugin_inspect`'s `operation_status` returns the resulting Plugin Manager receipt; omitting

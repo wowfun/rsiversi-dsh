@@ -5,7 +5,8 @@ import {captureAgentView} from './agent-view.mjs';
 import {nativeForkSeed} from './fork-seed.mjs';
 import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
 import {bindPluginRecords} from '../session/plugin-records.mjs';
-import {isChildSetupEvent} from '../session/session.mjs';
+import {isChildSetupEvent,isPermissionEvent} from '../session/session.mjs';
+import {appendPermission,seedNativePermission} from './permission.mjs';
 
 /** Context registrations owned upstream by the working-directory service and Agent loop. */
 export async function registerWorkbenchContext(ctx,workingDirectoryModule) {
@@ -174,6 +175,11 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       append(type,data,opts={}) {
         if(!record.owner)throw Error('This Session event requires its owning native command');
         if(type==='goal/change'&&goals)return goals.commit(record,scope,data,opts,stage,publishEvents);
+        if(isPermissionEvent(type)&&!subagents?.configuring(record.id)){
+          // The published service pins existing Sessions from its own initializer.
+          const presets=ctx.get('permissionPresets',false);
+          return appendOwned(()=>appendPermission(ctx,presets,record,scope,type,data,opts));
+        }
         if(type!=='model/selection'){
           if(type==='workspace-root/change'&&data?.cwd!==record.owner.cwd)
             throw Error('Working directory must match the native Session');
@@ -314,6 +320,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       if(record.closing)throw Error('Agent owner retired during setup');
       setup?.commit();
       detach=ctx.agents.enter(agent,options.parentAgent);
+      if(options.resumeSessionId)seedNativePermission(ctx,record);
       await ctx.agents.announce(agent,source,options.signal);
       record.dispose=dispose;
       if(!record.passive)observe(record);

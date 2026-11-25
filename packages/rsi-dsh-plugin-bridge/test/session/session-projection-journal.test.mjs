@@ -135,7 +135,7 @@ test('incremental journal publication retains the surface across valid and rejec
   journal.advance(1,[user(1,'second'),replacement]);
   assert.equal(journal.session.surface,surface);
   assert.deepEqual(surface.nodes,[0,2]);
-  journal.appendStored([3,4].map(seq=>({type:'approval/policy',seq,time:1,data:{policy:'ask'}})));
+  journal.appendStored([3,4].map(seq=>({type:'feedback/record',seq,time:1,data:{text:'Review'}})));
   assert.equal(journal.session.surface,surface);
   assert.deepEqual(journal.session.deriveMessages().map(item=>item.id),['first','replacement']);
 });
@@ -285,7 +285,7 @@ test('request headers freeze once at admission and share immutable schemas acros
   assert.ok(Object.isFrozen(canonical));
   assert.ok(Object.isFrozen(canonical.tools[0].parameters.properties.path));
   assert.deepEqual(walks,[event],'the shallow canonical wrapper must not walk the schema graph again');
-  journal.append('approval/policy',{policy:'ask'});walks.length=0;
+  journal.append('feedback/record',{text:'Review'});walks.length=0;
   journal.merge(source.snapshotEvents());
   const transferred=journal.session.eventAt(1);
   assert.notEqual(transferred,event);
@@ -306,7 +306,7 @@ test('native frozen bodies survive remapped positions and cold restore without d
   source.begin();
   const first=source.appendObserved('user/message',message('one','user','retained body'),1,{surfaceOp:'append'});
   source.end();
-  journal.append('approval/policy',{policy:'ask'});
+  journal.append('feedback/record',{text:'Review'});
   journal.merge(source.snapshotEvents());
   assert.equal(journal.session.eventAt(1).seq,1);assert.equal(first.seq,0);
   assert.equal(journal.session.eventAt(1).data,first.data);
@@ -316,8 +316,8 @@ test('native frozen bodies survive remapped positions and cold restore without d
   cold.merge(source.snapshotEvents());
   assert.equal(cold.session.eventAt(1).data,first.data);
   assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
-  saved.events[0].data.policy='changed outside';
-  assert.equal(cold.session.eventAt(0).data.policy,'ask');
+  saved.events[0].data.text='changed outside';
+  assert.equal(cold.session.eventAt(0).data.text,'Review');
 });
 
 test('mutable native inputs are detached once and never frozen on behalf of the caller', {skip:!root},async t=>{
@@ -336,7 +336,7 @@ test('log-only Session events survive cold reload without allocating native muta
   const {ctx,api,journal}=await fixture(t);
   const title={title:'Named session',source:{kind:'user'},messageSeqs:[]};
   journal.accept('previous-release','session/title',title);
-  journal.append('approval/policy',{policy:'ask'});
+  journal.append('feedback/record',{text:'Review'});
   journal.append('approval/asked',{id:'one',toolName:'bash',callId:'native-call'});
   journal.append('approval/decided',{id:'one',outcome:'allowed-once'});
   journal.append('session/title',title);
@@ -418,7 +418,7 @@ test('constructor annotations keep the original DSH inherited cut through deltas
     merge(journal,annotations);
     const later={type:'plan/mode',seq:cut+1,time:7,data:{active:false}};
     journal.advance(native.length,[later]);
-    journal.append('approval/policy',{policy:'ask'});
+    journal.append('feedback/record',{text:'Review'});
     const restored=create(journal.encode(),[...native,later]);
     restored.merge([...native,later],new Map(),cut);
     restored.advance(native.length+1,[{...later,seq:cut+2,time:8}]);
@@ -526,7 +526,7 @@ test('requestHeader follows the released fold across atomic batches, inherited s
 test('durable journals omit native bodies while preserving local acknowledgements and exact cold events', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t);
   const accepted=journal.accept('choice','model/selection',selection,{},1);
-  journal.append('approval/policy',{policy:'ask'});
+  journal.append('feedback/record',{text:'Review'});
   const native=[{seq:0,time:2,type:'user/message',data:message('large','user','canonical-only-'.repeat(20_000)),surfaceOp:'append'},
     {seq:1,time:3,type:'model/selection',data:selection}];
   const correlations=new Map([[1,'choice']]);journal.merge(native,correlations);

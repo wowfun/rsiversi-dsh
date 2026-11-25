@@ -1,5 +1,5 @@
 import {isDeepStrictEqual} from 'node:util';
-import {SessionFacade,digest,isChildSetupEvent,isJournalEvent,remap} from './session.mjs';
+import {SessionFacade,digest,isChildSetupEvent,isJournalEvent,isPermissionEvent,remap} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
 import {restoreJournalEvents,encodeJournalDocument,createSourceDigest} from './journal-document.mjs';
 
@@ -80,7 +80,7 @@ export class SessionProjectionJournal {
       if(native&&!operation)continue;
       const event=this.#session.eventAt(seq);
       if(!native&&!operation&&(seq<cut?seq<annotationStart:!this.#isLocalEvent(event)&&
-          !(isChildSetupEvent(event.type)&&this.#session.header.origin==='subagent')))
+          !isPermissionEvent(event.type)&&!(isChildSetupEvent(event.type)&&this.#session.header.origin==='subagent')))
         throw Error('Application journal contains unowned event positions');
       this.#owned.push(event);
     }
@@ -124,6 +124,10 @@ export class SessionProjectionJournal {
   appendPluginRecord(type,data) {
     if(!this.#api.pluginRecordOf({type,ignorable:true}))throw Error('Invalid plugin record type');
     return this.#append(type,data,{ignorable:true},Date.now());
+  }
+  appendPermission(type,data,opts={}) {
+    if(!isPermissionEvent(type))throw Error('Expected a Session permission change');
+    return this.#append(type,data,opts,Date.now());
   }
   /** Persistence callers supply exact coordinates and times, not new commands. */
   appendStored(input) {

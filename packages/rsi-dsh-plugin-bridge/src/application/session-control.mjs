@@ -2,19 +2,19 @@ import {parentPort, receiveMessageOnPort} from 'node:worker_threads';
 
 let wake;
 
-// The existing carrier pumps native requests while Cordis is in a synchronous Goal method.
-export function commitGoal(request, sessionId, control) {
-  if (!parentPort) throw Error('Goal control requires the application worker');
+// The existing carrier pumps native requests while a Cordis service is inside a synchronous mutation.
+export function commitControl(request, sessionId, control) {
+  if (!parentPort) throw Error('Session control requires the application worker');
   wake ??= new Int32Array(new SharedArrayBuffer(4));
   Atomics.store(wake,0,0);
-  parentPort.postMessage({type:'commit-goal', request, sessionId, control, wake});
+  parentPort.postMessage({type:'commit-session-control', request, sessionId, control, wake});
   while (Atomics.load(wake,0)===0) Atomics.wait(wake,0,0);
   const {message} = receiveMessageOnPort(parentPort);
   if (message.error !== undefined) throw Error(message.error);
   return message.result;
 }
 
-export async function receiveGoal(carrier, {request, sessionId, control, wake}, signal, worker) {
+export async function receiveControl(carrier, {request, sessionId, control, wake}, signal, worker) {
   const command = operation => carrier.request('application.command', {request, session_id:sessionId, operation},{signal});
   let response;
   try {
@@ -32,16 +32,20 @@ export async function receiveGoal(carrier, {request, sessionId, control, wake}, 
 async function commitChange(command,control,signal) {
   let expected = control.expected_revision;
   if (expected.kind === 'draft') {
-    // Publish the blank identity before its first Goal. Every subsequent action has a durable receipt.
+    // Publish the blank identity before returning a durable command receipt.
     expected = await command({type:'prepare',expected_draft_revision:expected.revision});
   }
   const accepted = {...control, expected_revision:expected};
-  const starts = ['create','resume','edit'].includes(accepted.action.action);
+  const invocation = accepted.type==='execute'
+    ? {command:accepted.command,request_id:accepted.request_id,expected_revision:expected,arguments:accepted.arguments}
+    : ['create','resume','edit'].includes(accepted.action.action)
+      ? {command:'rsi.goal.command',request_id:accepted.request_id,expected_revision:expected,
+        arguments:{...accepted.action,published_at_ms:accepted.published_at_ms}}
+      : undefined;
   let receipt;
   try {
-    receipt = starts
-      ? await command({type:'execute',invocation:{command:'rsi.goal.command',request_id:accepted.request_id,
-          expected_revision:expected,arguments:{...accepted.action,published_at_ms:accepted.published_at_ms}}})
+    receipt = invocation
+      ? await command({type:'execute',invocation})
       : (await command({type:'goal',control:accepted})).command;
   } catch (error) {
     signal.throwIfAborted();

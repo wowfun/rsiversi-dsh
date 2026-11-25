@@ -1,7 +1,7 @@
 import {MessageChannel,Worker} from 'node:worker_threads';
 import {readFile} from 'node:fs/promises';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
-import {receiveGoal} from './goal-control.mjs';
+import {receiveControl} from './session-control.mjs';
 
 export const drainsOnCancel = method => method === 'application.stage';
 
@@ -39,7 +39,7 @@ export function serveApplication(input,output,generation,arguments_,entry) {
       const {port1,port2}=new MessageChannel();
       worker=new Worker(entry,{argv:arguments_,stdout:true,stderr:true,workerData:port2,transferList:[port2]});
       if(method==='application.open')worker.on('message',message=>{
-        if(message?.type==='commit-goal')void receiveGoal(carrier,message,lifetime.signal,worker).catch(error=>carrier.close(error));
+        if(message?.type==='commit-session-control')void receiveControl(carrier,message,lifetime.signal,worker).catch(error=>carrier.close(error));
       });
       worker.stdout.pipe(process.stderr,{end:false});
       worker.stderr.pipe(process.stderr,{end:false});

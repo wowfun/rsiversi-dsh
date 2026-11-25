@@ -4,6 +4,7 @@ import {modelIntents,modelObservationCorrelations} from '../session/model-intent
 import {inboxObservationProjection} from '../session/inbox/inbox-observations.mjs';
 import {inputIntents} from '../session/inbox/input-intents.mjs';
 import {workbenchSource} from './source.mjs';
+import {restoredPermissionSeed} from './permission.mjs';
 import {workbenchModel} from './model.mjs';
 import {readNativeMessage} from '../history/native-pages.mjs';
 import {readJournalDocument} from '../session/journal-document.mjs';
@@ -32,6 +33,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       header={...header,origin:declared.origin,...(declared.delegationDepth===undefined?{}:{delegationDepth:declared.delegationDepth})};
     if(restore)header={...identityHeader(header),...restore.header.agentPreset===undefined?{}:{agentPreset:restore.header.agentPreset}};
     const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome});
+    source.current.permission=restoredPermissionSeed(restore);
     if(header.origin&&declared&&source.current.session.header.parentSession!==declared.parentSession)
       throw Error('Declared fork parent differs from its native seed');
     const newOrigin=!persisted&&header.origin!==undefined&&(meta.inherited||header.cwd!==meta.cwd);

@@ -3,6 +3,7 @@ import {restoreMapping} from '../history/history.mjs';
 import {inheritedSession,factProjector} from './seed.mjs';
 import {workbenchModel} from './model.mjs';
 import {goalMessage,observeGoal} from './goal.mjs';
+import {observePermission} from './permission.mjs';
 import {workbenchInbox} from './inbox.mjs';
 import {cloneMapping} from '../history/input-history.mjs';
 import {readControls,nativeFactPages} from '../history/native-pages.mjs';
@@ -75,7 +76,8 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
             }
             else if(event.kind==='working_directory_changed') {
               next.session.adoptObserved({type:'workspace-root/change',seq:next.session.seq,time:event.time,data:{cwd:event.cwd}});
-            } else if(event.kind!=='goal')next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
+            } else if(event.kind!=='goal'&&event.kind!=='permission')next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
+            if(event.permission)observePermission(next,event,hasLocalRequest);
             if(event.goal) {
               const appended=observeGoal(next,event);
               if(appended&&hasLocalRequest?.(event.goal.command?.request_id))next.origins.set(appended.seq,event);

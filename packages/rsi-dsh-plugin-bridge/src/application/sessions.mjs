@@ -44,7 +44,7 @@ export function provideWorkbenchSessions(ctx,SessionStore,live,flush) {
 }
 
 /** Resident DSH Sessions and the current native-authorized request's views. */
-export function applicationSessions(send,{ctx,capture,owner,agent,registered=agent,attached,select,decorate,directoryOf,createUserMessage,commitGoal}={}) {
+export function applicationSessions(send,{ctx,capture,owner,agent,registered=agent,attached,select,decorate,directoryOf,createUserMessage,commitControl}={}) {
   const scope=new AsyncLocalStorage();
   const activities=applicationActivities(scope,owner);
   const submissionBodies=requestBodies(8*1024*1024);
@@ -323,12 +323,12 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
     runOwned:activities.run,observeOwned:activities.observe,observeStream:activities.observeStream,retainDraft,async close(){submissionBodies.close();await activities.close();},
     inbox,
     command:(id,operation,signal)=>scoped('application.command',{session_id:id,operation},signal),
-    commitGoal(id,control) {
+    commitControl(id,control) {
       const active=scope.getStore();
       const request=active?activeRequest():owner;
-      if(!request||!commitGoal)throw Error('Native Goal commands unavailable');
+      if(!request||!commitControl)throw Error('Native Session commands unavailable');
       active?.signal?.throwIfAborted();
-      return commitGoal(request,id,control);
+      return commitControl(request,id,control);
     },
     stage(operation) {
       const active=scope.getStore(),publication=writablePublication(active);

@@ -61,8 +61,9 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const title=managed.rows.find(row=>row.id==='session-title-llm');
   assert.equal(title?.name,'@deepseek-ai/dsh-session-title-first-prompt-llm');
   assert.equal(title.config.maxOutputTokens,4096);
-  assert.ok(!selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'),
-    'must not offer permission writes without a native authority adapter');
+  const permissions=selected.rows.find(row=>row.name==='@deepseek-ai/dsh-permission-presets');
+  assert.deepEqual(permissions.config.presets['danger-full-access'],{sandbox:'danger-full-access',approval:'never'});
+  assert.ok(selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'&&selected.clientOnly.has(row.id)));
   const names=new Set(['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway',
     'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-agent-preset-registry','dsh-tool-subagent/model-selection-settings']);
   const rows=selected.rows.filter(row=>names.has(row.name.replace('@deepseek-ai/','')));

@@ -110,6 +110,10 @@ export function modelObservationCorrelations(journal,driver,events,origins) {
       continue;
     }
     const origin=origins.get(event.seq);
+    if(origin?.permissionOperation){
+      correlations.set(event.seq,origin.permissionOperation);
+      continue;
+    }
     if(event.type==='goal/change'&&origin?.goal?.command){
       correlations.set(event.seq,origin.goal.command.request_id);
       continue;

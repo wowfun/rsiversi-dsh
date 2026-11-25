@@ -12,13 +12,13 @@ test('the existing carrier returns a native Goal receipt or rejection before the
   const directory=await mkdtemp(join(tmpdir(),'rsi-goal-carrier-'));
   t.after(()=>rm(directory,{recursive:true,force:true}));
   const transport=new URL('../../../rsi-dsh-cordis/src/runtime/transport.mjs',import.meta.url).href;
-  const goal=new URL('../../src/application/goal-control.mjs',import.meta.url).href;
+  const goal=new URL('../../src/application/session-control.mjs',import.meta.url).href;
   const file=join(directory,'worker.mjs');
   await writeFile(file,`import {Peer} from ${JSON.stringify(transport)};
-    import {commitGoal} from ${JSON.stringify(goal)};
+    import {commitControl} from ${JSON.stringify(goal)};
     import {workerData} from 'node:worker_threads';
     new Peer({port:workerData,generation:'goal-test',handler:(method,control)=>
-      method==='application.open'?commitGoal('request','one',control):null});`);
+      method==='application.open'?commitControl('request','one',control):null});`);
   const input=new PassThrough(),output=new PassThrough(),received=[],waiting=Promise.withResolvers();
   const carrier=serveApplication(input,output,'goal-test',[],pathToFileURL(file));
   const host=new Peer({input:output,output:input,generation:'goal-test',handler:async(method,args,signal)=>{
@@ -33,7 +33,7 @@ test('the existing carrier returns a native Goal receipt or rejection before the
       throw Error('native control cancelled');
     }
     if(op.type==='execute')throw Error('lost reply after commit');
-    if(op.type==='status')return op.request_id==='create'?{request_id:'create'}:null;
+    if(op.type==='status')return ['create','select'].includes(op.request_id)?{request_id:op.request_id}:null;
     throw Error('stale goal revision');
   }});
   t.after(()=>{host.close();carrier.close();});
@@ -47,6 +47,14 @@ test('the existing carrier returns a native Goal receipt or rejection before the
   await assert.rejects(host.request('application.open',{...create,request_id:'end',expected_revision:first.control.expected_revision,
     action:{action:'complete',id:'goal'}}),/stale goal revision/);
   assert.deepEqual(received.map(op=>op.type),['prepare','execute','status','goal','status']);
+  const permission={type:'execute',command:'rsi.permission.select',request_id:'select',
+    arguments:{preset:'read-only',sandbox:'read-only',approval:'ask'},expected_revision:first.control.expected_revision};
+  const {receipt}=await host.request('application.open',permission);
+  assert.equal(receipt.request_id,'select');
+  const {type,...expectedInvocation}=permission;
+  assert.deepEqual(received.slice(-2),[{type:'execute',invocation:expectedInvocation},{type:'status',request_id:'select'}]);
+  await assert.rejects(host.request('application.open',{...permission,request_id:'denied'}),/lost reply after commit/);
+  assert.deepEqual(received.slice(-2).map(op=>op.type),['execute','status']);
   const before=received.length;
   assert.equal(await host.request('application.open',{type:'disarm_goal'}),null);
   assert.deepEqual(received.slice(before),[{type:'disarm_goal'}]);

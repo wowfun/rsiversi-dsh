@@ -4,12 +4,23 @@ import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
 
 // Event-local validation is reusable. Position and surface checks belong to each destination.
 const admitted = new WeakMap();
-const journalEvents = new Set(['session/title', 'session/title-llm-request', 'approval/asked', 'approval/decided', 'approval/policy',
+const journalEvents = new Set(['session/title', 'session/title-llm-request', 'approval/asked', 'approval/decided',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
   'feedback/message-put', 'feedback/message-delete', 'feedback/record', 'agent-preset/selected',
   'action-cards/decision','subagent/catalog','subagent/descriptor']);
 export const isJournalEvent = type => journalEvents.has(type);
-export const isChildSetupEvent = type => type==='sandbox/mode'||type==='permission/preset'||type==='workspace-root/change';
+export const isPermissionEvent = type => type==='sandbox/mode'||type==='permission/preset'||type==='approval/policy';
+export const isChildSetupEvent = type => isPermissionEvent(type)||type==='workspace-root/change';
+export function validatePermissionEvent(type,data,options={}) {
+  if(options.surfaceOp!==undefined||options.sourceEventSeqs!==undefined)throw Error('Permission changes are log-only');
+  if(type==='permission/preset'){
+    if(!shape(data,['preset'])||!presetId(data.preset))throw Error('Invalid permission preset');
+  }else {
+    const [key,values]=type==='sandbox/mode'?['mode',['read-only','workspace-write','danger-full-access']]:['policy',['ask','never']];
+    if(!shape(data,[key,'source'])||(data.source!==undefined&&data.source!=='delegation')||!values.includes(data[key]))
+      throw Error('Invalid Session permission knob');
+  }
+}
 const allowed = new Set([...journalEvents, 'todo/write', 'plan/mode', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
   'tool/call', 'tool/result', 'session/end-seed', 'model/selection', 'goal/change', 'agent/inbox/spliced']);
@@ -31,11 +42,8 @@ function envelope(event, seq, api) {
     throw new Error('Log-only Session event cannot edit the message surface');
   if(event.type==='workspace-root/change') {
     if(!shape(data,['cwd'])||typeof data.cwd!=='string'||!isAbsolute(data.cwd))throw Error('Invalid working directory');
-  } else if(event.type==='sandbox/mode') {
-    if(!shape(data,['mode','source'])||data.source!=='delegation'||!['read-only','workspace-write','danger-full-access'].includes(data.mode))
-      throw Error('Invalid delegated sandbox mode');
-  } else if(event.type==='permission/preset') {
-    if(!shape(data,['preset'])||!['auto','danger-full-access'].includes(data.preset))throw Error('Invalid delegated permission preset');
+  } else if(isPermissionEvent(event.type)) {
+    validatePermissionEvent(event.type,data,event);
   } else if (event.type === 'todo/write') {
     if (!shape(data, ['todos']) || !Array.isArray(data.todos) || data.todos.length > 512
         || data.todos.some(todo => !shape(todo, ['content', 'status']) || typeof todo.content !== 'string'
