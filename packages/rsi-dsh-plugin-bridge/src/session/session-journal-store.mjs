@@ -63,11 +63,13 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
   }
   return {
     metadata,
-    async decorate(rows) {
+    async decorate(rows,signal) {
+      signal?.throwIfAborted();
       const visible=new Set(rows.map(row=>row.id));
       for(const id of catalog.keys())if(!visible.has(id))catalog.delete(id);
       for(const row of rows) {
         const hint=await metadata(row.id).catch(error=>{console.warn('Session catalog hint:',error.message);});
+        signal?.throwIfAborted();
         const {header,catalogTitle}=hint??{};
         if(header?.id!==row.id||header.createdAt!==row.createdAt)continue;
         if(header.origin==='subagent'&&typeof header.parentSession==='string')row.parent=header.parentSession;

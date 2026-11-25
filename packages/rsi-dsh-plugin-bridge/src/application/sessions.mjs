@@ -161,7 +161,7 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
       items.push(...page);
     }
     items.push(...unpublished.values());
-    return decorate?decorate(items):items;
+    return decorate?decorate(items,requestSignal(signal)):items;
   }
   async function prompt({sessionId,requestId,mode},content,source,signal) {
     if(!['queue','steer'].includes(mode)) throw new Error('Unknown prompt delivery mode');

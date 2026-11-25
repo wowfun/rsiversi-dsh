@@ -582,6 +582,11 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   await writeFile(file,damaged);
   const cold=sessionJournalStore(directory,atomic);
   assert.deepEqual(await cold.decorate([{...row}]),[expected]);
+  const cancel=new AbortController(),closed=Error('listing closed'),part={...row};
+  const pending=cold.decorate([part,{...row}],cancel.signal);
+  cancel.abort(closed);
+  await assert.rejects(pending,error=>error===closed);
+  assert.deepEqual(part,row);
   assert.deepEqual(await cold.decorate([{...row,createdAt:7}]),[{...row,createdAt:7}]);
   await assert.rejects(cold.read(child.id));
   await writeFile(file,bytes);

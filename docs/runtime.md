@@ -345,6 +345,8 @@ of open transcripts. It subscribes before listing drafts and published Sessions.
 It reads all authorized native pages and orders published Sessions and private
 drafts together by descending activity. A draft that publishes during enumeration
 appears once, with the durable summary taking precedence.
+Cancelling a listing stops the remaining journal title reads. Other callers
+can finish a title read they already share with that listing.
 Native changes, saved titles and Agent availability refresh the catalog. Changes
 coalesce during capture. The observer emits the release's ordinary added, removed,
 status and activity events.
