@@ -10,16 +10,47 @@ const isDigest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 
 export const createSourceDigest=()=>createHash('sha256').update('rsi.dsh.native-source-prefix.v1\0');
 
+function expandSourceRuns(state,limit) {
+  let count=0,end=0;
+  for(const run of state.sources) {
+    if(!Array.isArray(run)||run.length!==2)throw Error('Invalid application source map');
+    const [start,length]=run;
+    if(!integer(start)||!integer(length)||!length||start+length>limit||count+length>limit)
+      throw Error('Invalid application source map');
+    count+=length;
+    end=Math.max(end,start+length);
+  }
+  const rows=new Array(count),used=new Uint8Array(end);
+  let index=0;
+  for(const [start,length] of state.sources) {
+    for(let seq=start;seq<start+length;seq++) {
+      if(used[seq])throw Error('Overlapping application source map');
+      used[seq]=1;
+      rows[index++]={seq};
+    }
+  }
+  for(const operation of state.operations) {
+    const source=operation?.source;
+    if(source===undefined)continue;
+    if(!integer(source)||!rows[source]||rows[source].operation!==undefined||
+      typeof operation.id!=='string'||!operation.id||operation.id.length>256)
+      throw Error('Invalid native mutation correlation');
+    rows[source].operation=operation.id;
+  }
+  state.sources=rows;
+  return end;
+}
+
 /** Parse the durable boundary once, before native history is captured. */
 export function readJournalDocument(document) {
   if(document===undefined)return;
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
   const state=JSON.parse(document);
   if(!shape(state,['version','header','inheritedEventCount','events','sources','sourceDigest','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom','nativePreset'])
-    ||state.nativePreset!==undefined&&(state.version!==7||!presetId(state.nativePreset))
-    ||![1,2,3,4,5,6,7].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
+    ||state.nativePreset!==undefined&&(state.version<7||!presetId(state.nativePreset))
+    ||![1,2,3,4,5,6,7,8].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
-  const prefixDigest=state.version===7;
+  const prefixDigest=state.version>=7;
   if(prefixDigest?!isDigest(state.sourceDigest):Object.hasOwn(state,'sourceDigest'))throw Error('Invalid application source digest');
   const derivesCount=state.version>=6;
   if(derivesCount){
@@ -34,8 +65,8 @@ export function readJournalDocument(document) {
   const limit=derivesCount?100_000:state.eventCount;
   if(!integer(limit)||limit>100_000||state.events.length>limit||state.sources.length>limit||state.operations.length>limit)
     throw Error('Invalid application journal');
+  let count=state.version===8?expandSourceRuns(state,limit):0;
   if(!integer(state.inboxSlotFrom)||state.inboxSlotFrom>state.sources.length)throw Error('Invalid saved inbox source boundary');
-  let count=0;
   const inboxEvents=new Map();
   for(const event of state.events){
     if(derivesCount){
@@ -44,14 +75,16 @@ export function readJournalDocument(document) {
     }
     if(state.operations.length&&event?.type==='agent/inbox/spliced')inboxEvents.set(event.seq,event);
   }
-  const used=new Set();
-  for(const row of state.sources) {
-    if(!shape(row,prefixDigest?['seq','operation']:['hash','seq','operation'])||!integer(row.seq)||row.seq>=limit||used.has(row.seq)
-      ||!prefixDigest&&!isDigest(row.hash)
-      ||row.operation!==undefined&&(typeof row.operation!=='string'||!row.operation||row.operation.length>256))
-      throw Error('Invalid application source map');
-    used.add(row.seq);
-    if(derivesCount)count=Math.max(count,row.seq+1);
+  if(state.version<8) {
+    const used=new Set();
+    for(const row of state.sources) {
+      if(!shape(row,prefixDigest?['seq','operation']:['hash','seq','operation'])||!integer(row.seq)||row.seq>=limit||used.has(row.seq)
+        ||!prefixDigest&&!isDigest(row.hash)
+        ||row.operation!==undefined&&(typeof row.operation!=='string'||!row.operation||row.operation.length>256))
+        throw Error('Invalid application source map');
+      used.add(row.seq);
+      if(derivesCount)count=Math.max(count,row.seq+1);
+    }
   }
   if(derivesCount)state.eventCount=count;
   if(!integer(state.inheritedEventCount)||state.inheritedEventCount>state.eventCount||state.events.length>state.eventCount
@@ -111,8 +144,13 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
 export function encodeJournalDocument(session,events,sources,sourceDigest,operations,inboxSlotFrom,nativePreset) {
   const event=session.lastEvent('session/title');
   const prefix=JSON.stringify({header:session.header,ownedEventCount:events.length,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
-  const sourceMap=sources.map(({seq,operation})=>({seq,...(operation===undefined?{}:{operation})}));
-  const document=JSON.stringify({version:7,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:sourceMap,sourceDigest,operations});
+  const runs=[];
+  let run;
+  for(const {seq} of sources) {
+    if(run&&run[0]+run[1]===seq)run[1]++;
+    else {run=[seq,1];runs.push(run);}
+  }
+  const document=JSON.stringify({version:8,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:runs,sourceDigest,operations});
   const value=prefix.slice(0,-1)+',\n'+document.slice(1);
   if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
   return value;

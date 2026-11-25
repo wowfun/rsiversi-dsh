@@ -430,10 +430,13 @@ additional readers wait locally before issuing native RPCs. No queued reader
 holds a native request slot. The Host checks the page's request, Session and
 coordinates and bounds its retained storage; no persistent history copy is added.
 
-Version 7 snapshots contain the Session header, owned and inherited event counts,
+Version 8 snapshots contain the Session header, owned and inherited event counts,
 local-owned events at their original positions, the native source map, its
-`sourceDigest` and mutation records in one JSON document. Source-map entries have
-`seq` and optional `operation`; per-event hashes are not persisted.
+`sourceDigest` and mutation records in one JSON document. In native event order,
+each source-map run stores the first application position and the number of
+consecutive positions. Runs may occur in any order and cannot overlap. A
+mutation's optional native source index identifies its correlation, including
+when native events arrive in a different order from their application receipts.
 Native-only event bodies are reconstructed from the
 captured Store history, including translated inbox splices. They are not copied
 into application storage. A correlated input acceptance keeps its original event
@@ -468,12 +471,12 @@ to substitute a cached body. Restoration uses the same native read batch as the
 first observation. Older documents are validated and normalized once: version 1
 uses its complete log, and version 1/2 input invocations must agree exactly with
 their accepted event before their duplicate body is removed. Successful native
-reconciliation rewrites them as version 7; failed validation cannot replace the
+reconciliation rewrites them as version 8; failed validation cannot replace the
 document. Version 3/4 input recovery descriptors and version 5 correlated inputs
 retain their existing meaning. Versions 1–6 retain their per-event hash checks
-until successful native reconciliation. Older catalog hints acquire their owned count
+until successful native reconciliation. Version 7 retains its per-position
+correlation checks and native prefix digest. Older catalog hints acquire their owned count
 when that existing reconciliation rewrites the document.
-No second durable format or body cache is maintained alongside version 7.
 
 The supplied persistence writer must atomically replace that document. A flush
 resolves once a snapshot containing its revision is durable. While that writer

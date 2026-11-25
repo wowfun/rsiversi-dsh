@@ -25,18 +25,18 @@ export class SessionProjectionJournal {
         if(!api.isJsonValue(restore))throw Error('Application journal requires lossless JSON');
         api.deepFreeze(restore);
       } else restore=this.#snapshot(restore);
-      const sources=restore.version===7?restore.sources.map((source,index)=>{
+      const sources=restore.version>=7?restore.sources.map((source,index)=>{
         const event=native?.[index];
         if(event?.seq!==index)throw Error('Native event prefix moved backwards');
         return Object.freeze({...source,hash:digest(event)});
       }):restore.sources.slice();
       for(const source of sources)this.#sourceDigest.update(source.hash);
-      if(restore.version===7&&this.#sourceDigest.copy().digest('hex')!==restore.sourceDigest)
+      if(restore.version>=7&&this.#sourceDigest.copy().digest('hex')!==restore.sourceDigest)
         throw Error('Native event prefix changed');
       seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native,transitions)),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
       this.#restore(sources,restore.operations);
-      this.#saved=0;this.#rewrite=restore.version<7;
+      this.#saved=0;this.#rewrite=restore.version<8;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
       this.#session=this.#create(seed);
