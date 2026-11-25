@@ -145,25 +145,23 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
   }
   async function* durablePages(signal,history=false) {
     const request=activeRequest();
-    let after=null,bytes=0;
+    let after=null;
     do {
       signal?.throwIfAborted();
       const page=await call('application.sessions',{request,after,...(history?{history:true}:{})},signal);
-      if(!history){
-        bytes+=Buffer.byteLength(JSON.stringify(page.items));
-        if(bytes>4*1024*1024)throw new Error('Session catalog exceeds response capacity');
-      }
       yield page.items;
       after=page.next;
     } while(after);
   }
   async function list(signal) {
     // Observe unpublished identities first so promotion cannot fall between both catalogs.
-    const heldDrafts=await drafts(signal),items=[];
-    for await(const page of durablePages(signal))items.push(...page);
-    const published=new Set(items.map(row=>row.id));
-    const rows=items.concat(heldDrafts.filter(row=>!published.has(row.id)));
-    return decorate?decorate(rows):rows;
+    const unpublished=new Map((await drafts(signal)).map(row=>[row.id,row])),items=[];
+    for await(const page of durablePages(signal)){
+      if(unpublished.size)for(const row of page)unpublished.delete(row.id);
+      items.push(...page);
+    }
+    items.push(...unpublished.values());
+    return decorate?decorate(items):items;
   }
   async function prompt({sessionId,requestId,mode},content,source,signal) {
     if(!['queue','steer'].includes(mode)) throw new Error('Unknown prompt delivery mode');

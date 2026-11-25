@@ -342,6 +342,9 @@ teardown, then closes background admission, cancels reads and drains active work
 No callback grants local-only native administration.
 The Session controller's catalog observer runs under that owner, independently
 of open transcripts. It subscribes before listing drafts and published Sessions.
+It reads all authorized native pages and orders published Sessions and private
+drafts together by descending activity. A draft that publishes during enumeration
+appears once, with the durable summary taking precedence.
 Native changes, saved titles and Agent availability refresh the catalog. Changes
 coalesce during capture. The observer emits the release's ordinary added, removed,
 status and activity events.

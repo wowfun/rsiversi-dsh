@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {workspaceController} from '../../src/workbench/workspace-controller.mjs';
+import {sessionController} from '../../src/workbench/session-controller.mjs';
 import {catalogObserver,watchWorkbenchCatalog} from '../../src/workbench/catalog.mjs';
 
 test('plugin delegation authorizes the browser parent and preserves an executing Tool origin',async()=>{
@@ -95,6 +96,26 @@ test('a draft published between catalog reads never disappears from the combined
   },{owner:'application-owner'});
   assert.deepEqual(await scope.runOwned(()=>scope.list()),[{id:'promoted',blank:true}]);
   await scope.close();
+});
+
+test('large authorized catalogs retain every page and prefer a published row over its draft',async()=>{
+  const cwd='/workspace'+'/project'.repeat(64),count=8192;
+  const scope=applicationSessions(async(method,args)=>{
+    if(method==='application.workspaces')return {items:[{id:'session-0',blank:true,updatedAt:1},{id:'private',blank:true,updatedAt:count+1}],next:null};
+    assert.equal(method,'application.sessions');
+    assert.equal(args.request,'owner');
+    const start=args.after??0;
+    const items=Array.from({length:64},(_,index)=>({id:'session-'+(start+index),cwd,blank:false,updatedAt:count-start-index}));
+    return {items,next:start+64<count?start+64:null};
+  },{owner:'owner'});
+  try{
+    const Controller=sessionController({TypertRemoteService:class{}},scope),controller=new Controller();
+    controller.ctx={get(){}};
+    const {items}=await scope.runOwned(signal=>controller.list({},signal));
+    assert.equal(items.length,count+1);
+    assert.equal(items[0].sessionId,'private');
+    assert.ok(items.slice(1).every((row,index)=>row.sessionId==='session-'+index&&row.blank===false));
+  }finally{await scope.close();}
 });
 
 test('Cordis retirement cancels and drains the independent catalog observer',async()=>{

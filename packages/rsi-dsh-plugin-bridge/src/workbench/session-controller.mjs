@@ -205,7 +205,9 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
       const rows=access
         ? (await scope.observeOwned(scope.list,signal)).filter(row=>access.allows({kind:'session',id:row.id}))
         : await scope.list(signal);
-      return {items:rows.map(row=>this.summary(row))};
+      const items=rows.map(row=>this.summary(row));
+      items.sort((left,right)=>right.updatedAt-left.updatedAt);
+      return {items};
     }
   };
 }

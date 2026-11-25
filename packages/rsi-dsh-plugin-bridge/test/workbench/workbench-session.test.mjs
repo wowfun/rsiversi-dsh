@@ -370,7 +370,7 @@ test('base workbench serves authorized cold pages through published Typert witho
     }
     assert.equal(method,'application.sessions');assert.equal(request,'issued-request');
     const id=after?'two':'one';
-    return {items:[{id,cwd:profile,updatedAt:1,blank:false,running:false}],next:after?null:{token:'next'}};
+    return {items:[{id,cwd:profile,updatedAt:after?3:1,blank:false,running:false}],next:after?null:{token:'next'}};
   },{owner:'application-owner',registered:id=>registered.get(id)});
   const session='@deepseek-ai/dsh-api-session-controller',hostModules=new Map();
   const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
@@ -405,7 +405,7 @@ test('base workbench serves authorized cold pages through published Typert witho
   const text=await result.text();
   assert.equal(result.status,200,text);
   const body=JSON.parse(text);
-  assert.deepEqual(body.result?.value?.items?.map(row=>row.sessionId),['one','two','blank-native','fork-native'],JSON.stringify(body));
+  assert.deepEqual(body.result?.value?.items?.map(row=>row.sessionId),['two','blank-native','fork-native','one'],JSON.stringify(body));
   assert.equal(body.result.value.items.find(row=>row.sessionId==='fork-native').blank,false);
   for(const reasoningEffort of [undefined,'high']){
     const selection={provider:'native',model:'chosen',...(reasoningEffort?{reasoningEffort}:{})};
