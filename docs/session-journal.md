@@ -5,6 +5,13 @@ the native Fact and control watermarks it identifies a Session log revision
 without opening the event body. Older prefixes acquire a count on their next
 publication.
 
+New journals keep the UTF-8 catalog line followed by one checksummed Zstandard
+frame containing the remaining JSON bytes. A cold title or count reads through
+the first newline. A full read restores the original bounded UTF-8 document.
+The writer replaces both parts atomically. These files live under
+`sessions/packed/`. Existing flat JSON journals keep their original paths and
+encoding, including on subsequent writes. Each Session has one writable file.
+
 `SessionProjectionJournal` owns the application event log shared by attached
 Agents, workbench history and cold persistence. Native Kernel owns execution.
 The attached Agent's model-selection append and the ordinary workbench model

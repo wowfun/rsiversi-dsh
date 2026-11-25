@@ -3,7 +3,7 @@ import {presetId,remap} from './session.mjs';
 import {inboxObservationProjection} from './inbox/inbox-observations.mjs';
 import {restoreInputOperation} from './inbox/input-invocation.mjs';
 
-const maximumBytes=128*1024*1024;
+export const maximumJournalBytes=128*1024*1024;
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
 const shape=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).every(key=>keys.includes(key));
 const isDigest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
@@ -44,7 +44,7 @@ function expandSourceRuns(state,limit) {
 /** Parse the durable boundary once, before native history is captured. */
 export function readJournalDocument(document) {
   if(document===undefined)return;
-  if(typeof document!=='string'||Buffer.byteLength(document)>maximumBytes)throw Error('Invalid application journal size');
+  if(typeof document!=='string'||Buffer.byteLength(document)>maximumJournalBytes)throw Error('Invalid application journal size');
   const state=JSON.parse(document);
   if(!shape(state,['version','header','inheritedEventCount','events','sources','sourceDigest','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom','nativePreset'])
     ||state.nativePreset!==undefined&&(state.version<7||!presetId(state.nativePreset))
@@ -152,6 +152,6 @@ export function encodeJournalDocument(session,events,sources,sourceDigest,operat
   }
   const document=JSON.stringify({version:8,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:runs,sourceDigest,operations});
   const value=prefix.slice(0,-1)+',\n'+document.slice(1);
-  if(Buffer.byteLength(value)>maximumBytes)throw Error('Application journal document capacity');
+  if(Buffer.byteLength(value)>maximumJournalBytes)throw Error('Application journal document capacity');
   return value;
 }

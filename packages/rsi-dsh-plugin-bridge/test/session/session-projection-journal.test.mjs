@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -565,26 +566,32 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   journal.accept('rename','session/title',{title,source:{kind:'user'},messageSeqs:[]});
   await journal.flush();
   const expected={...row,parent:'parent',projections:{kind:'cached',asOfSeq:0,values:{title}}};
-  const file=join(directory,(await readdir(directory))[0]),document=await readFile(file,'utf8');
+  const packed=join(directory,'packed'),file=join(packed,(await readdir(packed))[0]);
+  const bytes=await readFile(file),body=bytes.indexOf(10)+1,document=journal.encode();
+  assert.equal(bytes.readUInt32LE(body),0xfd2fb528);
+  assert.equal(await storage.read(child.id),document);
   if(process.platform!=='win32') {
-    for(const path of [privateRoot,directory])assert.equal((await stat(path)).mode&0o777,0o700&~process.umask());
+    for(const path of [privateRoot,directory,packed])assert.equal((await stat(path)).mode&0o777,0o700&~process.umask());
     assert.equal((await stat(file)).mode&0o777,0o600&~process.umask());
   }
   assert.equal(changes,1);
   await storage.save(child.id,document);
   assert.equal(changes,1);
-  await writeFile(file,document.slice(0,document.indexOf('\n')+1)+'invalid history body');
+  const damaged=Buffer.from(bytes);
+  damaged[damaged.length-1]^=1;
+  await writeFile(file,damaged);
   const cold=sessionJournalStore(directory,atomic);
   assert.deepEqual(await cold.decorate([{...row}]),[expected]);
   assert.deepEqual(await cold.decorate([{...row,createdAt:7}]),[{...row,createdAt:7}]);
-  await writeFile(file,document);
+  await assert.rejects(cold.read(child.id));
+  await writeFile(file,bytes);
   assert.equal(JSON.parse(document).events[0].data.title,title);
   const saved=new SessionProjectionJournal(ctx,api,{header:child},{restore:readJournalDocument(document)});
   assert.deepEqual(saved.session.lastEvent('session/title'),journal.session.lastEvent('session/title'));
   const rename='Side: 换名';journal.accept('again','session/title',{title:rename,source:{kind:'user'},messageSeqs:[]});
   await journal.flush();assert.deepEqual((await storage.decorate([{...row}]))[0].projections,
     {kind:'cached',asOfSeq:1,values:{title:rename}});
-  assert.equal((await readdir(directory)).length,1,'replacement leaves only the current journal');
+  assert.equal((await readdir(packed)).length,1,'replacement leaves only the current journal');
   if(process.platform!=='win32')assert.equal((await stat(file)).mode&0o777,0o600&~process.umask());
   assert.equal(changes,2);
   const manual={...header,parentSession:'parent',isSeeded:true};
@@ -594,8 +601,14 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   assert.equal((await storage.decorate([{...row}]))[0].parent,undefined,'a title is not proof of a DSH subagent origin');
   const {catalogTitle,ownedEventCount,version,sourceDigest,...payload}=readJournalDocument(unmarked.encode());
   const legacy=JSON.stringify({version:1,...payload});
-  await writeFile(file,legacy);
-  assert.deepEqual(await sessionJournalStore(directory,atomic).decorate([{...row}]),[row]);
+  const legacyDirectory=join(temporary,'old-store'),legacyName=createHash('sha256').update(manual.id).digest('hex')+'.json';
+  await atomic.writeFileAtomic(join(legacyDirectory,legacyName),legacy,{mode:0o600,dirMode:0o700});
+  const old=sessionJournalStore(legacyDirectory,atomic);
+  assert.deepEqual(await old.decorate([{...row}]),[row]);
+  assert.equal(await old.read(manual.id),legacy);
+  await old.save(manual.id,unmarked.encode());
+  assert.equal(await readFile(join(legacyDirectory,legacyName),'utf8'),unmarked.encode());
+  assert.deepEqual(await readdir(legacyDirectory),[legacyName]);
   assert.deepEqual(new SessionProjectionJournal(ctx,api,{header:manual},{restore:readJournalDocument(legacy)}).session.header,manual);
 });
 
