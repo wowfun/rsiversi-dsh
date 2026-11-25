@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {packageLocation, releaseLayout, splitPayloads} from '../../src/release/layout.mjs';
@@ -37,6 +37,31 @@ test('Office uses the target engine while separately requested engines remain in
   assert.deepEqual(names(independent.get(kit)),[kit,native,wasm].sort());
   await rm(join(root,'node_modules',native),{recursive:true});
   await assert.rejects(build('win32'),/Missing dependency @deepseek-ai\/libreoffice-kit-win32-x64/);
+});
+
+test('only the host terminal ships target-specific prebuilds',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'rsi-terminal-prebuilds-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const host='node_modules/node-pty',guest='node_modules/extension',privatePty=guest+'/'+host;
+  const common=['build/Release/pty.node','package.json','prebuilds/README'];
+  const linux='prebuilds/linux-x64/pty.node',windows='prebuilds/win32-x64/conpty/pty.node';
+  const all=[...common,linux,windows].sort();
+  const packages={[host]:{version:'1'},[guest]:{version:'1',dependencies:{'node-pty':'2'}},[privatePty]:{version:'2'}};
+  for(const [location,manifest] of Object.entries(packages)){
+    for(const file of location===guest?['package.json']:all){
+      const path=join(root,location,file);
+      await mkdir(dirname(path),{recursive:true});
+      await writeFile(path,file==='package.json'?JSON.stringify(manifest):file);
+    }
+  }
+  await writeFile(join(root,'package-lock.json'),JSON.stringify({lockfileVersion:3,packages}));
+  for(const [platform,expected] of [['win32',[...common,windows]],['linux',[...common,linux]],[undefined,all]]){
+    const runtimeTarget=platform && {platform,arch:'x64'};
+    const groups=await releaseLayout(root,['node-pty'],['extension'],undefined,{runtimeTarget});
+    const paths=row=>row.files.map(file=>file.path.slice(row.location.length+1)).sort();
+    assert.deepEqual(paths(groups.get('runtime')[0]),expected.sort());
+    assert.deepEqual(paths(groups.get('extension').find(row=>row.location===privatePty)),all);
+  }
 });
 
 test('files and shared directories use the native entry budget',()=>{

@@ -9,15 +9,14 @@ export const maximumEntries = 65536;
 export async function walkFiles(root, visit, { exclude = () => false, signal } = {}) {
   let entries = 0, bytes = 0;
   async function walk(prefix, depth) {
-    const names = [];
+    const paths = [];
     for await (const dirent of await opendir(join(root, prefix))) {
       signal?.throwIfAborted();
       if (++entries > maximumEntries) throw new Error('Tree entry capacity');
-      names.push(dirent.name);
+      const path = prefix ? `${prefix}/${dirent.name}` : dirent.name;
+      if (!exclude(path, dirent)) paths.push(path);
     }
-    for (const name of names.sort()) {
-      const path = prefix ? `${prefix}/${name}` : name;
-      if (exclude(path)) continue;
+    for (const path of paths.sort()) {
       if (depth > 128 || Buffer.byteLength(path) > 1024) throw new Error('Tree path capacity');
       const stat = await lstat(join(root, path));
       if (stat.isSymbolicLink()) throw new Error(`Tree refuses link: ${path}`);

@@ -100,9 +100,12 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {ho
     if (!record.owners.size) continue;
     const owner = record.owners.has('runtime') ? 'runtime' : [...record.owners].sort().join('+');
     const files = [];
+    const terminalTarget = runtimeTarget && owner === 'runtime' && record.location === 'node_modules/node-pty'
+      ? `${runtimeTarget.platform}-${runtimeTarget.arch}` : undefined;
     if (!hostPeers || owner !== 'runtime') await walkFiles(record.directory, async (path,bytes) => {
       files.push({path:record.location+'/'+path, source:resolve(record.directory,path), bytes});
-    }, {signal, exclude:path=>path==='node_modules'});
+    }, {signal, exclude:(path,entry)=>path==='node_modules' ||
+      (terminalTarget && entry.isDirectory() && path==='prebuilds/'+entry.name && entry.name!==terminalTarget)});
     const group = groups.get(owner) ?? [];
     group.push({location:record.location, dependencies:record.dependencies, version:record.version, files});
     groups.set(owner,group);

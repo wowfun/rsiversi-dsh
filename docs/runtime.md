@@ -1028,6 +1028,11 @@ Other targets require the WASM engine. An independent dependency on another
 engine keeps its own package in the npm closure. Plugins installed from the
 registry retain their declared dependencies.
 
+The application release keeps the host terminal's `node-pty/prebuilds`
+directory for the target OS and CPU. Files directly under `prebuilds` and
+source-built bindings under `build/Release` remain available. Private copies
+of the terminal package installed by guest plugins retain their own files.
+
 Within a release ownership group, the packer keeps each connected set of npm
 dependencies in one physical payload when it fits. Its children and workers
 then use ordinary Node resolution. Larger sets span payloads at whole-package
