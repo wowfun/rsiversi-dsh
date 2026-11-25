@@ -63,7 +63,8 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
       const agent=await scope.runOwned(stop=>activate(result.id,stop,result.reused?'resume':'startup'),signal);
       if(request.workspaceId)scope.workspaceMetadata?.attach(request.workspaceId,agent?.session?.header,result.workspace_updated_at);
       this.ctx.emit('api-session/added',this.summary(result.summary));
-      return {sessionId:result.id,agentPreset:result.preset};
+      const preset=this.ctx.get('agentPresets')?.presetForSession(agent.session)??result.preset;
+      return {sessionId:result.id,agentPreset:preset};
     }
     get readerAccess() {
       const peer=this.ctx.invocation?.peer;

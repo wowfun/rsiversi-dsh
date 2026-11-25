@@ -9,7 +9,8 @@ full catalog exceeds its discovery limit.
 Before the workbench announces a newly attached Agent, its scope retains the
 recorded composition. A plugin that supplied a scope during setup keeps its
 revision. Plugins can read the composition from the first `agent/created`
-notification, including after a Host restart.
+notification, including after a Host restart. The creation reply reports the
+Session preset after these callbacks finish.
 The Web server and the web-provider registry retain their distinct upstream
 Cordis entry IDs. The Session's `workingDirectory` projection folds directory
 changes for the Environment panel and scoped plugins. Prompt templates resolve

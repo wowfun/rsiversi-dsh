@@ -59,16 +59,18 @@ test('named creates publish the Agent in arrival order and a rejected claim rele
     },
   };
   const Service=sessionController({TypertRemoteService:Base},scope,undefined,undefined,(id,_signal,source)=>{
-    published.push(source);registry.set(id,{});
+    const agent={session:{preset:source==='startup'?'from-created-hook':'again'}};
+    published.push(source);registry.set(id,agent);return agent;
   });
-  const controller=new Service({get:()=>registry,emit:(_event,row)=>assert.ok(row.agentAvailable)});
+  const controller=new Service({get:key=>key==='agentPresets'?{presetForSession:session=>session.preset}:registry,
+    emit:(_event,row)=>assert.ok(row.agentAvailable)});
   const claim=preset=>controller.create({sessionId:'one',preset});
   const failed=assert.rejects(claim('failed'),/unavailable preset/);
   await entered.promise;
   const created=claim('new'),reused=claim('again');
   assert.deepEqual(calls,['failed']);
   gate.resolve();await failed;
-  assert.equal((await created).agentPreset,'new');assert.equal((await reused).agentPreset,'again');
+  assert.equal((await created).agentPreset,'from-created-hook');assert.equal((await reused).agentPreset,'again');
   assert.deepEqual(calls,['failed','new','again']);assert.deepEqual(published,['startup','resume']);
 });
 
