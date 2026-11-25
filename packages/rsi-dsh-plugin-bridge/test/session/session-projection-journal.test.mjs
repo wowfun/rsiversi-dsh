@@ -37,6 +37,26 @@ test('a cold owner adopts its private decoded events and preserves lossless JSON
   }
 });
 
+test('cold recovery preserves native sources correlated in reverse acceptance order', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t);
+  journal.accept('first','model/selection',selection,{},1);
+  journal.accept('second','model/selection',selection,{},2);
+  const duplicate=readJournalDocument(journal.encode());
+  duplicate.operations[1].seq=duplicate.operations[0].seq;
+  assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{restore:duplicate}),/Invalid application mutation record/);
+  journal.appendStored([{seq:2,time:3,type:'feedback/record',data:{text:'after both choices'}}]);
+  const native=[2,1].map((time,seq)=>({seq,time,type:'model/selection',data:selection}));
+  journal.merge(native,new Map([[0,'second'],[1,'first']]));
+  const encoded=journal.encode();
+  const restore=state=>new SessionProjectionJournal(ctx,api,{header},{restore:state,native,adoptRestore:true});
+  const cold=restore(readJournalDocument(encoded));
+  assert.equal(cold.encode(),encoded);
+  assert.deepEqual([cold.sourceAt(0).seq,cold.sourceAt(1).seq],[1,0]);
+  assert.deepEqual([...cold.operationsBetween(0)].map(op=>op.id),['first','second']);
+  cold.advance(2,[{seq:2,time:4,type:'turn/start',data:{turn:1}}]);
+  assert.equal(cold.session.eventAt(3).type,'turn/start');
+});
+
 test('the release action-card service recovers decisions from the ordinary Session journal', {skip:!root},async t=>{
   const {ctx,api,load,journal}=await fixture(t);
   await ctx.plugin((await load('dsh-session-projection')).default);

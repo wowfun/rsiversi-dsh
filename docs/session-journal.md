@@ -449,6 +449,10 @@ reading event bodies. The complete log length is derived from the owned-event
 positions and native source map when loading; it is not stored as another count.
 Native projection catch-up cannot change the owned-event count. The decoder
 validates dense ownership and bounded positions before exposing the restored log.
+Cold recovery indexes accepted operations by their application sequence. Native
+sources can point to earlier accepted operations in a different order. A
+temporary byte per application position distinguishes native from local events
+while recovering a mixed log.
 Cold recovery uses the event array itself to distinguish occupied positions
 while merging native history. Only inbox acceptances can carry an older input
 operation that needs normalization. A log with no native queue transitions

@@ -29,7 +29,7 @@ export class SessionProjectionJournal {
         const event=native?.[index];
         if(event?.seq!==index)throw Error('Native event prefix moved backwards');
         return Object.freeze({...source,hash:digest(event)});
-      }):restore.sources;
+      }):restore.sources.slice();
       for(const source of sources)this.#sourceDigest.update(source.hash);
       if(restore.version===7&&this.#sourceDigest.copy().digest('hex')!==restore.sourceDigest)
         throw Error('Native event prefix changed');
@@ -50,32 +50,33 @@ export class SessionProjectionJournal {
   }
   #nativeInput(value) {return this.#sharedNative?value:this.#snapshot(value);}
   #restore(sources,operations) {
-    const used=new Set(sources.map(row=>row.seq));
-    const positions=new Set();
     for(const operation of operations) {
       if(!shape(operation,['id','seq','invocation','receipt','source','failure'])||!identity(operation.id)
         ||this.#operations.has(operation.id)||!integer(operation.seq)||operation.seq>=this.seq
         ||operation.seq<this.#session.inheritedEventCount
-        ||positions.has(operation.seq)||operation.receipt!==undefined&&operation.invocation===undefined
+        ||this.#operationIds[operation.seq]!==undefined||operation.receipt!==undefined&&operation.invocation===undefined
         ||operation.failure!==undefined&&(typeof operation.failure!=='string'||Buffer.byteLength(operation.failure)>4096)
         ||operation.source!==undefined&&(!integer(operation.source)||sources[operation.source]?.operation!==operation.id
           ||!isDeepStrictEqual(body(this.#session.eventAt(sources[operation.source].seq)),
             body(this.#session.eventAt(operation.seq)))))throw Error('Invalid application mutation record');
-      positions.add(operation.seq);this.#addOperation(operation,this.#session.eventAt(operation.seq).type);
+      this.#addOperation(operation,this.#session.eventAt(operation.seq).type);
     }
+    const nativeAt=new Uint8Array(sources.length?this.seq:0);
     for(const [index,row] of sources.entries()) {
-      if(row.operation===undefined?positions.has(row.seq):this.#operations.get(row.operation)?.source!==index||
-        positions.has(row.seq)&&this.#operations.get(row.operation).seq!==row.seq)
+      const accepted=this.#operationIds[row.seq];
+      if(row.operation===undefined?accepted!==undefined:this.#operations.get(row.operation)?.source!==index||
+        accepted!==undefined&&accepted!==row.operation)
         throw Error('Application mutation correlation changed');
+      nativeAt[row.seq]=1;
     }
     const cut=this.#session.inheritedEventCount;
     let annotationStart=cut;
-    if(this.#session.header.isSeeded&&used.has(cut)&&isInheritedMarker(this.#session.eventAt(cut))) {
-      while(annotationStart>0&&!used.has(annotationStart-1)&&isForkAnnotation(this.#session.eventAt(annotationStart-1).type))annotationStart--;
+    if(this.#session.header.isSeeded&&nativeAt[cut]&&isInheritedMarker(this.#session.eventAt(cut))) {
+      while(annotationStart>0&&!nativeAt[annotationStart-1]&&isForkAnnotation(this.#session.eventAt(annotationStart-1).type))annotationStart--;
     }
     this.#annotationCount=cut-annotationStart;
     for(let seq=0;seq<this.seq;seq++) {
-      const native=used.has(seq),operation=positions.has(seq);
+      const native=nativeAt[seq],operation=this.#operationIds[seq]!==undefined;
       if(native&&!operation)continue;
       const event=this.#session.eventAt(seq);
       if(!native&&!operation&&(seq<cut?seq<annotationStart:!this.#isLocalEvent(event)&&
@@ -83,7 +84,7 @@ export class SessionProjectionJournal {
         throw Error('Application journal contains unowned event positions');
       this.#owned.push(event);
     }
-    this.#sources=[...sources];
+    this.#sources=sources;
   }
   get session(){return this.#session;}
   get seq(){return this.#session.seq;}
