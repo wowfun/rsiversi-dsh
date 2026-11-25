@@ -471,11 +471,12 @@ until successful native reconciliation. Older catalog hints acquire their owned 
 when that existing reconciliation rewrites the document.
 No second durable format or body cache is maintained alongside version 7.
 
-The supplied persistence writer
-must atomically replace that document. Flushes serialize snapshots in acceptance
-order; equal pending flushes join. A failed write leaves accepted memory intact
-and a later flush may retry. Loading validates the complete document through the
-selected DSH event codec and reference rules before exposing it. The existing
+The supplied persistence writer must atomically replace that document. A flush
+resolves once a snapshot containing its revision is durable. While that writer
+is busy, flushes for newer revisions share the next snapshot. The writer takes
+that snapshot when the previous attempt settles. A failed write leaves accepted
+memory intact and a later flush may retry. Loading validates the complete
+document through the selected DSH event codec and reference rules before exposing it. The existing
 Session event budget applies, and a persisted document is bounded at 128 MiB.
 
 The application profile stores these snapshots in its private selection state,

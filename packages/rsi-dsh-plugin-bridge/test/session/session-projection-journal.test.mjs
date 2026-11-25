@@ -668,6 +668,37 @@ test('flushes serialize immutable snapshots, join equal writes and retry failure
     assert.throws(()=>cold.complete('two',{control_seq:5}),/immutable/);
   });
 
+test('flushes behind a busy writer share the next durable snapshot', {skip:!root},async t=>{
+  const gates=[Promise.withResolvers(),Promise.withResolvers()];
+  const entered=gates.map(()=>Promise.withResolvers()),writes=[];
+  const {ctx,api,journal}=await fixture(t,{save:async value=>{
+    const index=writes.push(value)-1;
+    if(gates[index]){entered[index].resolve();await gates[index].promise;}
+  }});
+  for(const gate of gates)t.after(()=>gate.resolve());
+  const append=i=>journal.append('feedback/record',{text:'Note '+i});
+  append(0);
+  const first=journal.flush();
+  await entered[0].promise;
+  const waiting=[];
+  for(let i=1;i<=24;i++){append(i);waiting.push(journal.flush());}
+  let durable=false;
+  const later=Promise.all(waiting).then(()=>{durable=true;});
+  gates[0].resolve();
+  await first;
+  await entered[1].promise;
+  assert.equal(durable,false);
+  const second=readJournalDocument(writes[1]);
+  assert.equal(second.ownedEventCount,25);
+  append(25);
+  const last=journal.flush();
+  gates[1].resolve();
+  await Promise.all([later,last]);
+  assert.deepEqual(writes.map(value=>readJournalDocument(value).ownedEventCount),[1,25,26]);
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(writes[2])});
+  assert.deepEqual(cold.session.snapshotEvents(),journal.session.snapshotEvents());
+});
+
 test('invalid native batches and persisted correlations cannot partially publish or silently rewrite history',
   {skip:!root},async t=>{
     const {ctx,api,journal}=await fixture(t);

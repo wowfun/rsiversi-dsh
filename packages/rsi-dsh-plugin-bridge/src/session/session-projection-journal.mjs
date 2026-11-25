@@ -11,7 +11,7 @@ const body=({seq,time,...value})=>value;
 /** One synchronous application event owner; native commands remain outside this log. */
 export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
-  #modelSelectionId;#revision=0;#saved=-1;#tail=Promise.resolve();#queued;#annotationCount=0;#rewrite=false;
+  #modelSelectionId;#revision=0;#saved=-1;#writing;#nextWrite;#annotationCount=0;#rewrite=false;
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
   #sourceDigest=createSourceDigest();#nativePreset;
   #liveTimer;#liveWrite=false;#liveRevision=-1;
@@ -284,12 +284,21 @@ export class SessionProjectionJournal {
     if(observed&&this.#revision===this.#liveRevision)return Promise.resolve();
     clearTimeout(this.#liveTimer);this.#liveTimer=undefined;
     if(this.#saved===this.#revision)return Promise.resolve();
-    if(this.#queued?.revision===this.#revision)return this.#queued.promise;
+    if(this.#writing){
+      if(this.#writing.revision===this.#revision)return this.#writing.promise;
+      // Capture the next cumulative snapshot only when the writer becomes available.
+      return this.#nextWrite??=this.#writing.promise.catch(()=>{}).then(()=>{
+        this.#nextWrite=undefined;
+        return this.flush();
+      });
+    }
     if(!this.#save)return Promise.reject(Error('Application journal has no persistence writer'));
     const revision=this.#revision,value=this.encode();
-    const promise=this.#tail.catch(()=>{}).then(async()=>{await this.#save(value);this.#saved=revision;});
-    this.#tail=promise;this.#queued={revision,promise};
-    void promise.finally(()=>{if(this.#queued?.promise===promise)this.#queued=undefined;}).catch(()=>{});
+    const promise=Promise.resolve().then(async()=>{
+      try{await this.#save(value);this.#saved=revision;}
+      finally{this.#writing=undefined;}
+    });
+    this.#writing={revision,promise};
     return promise;
   }
 }
