@@ -41,7 +41,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     if(restore) {
       const ids=new Set(restore.operations.map(row=>row.id));
       initial=await source.stage(call,release,signal,meta.through,initialCut.control_seq??0,
-        id=>ids.has(id),restore.inboxSlotFrom,first);
+        id=>ids.has(id),restore.inboxSlotFrom,first,meta.preset);
     }
     const listeners=new Set(),waiters=new Set();let version=0,batch,tail=Promise.resolve();
     const report=error=>ctx.logger.warn('Application Session observer failed:',error);
@@ -50,7 +50,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       changed();for(const listener of listeners)try{listener(event);}catch(error){report(error);}
     };
     const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{restore,adoptRestore:true,nativeEventState:'shared-frozen',
-      native:initial?.value.session.snapshotEvents(),transitions:initial?.value.inbox.transitions,nativePreset:()=>row.meta?.preset,
+      native:initial?.value.session.snapshotEvents(),transitions:initial?.value.inbox.transitions,nativePreset:()=>source.current.preset??row.meta?.preset,
       save:storage?value=>storage.save(header.id,value):undefined,report,
       notify:(_session,event)=>batch?batch.push(event):publish(event)});
     restore=undefined;
@@ -94,7 +94,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           const acceptedThrough=journal.seq;
           const staged=initial&&compare(nextCut,initialCut)===0?initial:
             await source.stage(call,release,signal,through,controlThrough,
-              id=>journal.operation(id)?.seq<acceptedThrough,journal.inboxSlotFrom,first);
+              id=>journal.operation(id)?.seq<acceptedThrough,journal.inboxSlotFrom,first,meta.preset);
           const native=staged.value;
           if(nextCut.kind==='draft')native.model=workbenchModel(meta.model_selection);
           const saveCreation=!row.merged&&newOrigin;
@@ -103,7 +103,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           const inbox=inboxObservationProjection(journal,events,native.inbox.transitions);
           for(const [seq,id] of inbox.correlations)correlations.set(seq,id);
           const preceding=[];
-          if(meta.preset!==undefined&&meta.preset!==(row.merged?row.meta?.preset:restoredNativePreset)) {
+          if(native.preset===undefined&&meta.preset!==undefined&&meta.preset!==(row.merged?row.meta?.preset:restoredNativePreset)) {
             const selected=journal.session.lastEvent('agent-preset/selected')?.data.agentPreset??journal.session.header.agentPreset;
             if(meta.preset!==selected)preceding.push({type:'agent-preset/selected',data:{agentPreset:meta.preset},time:Date.now()});
           }

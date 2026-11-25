@@ -38,8 +38,11 @@ the executable Host composition. An original DSH-only declaration can supply
 a Cordis scope on that composition. While such a selection is recorded, the
 journal remembers its underlying native preset so a cold reader can distinguish
 an unchanged Host from a native switch made while the workbench was closed.
-The native owner must advance the cut when changing the preset. Selection times
-record local observation time; event sequence, not wall-clock time, orders the log.
+The native owner advances the cut when changing the preset. For a published
+Session before its first Turn, executable generation controls carry the
+effective preset at their Store timestamp. Replaying them updates the Cordis
+scope even when the creation Header still names the original preset. Draft
+selection times record local observation time.
 Preset identifiers in the Header and selection records are nonblank strings of
 at most 256 UTF-16 code units; native admission owns the preset-name grammar.
 The workbench exposes the release's `agentPreset` Session projection to

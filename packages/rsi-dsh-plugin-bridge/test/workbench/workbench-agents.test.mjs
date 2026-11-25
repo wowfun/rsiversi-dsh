@@ -217,7 +217,7 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
   const owners=new Map();
   const history={metadata:async id=>({selection_cursor:{kind:'draft',revision:states.get(id).revision}}),
     owner:session=>owners.get(session.id),
-    async captureAgent(id) {
+    async captureAgent(id,meta) {
       let owner=owners.get(id);
       if(!owner) {
         const journal=new SessionProjectionJournal(ctx,api,{header:{version:4,id,createdAt:1,cwd:process.cwd(),isSeeded:false}}, {save:async()=>{}});
@@ -228,6 +228,7 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
         owner={journal,input,flush:()=>journal.flush(),driver:{ready:async()=>{}},model:()=>({next:selection})};
         owners.set(id,owner);
       }
+      owner.meta=meta;
       owner.journal.merge(states.get(id).events);return {options:selection,session:owner.journal.session};
     }};
   await ctx.plugin((await load('dsh-system-prompt')).default);

@@ -8,6 +8,7 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
+import {captureAgentView} from '../../src/workbench/agent-view.mjs';
 import {workbenchPersistence} from '../../src/workbench/persistence.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
@@ -263,6 +264,27 @@ test('native draft preset changes preserve the Session and replay the observed c
   const reopened=await durable.capture('one',meta);
   assert.deepEqual(reopened.snapshotEvents(),session.snapshotEvents());
   assert.equal(projection.stateOf(reopened),'standard');
+});
+
+test('published pre-turn selections replay in order and rebind the native preset after reopening', {skip:!root},async t=>{
+  const f=await fixture(t);
+  const projection=await f.ctx.sessionProjections.register((await f.load('dsh-agent-preset-registry')).agentPresetProjectionDefinition);
+  const meta=()=>({...f.meta(),preset:'standard'});
+  const selections=session=>session.snapshotEvents().filter(event=>event.type==='agent-preset/selected')
+    .map(({time,data})=>[time,data.agentPreset]);
+  const session=await f.history.capture('one',meta());
+  for(const preset of ['editor','editor','standard','review'])
+    f.change({kind:'preset',preset});
+  assert.equal(await f.history.capture('one',meta()),session);
+  assert.equal(projection.stateOf(session),'review');
+  assert.deepEqual(selections(session),[[2,'editor'],[4,'standard'],[5,'review']]);
+  const cold=workbenchHistory(f.options);t.after(()=>cold.close());
+  const inbox={capture:async()=>({kind:'durable',history:meta(),pending:[]})};
+  const {session:restored,preset}=await captureAgentView({inbox},cold,'one');
+  assert.equal(restored.header.agentPreset,'standard');
+  assert.equal(projection.stateOf(restored),'review');
+  assert.equal(preset,'review');
+  assert.deepEqual(selections(restored),selections(session));
 });
 
 test('model commands publish passive changes without a transcript or attached Agent', {skip:!root},async t=>{

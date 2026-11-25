@@ -189,7 +189,8 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     },
     async captureAgent(id,meta,signal){
       const view=await open({address:{kind:'session',sessionId:id}},signal,meta);
-      return {session:view.session,options:view.owner.model().next,sourceCursor:view.owner.meta.selection_cursor};
+      return {session:view.session,options:view.owner.model().next,sourceCursor:view.owner.meta.selection_cursor,
+        preset:view.owner.source.current.preset??view.owner.meta.preset};
     },
     control:live.control,
     async forkTurn({sessionId,atSeq},signal){

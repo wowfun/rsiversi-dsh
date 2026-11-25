@@ -19,7 +19,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
   return {
     get current(){return current;},
     watchSettlement(){return observed??={};},
-    async stage(call,release,signal,through,controlThrough,hasLocalRequest,inboxSlotFrom=0,first) {
+    async stage(call,release,signal,through,controlThrough,hasLocalRequest,inboxSlotFrom=0,first,creationPreset) {
       const original=current;
       const originalEffect=original.mapping.model?.effectId;
       let settlement;
@@ -76,7 +76,12 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
             }
             else if(event.kind==='working_directory_changed') {
               next.session.adoptObserved({type:'workspace-root/change',seq:next.session.seq,time:event.time,data:{cwd:event.cwd}});
-            } else if(event.kind!=='goal'&&event.kind!=='permission')next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
+            } else if(event.kind!=='goal'&&event.kind!=='permission'&&event.kind!=='preset')next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
+            if(event.preset!==undefined) {
+              if(event.preset!==(next.preset??creationPreset))
+                next.session.adoptObserved({type:'agent-preset/selected',seq:next.session.seq,time:event.time,data:{agentPreset:event.preset}});
+              next.preset=event.preset;
+            }
             if(event.permission)observePermission(next,event,hasLocalRequest);
             if(event.goal) {
               const appended=observeGoal(next,event);

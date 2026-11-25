@@ -10,7 +10,7 @@ export async function captureAgentView(scope,history,id,signal) {
     if(inbox.kind==='draft') {
       if(meta.selection_cursor.kind!=='draft'||meta.selection_cursor.revision!==inbox.revision)continue;
     }
-    const {session,options,sourceCursor}=await history.captureAgent(id,meta,signal);
+    const {session,options,sourceCursor,preset=meta.preset}=await history.captureAgent(id,meta,signal);
     if(sourceCursor&&!isDeepStrictEqual(sourceCursor,meta.selection_cursor))continue;
     const owner=history.owner?.(session);
     if(owner) {
@@ -18,6 +18,6 @@ export async function captureAgentView(scope,history,id,signal) {
       if(inbox.kind==='draft')owner.input.observeDraft(inbox);
       await owner.flush({observed:true});
     }
-    return {session,inbox,options,preset:meta.preset};
+    return {session,inbox,options,preset};
   }
 }
