@@ -30,6 +30,7 @@ host_desktop = true
 tools = true
 presets = true
 replace_preset_tools = ["schedule_create", "schedule_list", "schedule_update", "schedule_delete", "schedule_resume"]
+replace_tools_in_presets = ["standard"]
 routes = ["/document", "/plugins", "/sidebar", "/dsh-market", "/api"]
 source = {kind="directory", path=${quote(document)}}
 ${importer ? `importer = {package=${quote(registry.name)},digest=${quote(registry.digest)},export="import",program=${quote(executable)}}` : ''}

@@ -251,7 +251,10 @@ registry. A matching native ID selects the native composition and configuration
 document. When a profile declares several presets together, each declaration
 checks its own ID on the shared Host caller. Their child trees can activate
 independently. The native composition can use the packaged skill directories from
-that declaration. Presets supplied only by DSH retain their declared child tree.
+that declaration. Model-facing schedule, skill and plugin management tools mount
+in the preset that declares them. A native preset with no DSH counterpart
+retains its native tools and any tools explicitly registered at profile scope.
+Presets supplied only by DSH retain their declared child tree.
 The original token meter publishes its Session projections and supplies the
 measurements used by preset-scoped compaction plugins.
 The Settings form for the new-session default uses the Host Settings namespace
@@ -409,9 +412,9 @@ If the native submit handler returns an error, the bridge checks the original
 message ID. A committed input keeps its receipt. A confirmed refusal retires
 the local insertion before the producer retries. A lost transport reply leaves
 the original ID available for reconciliation.
-The market Host assigns the preset's reminder tool names to this application.
-Model calls use the original Schedule tools and the same store as the page.
-Only the names offered by the selected release appear in a model request.
+The market Host assigns the native `standard` preset's reminder tools to this
+application. Its model calls use the original Schedule tools and the same store
+as the page. Other native presets keep the reminder tools in their composition.
 
 The original Workspace archive and unarchive commands share Navigation's durable archive order. Archive combines the Cordis `workspace/session-activity` waterfall with the native activity families supplied by Serve. Within each family, plugin labels take precedence for IDs also reported by the native host. A native background Job uses its original executor label and stops when its owning Turn is cancelled. An active Session produces the original `workspace/session-active` error with its activity list. Confirmation submits the native stop-and-archive intent. Navigation commits archive and pin removal before stopping native jobs and Session work under its writer. A newly committed archive dispatches the Cordis stop providers when requested, then admits `workspace/session-archived` follow-up. Provider failures leave the archive durable. An activity that starts between inspection and the native commit returns `workspace/session-active`. Repeated archive requests skip providers. The workbench checks archive ownership and session state before dispatching `workspace/session-unarchiving`. It awaits listeners before submitting restoration. A rejection leaves the archive intact. An absent or already restored ID skips listeners and returns the current archive list.
 

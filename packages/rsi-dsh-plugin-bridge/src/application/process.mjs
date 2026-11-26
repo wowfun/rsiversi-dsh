@@ -129,7 +129,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       (await load('@deepseek-ai/dsh-compaction')).ManualCompactionError,sessionScope,(id,signal)=>agents.refresh(id,signal),
       (agent,start,end)=>agents.compactionRegion(agent,start,end)));
     hostModules.set(presets,workbenchPresetRegistry(presetModule.default,RemoteError,sessionScope,
-      (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load),defaults));
+      (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load,{tools,importer}),defaults));
     const {Deque}=await load('@deepseek-ai/dsh-deque');
     hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque},sessionScope,history,interactions,
       (id,signal,source)=>agents.ensure(id,signal,source)));
@@ -172,7 +172,6 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
         managedPackages(managedBoundary(managerModule.default,()=>market),()=>market,managerModule),state,await load('@deepseek-ai/dsh-atomic-write')));
       if(tools){
         hostModules.set(managerName+'/tools',managementTools(await load('@deepseek-ai/dsh-tools'),boundary));
-        base[0].insert.push({id:'plugin-manager-tools',name:managerName+'/tools'});
       }
       market=await createMarketProfile({modules,profile,boot,state,boundary,
         inUse:graph=>candidate.usesPayload([...graph.roots].filter(([name])=>!roots.has(name)).map(([,dir])=>dir)),
@@ -214,8 +213,6 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       watchWorkbenchCatalog(loop,sessionScope,agents.sharedBlankChanged);
     }).await();
     if(tools){
-      base[0].insert.push({id:'tool-schedule',name:'@deepseek-ai/dsh-tool-schedule'},
-        {id:'tool-skill',name:'@deepseek-ai/dsh-tool-skill'});
       await (await ctx.plugin((await load('@deepseek-ai/dsh-user-approval')).default,{})).await();
       const {retireOutcome,...listener}=await applicationTools(ctx,{load,key,generation,directory:tools.outcomeDirectory,sessions:sessionScope,boundary,
         resolveAgent:(id,signal)=>sessionScope.runOwned(()=>agents.ensure(id,signal),signal)});

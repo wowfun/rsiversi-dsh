@@ -16,6 +16,7 @@ import {catalogObserver} from '../../src/workbench/catalog.mjs';
 import {packagedPresetPlugins,workbenchProfile} from '../../src/workbench/profile.mjs';
 import {workbenchPresetRegistry} from '../../src/workbench/presets.mjs';
 import {workbenchCompaction} from '../../src/workbench/compaction.mjs';
+import {managementTools} from '../../src/market/management.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('chat prompts record the Typert caller and canonical time zone before attachment admission',{skip:!root},async t=>{
@@ -126,19 +127,30 @@ test('the workbench skill registry discovers and withdraws an original bundle pr
   const basic='@deepseek-ai/dsh-compaction-basic';
   const Compact=workbenchCompaction((await load(basic)).default,
     (await load('@deepseek-ai/dsh-compaction')).ManualCompactionError,{},()=>{});
-  ctx.loader.internal={import:name=>name===basic?Compact:load(name),resolveSync:name=>({url:pathToFileURL(require.resolve(name)).href})};
+  const toolModule=await load('@deepseek-ai/dsh-tools');
+  const overrides=new Map([[basic,Compact],['@deepseek-ai/dsh-plugin-manager/tools',managementTools(toolModule,{})]]);
+  ctx.loader.internal={import:name=>overrides.get(name)??load(name),resolveSync:name=>({url:pathToFileURL(require.resolve(name)).href})};
   ctx.loader.builtins.group=(await load('@deepseek-ai/cordis-plugin-group')).default;
   await ctx.plugin((await load('@deepseek-ai/dsh-session')).default);
   await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
   await ctx.plugin((await load('@deepseek-ai/dsh-commands')).default);
   await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
-  const native={withCaller:fn=>fn(),readPresets:async()=>({presets:['standard','minimal','ptc'].map(id=>({id,is_default:id==='standard'}))}),
-    resolvePreset:async(id='standard')=>['standard','minimal','ptc'].includes(id)?{id}:null,
+  await ctx.plugin(toolModule.default);
+  await ctx.plugin((await load('@deepseek-ai/dsh-system-prompt')).default);
+  ctx.provide('workingDirectory',{});ctx.provide('profileContext',{dir});ctx.provide('pluginManager',{});
+  ctx.provide('schedule',{deliveryLimits:()=>({newSessionIntervalSeconds:300})});
+  const nativeIds=['standard','minimal','ptc','custom-native'];
+  const native={withCaller:fn=>fn(),readPresets:async()=>({presets:nativeIds.map(id=>({id,is_default:id==='standard'}))}),
+    resolvePreset:async(id='standard')=>nativeIds.includes(id)?{id}:null,
     selectPreset:async(_session,id)=>({selected:id,changed:true})};
   const Registry=workbenchPresetRegistry((await load('@deepseek-ai/dsh-agent-preset-registry')).default,
     (await load('@deepseek-ai/dsh-typert-protocol')).RemoteError,native,async()=>{},scopes,
-    await packagedPresetPlugins(ctx,profile.rows,load));
+    await packagedPresetPlugins(ctx,profile.rows,load,{tools:true,importer:true}));
   await ctx.plugin(Registry,{default:'standard'});
+  const declare=(await load('@deepseek-ai/dsh-agent-preset')).default;
+  const skillTool='@deepseek-ai/dsh-tool-skill';
+  await ctx.plugin(declare,{id:'empty-dsh',plugins:[]}).await();
+  await ctx.plugin(declare,{id:'skill-dsh',plugins:[{id:'skill',name:skillTool}]}).await();
   const current=session=>ctx.sessionProjections.snapshot(session).values.agentPreset;
   assert.equal(current(ctx.sessions.create('no-preset')),null);
   const session=ctx.sessions.create('changed-preset',{meta:{agentPreset:'minimal'}});
@@ -151,6 +163,19 @@ test('the workbench skill registry discovers and withdraws an original bundle pr
   t.after(()=>cold[Symbol.asyncDispose]());
   assert.equal((await ctx.skills.get('dsh-doc',{scope:cold.key})).provider,'filesystem');
   await ctx.agentPresets.bindSession(agent,'standard');
+  const names=()=>ctx.tools.definitions(agent).map(tool=>tool.name).sort();
+  assert.deepEqual(names(),['plugin_inspect','plugin_manager','schedule_create','schedule_edit','schedule_list','schedule_view','skill']);
+  for(const id of ['custom-native','empty-dsh']){
+    await ctx.agentPresets.select(agent,id);
+    assert.deepEqual(names(),[],id);
+  }
+  await ctx.agentPresets.select(agent,'skill-dsh');
+  assert.deepEqual(names(),['skill']);
+  await ctx.agentPresets.select(agent,'custom-native');
+  const explicit=ctx.plugin(await load(skillTool));await explicit.await();
+  assert.deepEqual(names(),['skill']);
+  await explicit.dispose();assert.deepEqual(names(),[]);
+  await ctx.agentPresets.select(agent,'standard');
   assert(ctx.commands.list(agent).some(command=>command.name==='compact'));
   assert.equal(scopes.scopeParentOf(agent),cold.key);
   const read=()=>ctx.skills.get('dsh-doc',{scope:agent});

@@ -10,8 +10,8 @@ const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-edit
   'dsh-subagent','dsh-subagent-spawn-in-process','dsh-tool-subagent/model-selection-settings'].map(name=>'@deepseek-ai/'+name));
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
 
-/** Preserve scoped presentation services declared by the packaged native counterpart. */
-export async function packagedPresetPlugins(ctx,rows,load) {
+/** Preserve scoped workbench contributions declared by the packaged native counterpart. */
+export async function packagedPresetPlugins(ctx,rows,load,{tools=false,importer=false}={}) {
   const definitions=rows.filter(row=>row.name==='@deepseek-ai/dsh-agent-preset');
   const {interpolate}=await load('@deepseek-ai/cordis-plugin-loader');
   function contributions(entries) {
@@ -25,6 +25,8 @@ export async function packagedPresetPlugins(ctx,rows,load) {
         const config=interpolate({ctx,baseUrl:ctx.baseUrl},entry.config);
         return [{...entry,config:{...config,includeDefaultRoots:false,watch:false}}];
       }
+      if(tools && (entry.name==='@deepseek-ai/dsh-tool-schedule' || entry.name==='@deepseek-ai/dsh-tool-skill'
+        || importer && entry.name==='@deepseek-ai/dsh-plugin-manager/tools'))return [entry];
       return ['@deepseek-ai/dsh-compaction-basic','@deepseek-ai/dsh-command-compact'].includes(entry.name)?[entry]:[];
     });
   }
