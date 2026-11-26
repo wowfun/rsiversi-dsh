@@ -71,6 +71,29 @@ async function fixture(t) {
   return {ctx,history,options,load,controls,change,capture,persistence,meta,hooks,get reads(){return reads;}};
 }
 
+test('shutdown saves native progress after the last history reader releases its Session',{skip:!root},async t=>{
+  const f=await fixture(t);
+  const saved=()=>f.options.storage.read('one');
+  async function readTail(){
+    const session=await f.capture(),owner=f.history.owner(session);
+    owner.journal.append('feedback/record',{text:'checkpoint here'});await owner.flush();
+    const disk=await saved();
+    f.change({selection:native({...base,model:'new-choice'})});
+    assert.equal(await f.capture(),session);
+    assert.equal(await saved(),disk);
+    return {reader:new WeakRef(session),expected:owner.journal.encode()};
+  }
+  const {reader,expected}=await readTail();
+  if(globalThis.gc){
+    for(let i=0;i<12&&reader.deref();i++){
+      await new Promise(resolve=>setImmediate(resolve));globalThis.gc();
+    }
+    assert.equal(reader.deref(),undefined);
+  }
+  await f.history.close();
+  assert.equal(await saved(),expected);
+});
+
 test('managed child keeps its project of origin and reopens in the Host-selected sibling directory',{skip:!root},async t=>{
   const f=await fixture(t);
   const origin=await mkdtemp(join(tmpdir(),'rsi-child-origin-'));
