@@ -531,8 +531,8 @@ TUI and plugin inputs can enter the same withdrawable inbox during the job.
 Status remains idle. Another maintenance job cannot enter. A previously
 accepted local wake keeps its place even while the native submission is in
 flight. Native admission decides whether other clients already own the driver.
-Session stop
-signals the callback, and Agent disposal waits for it to settle. Releasing
+Session stop signals the callback. A new steering input received after that
+signal targets the next Turn. Agent disposal waits for the callback to settle. Releasing
 the reservation wakes the ordinary driver if eligible inputs remain.
 `whenIdle()` follows the job and subsequent queued work. The callback and
 its reservation live only for the attached application generation.

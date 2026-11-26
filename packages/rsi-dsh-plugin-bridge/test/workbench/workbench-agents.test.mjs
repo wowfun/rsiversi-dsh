@@ -32,6 +32,7 @@ test('plugin maintenance owns the idle agent until its callback settles',{skip:!
   const id='maintenance';let saved;
   const journal=new SessionProjectionJournal(ctx,api,{header:api.Session.create(id).header},{save:value=>{saved=value;}});
   let held, stop, cleared=0;
+  const deliveries=[];
   const scope=applicationSessions(async(method,args,signal)=>{
     if(method==='application.cancel'){
       assert.equal(args.keep_inbox,false);cleared++;return {session_id:id};
@@ -53,7 +54,8 @@ test('plugin maintenance owns the idle agent until its callback settles',{skip:!
   scope.inbox.capture=async()=>({kind:'draft',shared:true,revision:0,pending:[]});
   scope.inbox.waitIdle=async()=>{assert.equal(held,undefined);};
   await workbenchAgents(ctx,scope,{
-    owner:()=>({journal,flush:options=>journal.flush(options),input:{reconcileClears(){},observeDraft(){},clear:()=>[],confirmClear(){},abandonClear(){}}}),
+    owner:()=>({journal,flush:options=>journal.flush(options),input:{reconcileClears(){},observeDraft(){},clear:()=>[],confirmClear(){},abandonClear(){},
+      accept(_message,delivery){deliveries.push(delivery);}}}),
     metadata:async()=>({selection_cursor:{kind:'draft',revision:0}}),
     captureAgent:async()=>({session:journal.session,options:{}}),
   },await load('dsh-scope'),agentApi,api.snapshotJsonValue);
@@ -63,6 +65,7 @@ test('plugin maintenance owns the idle agent until its callback settles',{skip:!
   const work=agent.runMaintenance(s=>{signal=s;return afterStop.promise;});
   assert.equal(signal.aborted,false,'callback starts synchronously on native admission');
   assert.equal(agent.status,'idle');
+  agent.steer({id:'before-stop'});
   assert.throws(()=>agent.runMaintenance(()=>{}),/active work/);
   const converged=agent.whenIdle().then(()=>{idle=true;});
   const aborted=new Promise(done=>signal.addEventListener('abort',done,{once:true}));
@@ -70,9 +73,11 @@ test('plugin maintenance owns the idle agent until its callback settles',{skip:!
   await aborted;
   assert.equal(idle,false);
   assert.equal(signal.reason.kind,'user');
+  agent.steer({id:'after-stop'});
   afterStop.resolve(17);
   assert.equal(await work,17);
   await converged;
+  assert.deepEqual(deliveries,['steer','next_turn']);
   await assert.rejects(agent.runMaintenance(()=>{throw Error('plugin failed');}),/plugin failed/);
   assert.equal(held,undefined);
   const closingWork=agent.runMaintenance(async s=>{

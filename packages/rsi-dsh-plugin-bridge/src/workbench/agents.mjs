@@ -278,8 +278,9 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         change(()=>input().accept(message,'next_turn'),true);
       },
       steer(message){
-        const delivery=record.abortingTurn&&record.abortingTurn===record.view.inbox.active_turn_id?'next_turn':'steer';
-        change(()=>input().accept(message,delivery),true);
+        const aborted=record.maintenance?.controller.signal.aborted
+          ?? (record.abortingTurn && record.abortingTurn===record.view.inbox.active_turn_id);
+        change(()=>input().accept(message,aborted?'next_turn':'steer'),true);
       },
       cancel(cause,{keepInbox=false}={}){
         try {clear(false,keepInbox);}
