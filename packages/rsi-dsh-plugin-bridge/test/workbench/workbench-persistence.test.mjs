@@ -72,6 +72,8 @@ test('stored revisions track owned appends rather than native mirror catch-up',{
   const changed=await persistence.stat('stored');assert.notEqual(changed.revision,before.revision);
   const reopened=workbenchHistory(options);t.after(()=>reopened.close());
   const cold=workbenchPersistence(reopened,await load('dsh-session-persistence'));
+  assert.equal(typeof persistence.identity,'symbol');
+  assert.notEqual(cold.identity,persistence.identity);
   assert.deepEqual(await cold.stat('stored'),changed,'the persisted revision survives loss of its live mirror');
   const restored=await cold.open('stored','read');t.after(()=>restored.close());
   assert.equal((await restored.read()).events.length,3);
@@ -79,6 +81,7 @@ test('stored revisions track owned appends rather than native mirror catch-up',{
   const live=new Map();
   provideWorkbenchSessions(ctx,api.SessionStore,{get:id=>live.get(id),list:()=>[...live.values()]},()=>assert.fail('a read flushed a writer'));
   ctx.provide('sessionPersistence',cold);
+  assert.equal(ctx.sessionPersistence.identity,cold.identity);
   await ctx.plugin((await load('dsh-session-projection')).default);
   await ctx.plugin((await load('dsh-session-query-sqlite')).default,{path:':memory:',openAt:'never'});
   const observation=await ctx.sessionQuery.observeSession('stored');

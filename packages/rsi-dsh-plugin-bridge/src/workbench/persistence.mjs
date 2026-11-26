@@ -44,6 +44,7 @@ export function workbenchPersistence(history,errors,storedPages) {
     return next;
   }
   return {
+    identity:Symbol('sessionPersistence'),
     capture:(id,signal)=>capture(id,signal),
     async stat(id,{signal}={}){
       const meta=await history.metadata(id,signal,true);

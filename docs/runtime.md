@@ -1417,6 +1417,8 @@ resolver before registering the replacement.
 The original export command can download root and descendant Session logs.
 An unknown stored identity yields no stat result and a typed not-found error
 on open. The original download route returns HTTP 404 for that identity.
+Each mounted persistence service has a process-local symbol identity. An
+observation belongs to that service instance and its stored revision.
 `open(id, 'read')` uses the history projector. Each read authenticates through
 the opening request and observes a
 current native cut; it never starts an Agent. Native projection batches publish
