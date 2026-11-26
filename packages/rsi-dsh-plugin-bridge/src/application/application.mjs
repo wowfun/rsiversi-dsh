@@ -103,7 +103,7 @@ export async function createApplication({modules, profile, provide,hostModules=n
     for(const entry of ctx.loader.entries()) {
       if(entry.disabled || clientOnly.has(entry.options.id) || entry.fiber?.state===ctx.loader.ctx.fiber.state)continue;
       pending.set(entry.id,{id:entry.options.id,fiber:entry.fiber,config:JSON.stringify(entry.options),
-        reason:inactiveFiber(entry.options.id+' ('+entry.options.name+')',entry.fiber)});
+        label:entry.options.id+' ('+entry.options.name+')'});
     }
     return pending;
   }
@@ -125,8 +125,11 @@ export async function createApplication({modules, profile, provide,hostModules=n
     const failures=[];
     for(const [id,row] of pendingEntries()) {
       const prior=previous.get(id);
-      if(!required.has(row.id) && (restore || (prior && prior.fiber===row.fiber && prior.config===row.config))) warnings.push(row.reason);
-      else failures.push(row.reason);
+      const diagnostic=!required.has(row.id) && (restore || (prior && prior.fiber===row.fiber && prior.config===row.config))
+        ? warnings : failures;
+      try {await row.fiber?.await();}
+      catch(error) {diagnostic.push(row.label+': '+(error instanceof Error?error.message:String(error)));continue;}
+      diagnostic.push(inactiveFiber(row.label,row.fiber));
     }
     if(failures.length) throw new Error('Inactive profile entries: '+failures.join(', '));
     return [...new Set(warnings)];

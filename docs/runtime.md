@@ -1205,7 +1205,8 @@ still in use by a Fiber remains leased until its retirement completes. The
 application's fixed npm lease can serve subsequent inspections.
 Restoring a committed profile keeps healthy bundles running when another
 installed bundle is unavailable. The Host reports the affected package or
-Fiber. The workbench's required Host entries must start. Subsequent changes
+Fiber. When a Fiber rejects activation, its diagnostic includes the plugin's
+error message. The workbench's required Host entries must start. Subsequent changes
 use DSH's reconciliation contract, which distinguishes an unchanged inactive
 entry from a new or changed activation failure. Entries keep their immutable
 modules across configuration edits. The bridge captures rollback patches

@@ -109,6 +109,13 @@ test('import failure does not retire the running implementation',{skip:!root},as
   assert.deepEqual(f.events,[]);
 });
 
+test('cold restore reports the plugin error for a failed optional entry',{skip:!root},async t=>{
+  const f=await fixture(t);
+  await f.code('probe','v1',"export function apply(){throw Error('preset source unavailable')}");
+  const warnings=await f.app.reconcile(f.rows,{restore:true});
+  assert.match(warnings.join('\n'),/probe \(probe\).*preset source unavailable/);
+});
+
 test('activation failure restores the exact old module and config',{skip:!root},async t=>{
   const f=await fixture(t);
   const old=await f.code('probe','v1',implementation('v1'));await f.app.reconcile(f.rows);
