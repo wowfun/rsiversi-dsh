@@ -32,10 +32,13 @@ test('plugin replay resolves native coordinates without reading the unselected t
     return typeof value==='function'?value.bind(target):value;
   }});
   await pluginCheckpoint(observed,{turn:1},{effect_id:'region',timestamp_ms:2,checkpoint:{
-    start:1,end:1,plugin:'template',message:{role:'user',content},presentation:{shadowedTokenCount:9}
+    start:1,end:1,plugin:'template',message:{role:'user',content:[{type:'text',content:{text:'message'}}]},
+    presentation:{shadowedTokenCount:9}
   }},llm);
   session.end();
   assert.deepEqual(session.lastEvent('compaction/summary').data.shadowedSeqs,[selected.seq]);
+  assert.deepEqual(session.lastEvent('compaction/summary').data.summary,content);
+  assert.deepEqual(session.lastEvent('user/message').data.content,content);
   assert.deepEqual(session.surface.nodes.slice(4),before.slice(4));
   assert.equal(tailReads,0);
 });

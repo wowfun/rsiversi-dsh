@@ -1,4 +1,5 @@
 import {modelProjection} from './model-history.mjs';
+import {modelTextBlock} from './conversation-history.mjs';
 
 const headId = effect => 'rsi:checkpoint:head:' + effect;
 
@@ -123,7 +124,8 @@ export async function pluginCheckpoint(session, mapping, fact, llm) {
   const lifecycle = {compactionId:id, turn:mapping.turn};
   const opening = session.adoptObserved({seq:session.seq,time,type:'compaction/start',data:lifecycle});
   const shadowedRange = {start:selected[0],end:selected.at(-1)};
-  const summary = summary_blocks ? message.content.slice(summary_blocks.start, summary_blocks.end) : message.content;
+  const content = message.content.map(modelTextBlock);
+  const summary = summary_blocks ? content.slice(summary_blocks.start, summary_blocks.end) : content;
   const data = {...presentation, compactionId:id, summary, shadowedRange, shadowedSeqs:selected,
     shadowedTokenCount:presentation?.shadowedTokenCount ?? selected.reduce((total, seq) =>
       total + estimateMessage(session.deriveEventMessage(session.eventAt(seq))), 0),
@@ -132,7 +134,7 @@ export async function pluginCheckpoint(session, mapping, fact, llm) {
   const first = session.eventAt(selected[0]);
   const head = first.data.id === headId(first.data.source?.compactionId);
   session.adoptObserved({seq:session.seq,time,type:'user/message',
-    data:{...message,id:head ? headId(id) : 'rsi:checkpoint:region:' + id,source:compactCheckpointSource(id)},
+    data:{...message,content,id:head ? headId(id) : 'rsi:checkpoint:region:' + id,source:compactCheckpointSource(id)},
     sourceEventSeqs:[opening.seq,written.seq,...selected],
     surfaceOp:{op:'replace',startSeq:shadowedRange.start,endSeq:shadowedRange.end}});
   session.adoptObserved({seq:session.seq,time,type:'compaction/end',data:lifecycle});

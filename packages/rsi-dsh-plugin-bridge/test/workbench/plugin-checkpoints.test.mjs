@@ -77,6 +77,7 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
       assert.equal(request,'enabled-plugin');
       assert.equal(op.type,'install_plugin_checkpoint');
       assert.equal(op.checkpoint.plugin,'dsh-template-checkpoint');
+      assert.deepEqual(op.checkpoint.message.content.slice(1,-1),[{type:'text',content:{text:'ORCHID'}}]);
       if(rejectCommit)return {rejected:'conversation changed'};
       fact={type:'plugin_context_compacted',turn_id:op.turn,effect_id:op.effect,checkpoint:op.checkpoint,timestamp_ms:17};
       return null;
@@ -120,12 +121,12 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
     assert.equal(session.eventAt(result.summarySeq).data.rsi.plugin,'dsh-template-checkpoint');
     assert.equal(session.eventAt(result.summarySeq).data.model,'offline');
     assert.match(session.eventAt(source.seq).data.content[0].text,/old text/);
-    assert.deepEqual(session.eventAt(session.surface.nodes[0]).data.content,fact.checkpoint.message.content);
+    const framed=fact.checkpoint.message.content.map(({type,content})=>({type,text:content.text}));
+    assert.deepEqual(session.eventAt(session.surface.nodes[0]).data.content,framed);
     assert.equal(session.snapshotEvents().filter(e=>e.type==='compaction/start').length,4);
     const cold=new SessionProjectionJournal(ctx,api,seed,{restore:readJournalDocument(journal.encode()),native:raw.snapshotEvents()});
     assert.deepEqual(cold.session.snapshotEvents(),session.snapshotEvents());
     assert.equal(fact.checkpoint.message.role,'user');
-    assert.deepEqual(fact.checkpoint.message.content.map(b=>b.text).slice(1,-1),['ORCHID']);
     const beforeRemoval=session.seq;
     ctx.loader.remove(entry);
     await ctx.loader.await();

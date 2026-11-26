@@ -64,7 +64,8 @@ export function checkpointEngine(Basic) {
         const {shadowedSeqs, shadowedRange, compactionId, summary: blocks, ...presentation} = summary;
         const {turn_id:turn, ...coordinates} = region;
         const receipt = await binding.scope.command(agent.id, {type:'install_plugin_checkpoint', turn, effect:compactionId,
-          checkpoint:{...coordinates, plugin:entry.options.name, message:{role:'user',content:message.content},
+          checkpoint:{...coordinates, plugin:entry.options.name, message:{role:'user',
+            content:message.content.map(({type,...content})=>({type,content}))},
             summary_blocks:{start:1,end:1+blocks.length}, presentation}}, stop);
         if (receipt?.rejected !== undefined) {
           binding.lifecycle('compaction/end',{...opening,error:receipt.rejected});

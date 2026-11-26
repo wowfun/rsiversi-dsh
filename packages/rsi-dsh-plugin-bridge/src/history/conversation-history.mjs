@@ -2,6 +2,12 @@ import { isDeepStrictEqual } from 'node:util';
 import { toolUserMessage } from './step-messages.mjs';
 import { dshFile, dshImage } from '../agent/file-input.mjs';
 
+/** Text in an RSI model message uses the tagged MessageContent representation. */
+export function modelTextBlock(block) {
+  if (block.type !== 'text' || typeof block.content?.text !== 'string') throw Error('unsupported model text block');
+  return {type:'text', text:block.content.text};
+}
+
 /** Session surface operations are validated by the original DSH SurfaceManager. */
 export function systemHead(session, mapping, time, content) {
   const previous = session.firstSurfaceEvent();

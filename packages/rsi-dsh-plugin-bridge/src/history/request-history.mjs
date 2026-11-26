@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { systemHead } from './conversation-history.mjs';
+import { modelTextBlock, systemHead } from './conversation-history.mjs';
 
 const verified = new WeakMap();
 
@@ -58,10 +58,7 @@ function toolsOf(tools) {
 function systemOf(system) {
   if (!Array.isArray(system) || system.some(message => !['system', 'developer'].includes(message.role)))
     throw new Error('invalid system request evidence');
-  return system.filter(message => message.role === 'system').flatMap(message => message.content.map(block => {
-    if (block.type !== 'text' || typeof block.content?.text !== 'string') throw new Error('unsupported system request content');
-    return {type:'text', text:block.content.text};
-  }));
+  return system.filter(message => message.role === 'system').flatMap(message => message.content.map(modelTextBlock));
 }
 
 /** Retain only projected sections at this native cut. The original Fact pages can be released. */

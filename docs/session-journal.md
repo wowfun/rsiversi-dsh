@@ -76,8 +76,10 @@ event and the application sequences it replaced. A plugin extending the
 released basic engine can supply its own summary without configuring a
 conversation model. The Host records the Loader entry that supplied the engine,
 including when another plugin calls it. Unloading that engine closes its ability
-to submit new checkpoints. The Host stores the exact
-user-role text blocks. The released engine owns token pricing, error recovery
+to submit new checkpoints. The Host stores the framed user message with each
+text block in its native `content.text` field. Plugins and replayed DSH events
+receive the same strings in DSH's `text` field, in their original order.
+The released engine owns token pricing, error recovery
 and checkpoint framing for this operation. Its opening event is visible while
 the summarizer runs. The journal correlates that opening with the Host's
 installed checkpoint. A summarizer failure closes the same opening with the
