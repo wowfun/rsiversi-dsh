@@ -15,10 +15,11 @@ export class SessionProjectionJournal {
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
   #sourceDigest=createSourceDigest();#nativePreset;
   #liveTimer;#liveWrite=false;#liveRevision=-1;
-  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,adoptRestore=false,native,nativeEventState,nativePreset}={}) {
+  #ownedRevision=0;#savedDigest;#nativeTail;#remembered=-1;
+  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,adoptRestore=false,native,nativeEventState,nativePreset,nativeTail}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
     this.#sharedNative=nativeEventState==='shared-frozen';
-    this.#nativePreset=nativePreset;
+    this.#nativePreset=nativePreset;this.#nativeTail=nativeTail;
     if(restore!==undefined) {
       if(!isDeepStrictEqual(restore.header,seed.header))throw Error('Invalid application journal identity');
       if(adoptRestore) {
@@ -36,7 +37,7 @@ export class SessionProjectionJournal {
       seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native)),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
       this.#restore(sources,restore.operations);
-      this.#saved=0;this.#rewrite=restore.version<8;
+      this.#saved=0;this.#savedDigest=restore.sourceDigest;this.#rewrite=restore.version<8;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
       this.#session=this.#create(seed);
@@ -92,6 +93,7 @@ export class SessionProjectionJournal {
   get ownedEventCount(){return this.#owned.length;}
   get inboxSlotFrom(){return this.#inboxSlotFrom;}
   get revision(){return this.#revision;}
+  get checkpointed(){return this.#saved>=0;}
   get hasLocalEvents(){return this.#operations.size>0||this.seq>this.nativeSeq;}
   sourceAt(seq){return this.#sources[seq];}
   operations(){return Object.freeze([...this.#operations.values()]);}
@@ -141,7 +143,7 @@ export class SessionProjectionJournal {
     if(!events.length)return;
     this.#session.adoptBatch(events);
     for(const event of events)this.#owned.push(event);
-    this.#revision++;this.#publish(events);
+    this.#ownedRevision=++this.#revision;this.#publish(events);
   }
   accept(id,type,data,opts={},time=Date.now(),prepared) {
     if(!identity(id)||this.#operations.has(id))throw Error('Application mutation identity is already used or invalid');
@@ -155,7 +157,7 @@ export class SessionProjectionJournal {
     if(id!==undefined){
       this.#addOperation(Object.freeze({id,seq:event.seq,...(invocation===undefined?{}:{invocation})}),type);
     }
-    this.#owned.push(event);this.#revision++;
+    this.#owned.push(event);this.#ownedRevision=++this.#revision;
     this.#publish([event]);return event;
   }
   #assign(id,key,value) {
@@ -167,7 +169,7 @@ export class SessionProjectionJournal {
       return;
     }
     if(key==='receipt'&&previous.invocation===undefined)throw Error('Native receipt lacks its prepared invocation');
-    this.#operations.set(id,Object.freeze({...previous,[key]:next}));this.#revision++;
+    this.#operations.set(id,Object.freeze({...previous,[key]:next}));this.#ownedRevision=++this.#revision;
   }
   prepare(id,invocation){this.#assign(id,'invocation',invocation);}
   complete(id,receipt){this.#assign(id,'receipt',receipt);}
@@ -175,7 +177,7 @@ export class SessionProjectionJournal {
     this.#entry();const operation=this.#operations.get(id);
     if(!operation||typeof message!=='string'||Buffer.byteLength(message)>4096)throw Error('Invalid application mutation failure');
     if(operation.failure===message)return;
-    this.#operations.set(id,Object.freeze({...operation,failure:message}));this.#revision++;
+    this.#operations.set(id,Object.freeze({...operation,failure:message}));this.#ownedRevision=++this.#revision;
   }
   merge(nativeEvents,correlations=new Map(),inheritedEventCount=0,projections=new Map(),annotations=[],preceding=[]) {
     return this.#merge(nativeEvents,correlations,inheritedEventCount,0,projections,annotations,preceding);
@@ -193,7 +195,7 @@ export class SessionProjectionJournal {
       throw Error('Fork annotations require a fresh inherited boundary');
     if(preceding.some(event=>!isJournalEvent(event?.type)))throw Error('Preceding events must be log-only');
     if(!input.length&&!preceding.length&&after===this.#sources.length) {
-      if(this.#rewrite){this.#revision++;this.#rewrite=false;}
+      if(this.#rewrite){this.#ownedRevision=++this.#revision;this.#rewrite=false;}
       return Object.freeze([]);
     }
     const start=this.seq,sourceStart=this.#sources.length;
@@ -253,10 +255,12 @@ export class SessionProjectionJournal {
     for(const source of sources){this.#sources.push(source);this.#sourceDigest.update(source.hash);}
     for(const [id,operation] of operations)this.#operations.set(id,operation);
     if(sources.length||preceding.length||this.#rewrite)this.#revision++;
+    if(operations.size||preceding.length||annotations.length||this.#rewrite||events.some(event=>event.type==='session/title'))
+      this.#ownedRevision=this.#revision;
     this.#rewrite=false;
     const appended=this.#session.snapshotEvents(start);this.#publish(appended);return Object.freeze(appended);
   }
-  encode() {
+  encode(sourceDigest=this.#sourceDigest.copy().digest('hex')) {
     let selected;
     const events=this.#owned.map(event=>{
       if(event.type==='agent-preset/selected')selected=event.data.agentPreset;
@@ -269,7 +273,7 @@ export class SessionProjectionJournal {
       return event;
     });
     const native=selected===undefined?undefined:this.#nativePreset?.();
-    return encodeJournalDocument(this.#session,events,this.#sources,this.#sourceDigest.copy().digest('hex'),this.operations(),this.#inboxSlotFrom,
+    return encodeJournalDocument(this.#session,events,this.#sources,sourceDigest,this.operations(),this.#inboxSlotFrom,
       native===selected?undefined:native);
   }
 
@@ -285,8 +289,17 @@ export class SessionProjectionJournal {
       finally{this.#liveWrite=false;}
     },200);
   }
+  #rememberNativeTail() {
+    if(this.#saved<this.#revision&&this.#saved>=this.#ownedRevision&&this.#remembered!==this.#revision){
+      this.#nativeTail?.({base:this.#savedDigest,digest:this.#sourceDigest.copy().digest('hex'),seq:this.seq,nativeSeq:this.nativeSeq});
+      this.#remembered=this.#revision;
+    }
+  }
   flush({observed=false}={}) {
-    if(observed&&this.#revision===this.#liveRevision)return Promise.resolve();
+    if(observed&&this.#ownedRevision<=Math.max(this.#liveRevision,this.#saved)){
+      this.#rememberNativeTail();return Promise.resolve();
+    }
+    if(observed&&this.#writing?.revision>=this.#ownedRevision)return this.#writing.promise;
     clearTimeout(this.#liveTimer);this.#liveTimer=undefined;
     if(this.#saved===this.#revision)return Promise.resolve();
     if(this.#writing){
@@ -298,9 +311,12 @@ export class SessionProjectionJournal {
       });
     }
     if(!this.#save)return Promise.reject(Error('Application journal has no persistence writer'));
-    const revision=this.#revision,value=this.encode();
+    const revision=this.#revision,hash=this.#sourceDigest.copy().digest('hex'),value=this.encode(hash);
     const promise=Promise.resolve().then(async()=>{
-      try{await this.#save(value);this.#saved=revision;}
+      try{
+        await this.#save(value);this.#saved=revision;this.#savedDigest=hash;this.#remembered=-1;
+        if(revision===this.#revision)this.#nativeTail?.();else this.#rememberNativeTail();
+      }
       finally{this.#writing=undefined;}
     });
     this.#writing={revision,promise};

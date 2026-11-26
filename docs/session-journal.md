@@ -284,8 +284,12 @@ Successful event admission computes its byte count and content digest from the
 same temporary JSON encoding. The private admission record retains the count,
 digest and validator identity, not the encoded string or another event body.
 Journal reconciliation reuses that digest only for the admitted immutable
-object; other values are encoded and hashed independently. Cold recovery verifies
-the reconstructed native prefix against the journal's saved source digest.
+object; other values are encoded and hashed independently. The next saved plugin
+record, mutation binding, receipt or catalog change checkpoints the observed
+native prefix alongside the application data. Native progress alone advances the
+in-memory digest. Orderly shutdown checkpoints that tail for existing journals,
+including Sessions whose readers have been collected. After an abrupt stop,
+cold recovery verifies the saved prefix and replays subsequent events from the Host.
 
 Each consumed native event retains its source position, content digest and
 application position in memory. Persistence stores only the position/correlation

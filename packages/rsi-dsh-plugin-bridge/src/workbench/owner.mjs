@@ -8,7 +8,7 @@ import {workbenchSource} from './source.mjs';
 import {restoredPermissionSeed} from './permission.mjs';
 import {workbenchModel} from './model.mjs';
 import {readNativeMessage} from '../history/native-pages.mjs';
-import {readJournalDocument} from '../session/journal-document.mjs';
+import {checkpointNativeTail,readJournalDocument} from '../session/journal-document.mjs';
 
 const cut=meta=>meta.selection_cursor??{kind:'durable',fact_seq:meta.through,control_seq:0};
 const identityHeader=({agentPreset,...header})=>header;
@@ -27,7 +27,7 @@ function compare(a,b) {
 
 /** One event owner while any Agent, reader or pending write retains its Session. */
 export function workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome}) {
-  const rows=new Map(),opening=new Map(),retained=new WeakMap();let closed=false;
+  const rows=new Map(),opening=new Map(),retained=new WeakMap(),nativeTails=new Map();let closed=false;
   const collected=new FinalizationRegistry(({id,reference})=>{if(rows.get(id)===reference)rows.delete(id);});
   async function create(header,meta,call,release,signal,first) {
     let restore=readJournalDocument(await storage?.read(header.id));
@@ -58,6 +58,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{restore,adoptRestore:true,nativeEventState:'shared-frozen',
       native:initial?.value.session.snapshotEvents(),nativePreset:()=>source.current.preset??row.meta?.preset,
       save:storage?value=>storage.save(header.id,value):undefined,report,
+      nativeTail:tail=>{if(tail)nativeTails.set(header.id,tail);else nativeTails.delete(header.id);},
       notify:(_session,event)=>{
         if(event.type==='model/selection')selectedModel=event.data;
         if(batch)batch.push(event);else publish(event);
@@ -99,7 +100,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           signal?.throwIfAborted();if(closed)throw Error('Application Session owner retired');
           if(row.meta&&compare(cut(meta),cut(row.meta))<=0) {
             await reconcileClears(signal);
-            if(journal.hasLocalEvents||persisted)await journal.flush({observed:true});return;
+            if(journal.hasLocalEvents||journal.checkpointed)await journal.flush({observed:true});return;
           }
           const nextCut=cut(meta),through=meta.through,controlThrough=nextCut.control_seq??0;
           const acceptedThrough=journal.seq;
@@ -127,11 +128,11 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           }finally{batch=undefined;}
           changed();for(const event of appended)publish(event);
           await reconcileClears(signal);
-          if(journal.hasLocalEvents||saveCreation||persisted)await journal.flush();
+          if(journal.hasLocalEvents||saveCreation||journal.checkpointed)await journal.flush({observed:!saveCreation});
         });
         tail=update;await update;
       },
-      async flush(options){await tail.catch(()=>{}); if(row.merged&&(journal.hasLocalEvents||persisted))await journal.flush(options);},
+      async flush(options){await tail.catch(()=>{}); if(row.merged&&(journal.hasLocalEvents||journal.checkpointed))await journal.flush(options);},
       cursor(){return {control_seq:source.current.controlThrough,fact_seq:source.current.mapping.factCursor};},
       applicationSeq(nativeSeq){
         if(nativeSeq===-1)return -1;
@@ -182,6 +183,8 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     cursor(id){return rows.get(id)?.deref()?.cursor();},
     revision(id){return rows.get(id)?.deref()?.journal.revision??0;},
     async close(){closed=true;await Promise.allSettled(opening.values());
-      await Promise.all([...rows.values()].flatMap(reference=>{const row=reference.deref();return row?[row.flush()]:[];}));},
+      await Promise.all([...rows.values()].flatMap(reference=>{const row=reference.deref();return row?[row.flush()]:[];}));
+      for(const [id,tail] of nativeTails)await storage.save(id,checkpointNativeTail(await storage.read(id),tail));
+      nativeTails.clear();},
   };
 }

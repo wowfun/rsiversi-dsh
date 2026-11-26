@@ -46,7 +46,9 @@ function expandSourceRuns(state,limit) {
 export function readJournalDocument(document) {
   if(document===undefined)return;
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumJournalBytes)throw Error('Invalid application journal size');
-  const state=JSON.parse(document);
+  return decodeJournal(JSON.parse(document));
+}
+function decodeJournal(state) {
   if(!shape(state,['version','header','inheritedEventCount','events','sources','sourceDigest','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom','nativePreset'])
     ||state.nativePreset!==undefined&&(state.version<7||!presetId(state.nativePreset))
     ||![1,2,3,4,5,6,7,8].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
@@ -92,6 +94,20 @@ export function readJournalDocument(document) {
     ||state.sources.length>state.eventCount||state.operations.length>state.eventCount)throw Error('Invalid application journal');
   state.operations=state.operations.map(operation=>restoreInputOperation(operation,inboxEvents.get(operation?.seq),state.version));
   return state;
+}
+
+/** Finish a collected reader's contiguous native suffix without retaining its Session. */
+export function checkpointNativeTail(document,tail) {
+  if(typeof document!=='string'||Buffer.byteLength(document)>maximumJournalBytes)throw Error('Invalid application journal size');
+  const raw=JSON.parse(document),state=decodeJournal({...raw});
+  if(state.version!==8||state.sourceDigest!==tail.base)throw Error('Application journal checkpoint changed');
+  const length=tail.nativeSeq-state.sources.length;
+  if(length<=0||state.eventCount+length!==tail.seq)throw Error('Invalid application journal tail');
+  const last=raw.sources.at(-1);
+  if(last&&last[0]+last[1]===state.eventCount)last[1]+=length;
+  else raw.sources.push([state.eventCount,length]);
+  const {header,ownedEventCount,catalogTitle,...body}=raw;
+  return packDocument({header,ownedEventCount,catalogTitle},{...body,sourceDigest:tail.digest});
 }
 
 /** Rebuild a candidate log; the owner's first merge verifies its source hashes and correlations. */
@@ -146,15 +162,17 @@ export function restoreJournalEvents(state,native=[]) {
 
 export function encodeJournalDocument(session,events,sources,sourceDigest,operations,inboxSlotFrom,nativePreset) {
   const event=session.lastEvent('session/title');
-  const prefix=JSON.stringify({header:session.header,ownedEventCount:events.length,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})});
+  const prefix={header:session.header,ownedEventCount:events.length,...(event?{catalogTitle:{value:event.data.title,seq:event.seq}}:{})};
   const runs=[];
   let run;
   for(const {seq} of sources) {
     if(run&&run[0]+run[1]===seq)run[1]++;
     else {run=[seq,1];runs.push(run);}
   }
-  const document=JSON.stringify({version:8,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:runs,sourceDigest,operations});
-  const value=prefix.slice(0,-1)+',\n'+document.slice(1);
+  return packDocument(prefix,{version:8,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:runs,sourceDigest,operations});
+}
+function packDocument(prefix,body) {
+  const value=JSON.stringify(prefix).slice(0,-1)+',\n'+JSON.stringify(body).slice(1);
   if(Buffer.byteLength(value)>maximumJournalBytes)throw Error('Application journal document capacity');
   return value;
 }

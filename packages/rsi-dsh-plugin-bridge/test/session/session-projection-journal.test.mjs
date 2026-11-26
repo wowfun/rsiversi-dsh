@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {mkdtemp,readFile,readdir,rm,stat,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {test} from 'node:test';
-import {readJournalDocument} from '../../src/session/journal-document.mjs';
+import {checkpointNativeTail,readJournalDocument} from '../../src/session/journal-document.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
 import {SessionFacade,validateHeader} from '../../src/session/session.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
@@ -22,6 +22,34 @@ async function fixture(t,options={}) {
   const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
+
+test('native progress checkpoints at the next plugin record or shutdown and replays after abrupt exit',{skip:!root},async t=>{
+  const writes=[];let pending;
+  const {ctx,api,journal}=await fixture(t,{save:value=>writes.push(value),nativeTail:tail=>{pending=tail;}});
+  const native=Array.from({length:100},(_,seq)=>({seq,time:seq,type:'turn/start',data:{turn:seq+1}}));
+  journal.merge(native.slice(0,1));journal.append('feedback/record',{text:'first'});
+  await journal.flush({observed:true});
+  for(const event of native.slice(1)){
+    journal.advance(event.seq,[event]);await journal.flush({observed:true});
+  }
+  assert.equal(writes.length,1);
+  const cold=(document,events)=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(document),native:events});
+  const editedTail=native.with(99,{...native[99],time:202});
+  const replay=cold(writes[0],editedTail);replay.merge(editedTail);
+  assert.equal(replay.session.eventAt(100).time,202);
+  assert.throws(()=>cold(writes[0],native.with(0,{...native[0],time:555})),/prefix changed/);
+  const shutdown=checkpointNativeTail(writes[0],pending);
+  assert.equal(shutdown,journal.encode());
+  assert.throws(()=>cold(shutdown,editedTail),/prefix changed/);
+  journal.append('feedback/record',{text:'second'});await journal.flush({observed:true});
+  assert.equal(writes.length,2);assert.equal(pending,undefined);
+  journal.advance(100,[{seq:100,type:'session/title',time:101,data:{title:'Visible',source:{kind:'user'},messageSeqs:[]}}]);
+  await journal.flush({observed:true});
+  assert.equal(writes.length,3);
+  assert.equal(readJournalDocument(writes[2]).catalogTitle.value,'Visible');
+  journal.advance(101,[{...native[0],seq:101}]);await journal.flush({observed:true});
+  assert.equal(writes.length,3);await journal.flush();assert.equal(writes.length,4);
+});
 
 test('a cold owner adopts its private decoded events and preserves lossless JSON checks', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t);
