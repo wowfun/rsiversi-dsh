@@ -65,6 +65,7 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
       return typeof value==='function'?value.bind(target):value;
     }});
     const observed=new Proxy(raw,{get(target,key){
+      if(key==='surfaceNodes')return target.surface.nodes;
       if(key==='adoptObserved')return ({type,data,surfaceOp,sourceEventSeqs})=>target.append(type,data,{surfaceOp,sourceEventSeqs});
       const value=Reflect.get(target,key,target);
       return typeof value==='function'?value.bind(target):value;

@@ -204,6 +204,12 @@ export class SessionFacade {
     this.#materializePrefix();
     return this.#surface ??= new this.#api.SurfaceManager(this.#events);
   }
+  get #readSurface() {
+    if (this.#base && !this.#events.length && this.#branch.parent.seq === this.#base)
+      return this.#branch.parent.surface;
+    return this.surface;
+  }
+  get surfaceNodes() { return this.#readSurface.nodes; }
   firstSurfaceEvent() {
     const branch = this.#branch;
     if (this.#base && !branch.replaced && branch.parent.seq === this.#base) {
@@ -213,7 +219,7 @@ export class SessionFacade {
     const head = this.surface.nodes[0];
     return head === undefined ? undefined : this.eventAt(head);
   }
-  deriveEventMessage(event) { return this.surface.deriveEventMessage(event); }
+  deriveEventMessage(event) { return this.#readSurface.deriveEventMessage(event); }
   deriveMessages() {
     const surface = this.surface, nodes = surface.nodes;
     const generation = surface.contentGeneration;

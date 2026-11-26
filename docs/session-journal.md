@@ -90,6 +90,9 @@ original DSH error. Only a confirmed installation supplies a replacement message
 Replay resolves its inclusive native coordinates in surface order, skipping
 system messages and synthetic tool results. Nodes after the selected span
 remain available without replay reading their message bodies.
+When the checkpoint is the first event in a staged batch, its source positions
+come from the committed surface at that cut. A batch with earlier events or
+an advanced parent resolves the positions against its own staged history.
 It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
 surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot

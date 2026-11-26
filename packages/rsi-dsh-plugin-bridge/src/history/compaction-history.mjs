@@ -111,7 +111,7 @@ export async function pluginCheckpoint(session, mapping, fact, llm) {
   const {start, end, message, presentation, plugin, summary_blocks} = fact.checkpoint;
   const selected = [];
   let position = 0;
-  for (const seq of session.surface.nodes) {
+  for (const seq of session.surfaceNodes) {
     const event = session.eventAt(seq);
     if (event.type === 'system/message' || event.data?.rsi?.syntheticToolResult) continue;
     if (position >= start) selected.push(seq);
@@ -122,13 +122,13 @@ export async function pluginCheckpoint(session, mapping, fact, llm) {
   const [{estimateMessage},{compactCheckpointSource}] = await llm.compactionContracts();
   const id = fact.effect_id, time = fact.timestamp_ms;
   const lifecycle = {compactionId:id, turn:mapping.turn};
+  const shadowedTokenCount = presentation?.shadowedTokenCount ?? selected.reduce((total, seq) =>
+    total + estimateMessage(session.deriveEventMessage(session.eventAt(seq))), 0);
   const opening = session.adoptObserved({seq:session.seq,time,type:'compaction/start',data:lifecycle});
   const shadowedRange = {start:selected[0],end:selected.at(-1)};
   const content = message.content.map(modelTextBlock);
   const summary = summary_blocks ? content.slice(summary_blocks.start, summary_blocks.end) : content;
-  const data = {...presentation, compactionId:id, summary, shadowedRange, shadowedSeqs:selected,
-    shadowedTokenCount:presentation?.shadowedTokenCount ?? selected.reduce((total, seq) =>
-      total + estimateMessage(session.deriveEventMessage(session.eventAt(seq))), 0),
+  const data = {...presentation, compactionId:id, summary, shadowedRange, shadowedSeqs:selected, shadowedTokenCount,
     provider:presentation?.provider ?? '', model:presentation?.model ?? '', rsi:{plugin}};
   const written = session.adoptObserved({seq:session.seq,time,type:'compaction/summary',data});
   const first = session.eventAt(selected[0]);

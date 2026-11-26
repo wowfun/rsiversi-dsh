@@ -11,6 +11,10 @@ test('plugin replay resolves native coordinates without reading the unselected t
   const api = {...await cohort.import('@deepseek-ai/dsh-session'), ...await cohort.subpath('@deepseek-ai/dsh-session','surface'),
     ...await cohort.import('@deepseek-ai/dsh-util-values')};
   const llm = compactionLanguage(await cohort.import('@deepseek-ai/dsh-llm'), (name,path) => cohort.subpath(name,path));
+  let managers = 0;
+  api.SurfaceManager = class extends api.SurfaceManager {
+    constructor(...args) { super(...args); managers++; }
+  };
   const session = new SessionFacade({},api,{header:{version:4,id:'region-tail',createdAt:1,isSeeded:false}},false);
   session.begin();
   const add = (type,data) => session.adoptObserved({seq:session.seq,time:1,type,data,surfaceOp:'append'});
@@ -21,9 +25,13 @@ test('plugin replay resolves native coordinates without reading the unselected t
     id:'synthetic',role:'tool',toolCallId:'call',source:{kind:'tool',callId:'call'},content,isError:true}});
   const selected = add('user/message',{id:'selected',role:'user',source:{kind:'user'},content});
   for(let i=0;i<128;i++)add('user/message',{id:'tail-'+i,role:'user',source:{kind:'user'},content});
+  session.end();
   const before = [...session.surface.nodes];
+  const batch = session.branch();
+  batch.begin();
+  const priorManagers = managers;
   let tailReads = 0;
-  const observed = new Proxy(session,{get(target,key){
+  const observed = new Proxy(batch,{get(target,key){
     if(key==='eventAt')return seq=>{
       if(seq>selected.seq && seq<before.length)tailReads++;
       return target.eventAt(seq);
@@ -35,7 +43,15 @@ test('plugin replay resolves native coordinates without reading the unselected t
     start:1,end:1,plugin:'template',message:{role:'user',content:[{type:'text',content:{text:'message'}}]},
     presentation:{shadowedTokenCount:9}
   }},llm);
-  session.end();
+  batch.end();
+  assert.equal(managers,priorManagers,'a checkpoint at the committed cut can reuse the existing surface');
+  assert.deepEqual(session.surface.nodes,before);
+  const previous = session.branch();
+  const projected = [...batch.surfaceNodes];
+  assert.notDeepEqual(projected,before);
+  session.prepareBranch(batch)();
+  assert.deepEqual(session.surface.nodes,projected);
+  assert.deepEqual(previous.surfaceNodes,before);
   assert.deepEqual(session.lastEvent('compaction/summary').data.shadowedSeqs,[selected.seq]);
   assert.deepEqual(session.lastEvent('compaction/summary').data.summary,content);
   assert.deepEqual(session.lastEvent('user/message').data.content,content);
