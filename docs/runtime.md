@@ -880,6 +880,10 @@ number in the Session journal. The originating DSH recorder owns the current
 summary and before/after comparisons until the Session is disposed. Cold
 readers can recover the announcement without retaining a second copy of the
 files in the journal.
+The workbench hands an owner-selected path to the operating system's default
+association or a registered application after the composed filesystem confirms
+its Host mapping. Reveal uses the platform file manager. Live Share keeps the
+release's owner-only policy for desktop actions.
 
 Browser command lifecycle events are log-only
 entries in the application Session journal and survive reopening the workbench.

@@ -37,6 +37,9 @@ test('a paired browser opens a share link and the original Host retains its read
   const js=await fetch(origin+'/document/open-share.js',{headers:paired});
   assert.match(js.headers.get('content-type'),/javascript/);
   assert.equal((await fetch(origin+'/document/sample',{headers:paired})).status,403);
+  for(const route of ['/api/changes.open','/document/api/present.open']){
+    assert.equal((await fetch(origin+route,{method:'POST',headers:paired})).status,403);
+  }
   assert.equal(seen.length,0);
   const actor={providerId:'fixture',tenantId:'tenant',subjectId:'reader'};
   const reader=connection.createPeer({principal:{kind:'share-viewer',shareId:'fixture',actor}});

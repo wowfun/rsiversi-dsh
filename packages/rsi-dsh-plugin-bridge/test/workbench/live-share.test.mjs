@@ -142,6 +142,14 @@ for(const restored of [false,true])test(`the published Live Share Host serves gr
       assert.equal(closed.status,200,JSON.stringify(closed));
     }
     const peer={kind:'share-viewer',shareId:'share',actor};
+    for(const method of ['openWorkspacePath','workspacePathApplications']){
+      const endpoint='session/'+method;
+      const denied=await read({op:'call',path:'/api/'+endpoint,body:{type:'client-request',
+        rpcId:'desktop',method:endpoint,payload:{args:{request:{path:home}}}}});
+      assert.equal(denied.status,200);
+      assert.equal(denied.body.result.error.code,'remote-access/denied');
+      assert.equal(denied.body.result.error.details.action,endpoint);
+    }
     for(const method of ['list','pick','createDirectory']){
       const decision=app.ctx.remoteAccess.decide({principal:peer,action:'directoryPicker/'+method,resources:[{kind:'global'}]});
       assert.equal(decision.kind,'deny');

@@ -19,6 +19,35 @@ import {workbenchCompaction} from '../../src/workbench/compaction.mjs';
 import {managementTools} from '../../src/market/management.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('desktop actions use the verified Host mapping and the selected system association',{skip:!root},async()=>{
+  const require=createRequire(join(root,'package.json'));
+  const {RemoteError}=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-typert-protocol')));
+  class Base {constructor(ctx){this.ctx=ctx;}}
+  const calls=[],signal=new AbortController().signal,path=join(tmpdir(),'desktop-fixture.txt');
+  const desktop={nativeFileManager:()=>'explorer',canOpenNativePath:()=>true,
+    nativeFileApplications:async(...args)=>{calls.push(['list',...args]);return [{id:'text'}];},
+    revealNativePath:async(...args)=>calls.push(['reveal',...args]),
+    openNativeAssociatedPath:async(...args)=>calls.push(['default',...args]),
+    openNativeFileApplication:async(...args)=>calls.push(['explicit',...args])};
+  const Controller=sessionController({TypertRemoteService:Base,RemoteError,desktop});
+  let mapped=path;
+  const fs={processPathFromHostPath:()=>mapped,resolve:async(value,opts)=>{assert.equal(opts.signal,signal);return value;},processPath:value=>value};
+  const ctx={get:()=>fs},controller=new Controller(ctx);
+  assert.equal(controller.workspaceDesktop().available,true);
+  assert.deepEqual(await controller.workspacePathApplications({path},signal),[{id:'text'}]);
+  for(const request of [{path},{path,application:'text'},{path,action:'reveal'}])
+    assert.deepEqual(await controller.openWorkspacePath(request,signal),{opened:true});
+  assert.deepEqual(calls,[['list',path,signal],['default',path,signal],['explicit',path,'text',signal],['reveal',path,signal]]);
+  for(mapped of [undefined,join(tmpdir(),'different')]){
+    await assert.rejects(controller.openWorkspacePath({path},signal),err=>err.code==='gateway/bad-request');
+  }
+  const disabled=new Controller(ctx,{nativeOpen:false});
+  assert.equal(disabled.workspaceDesktop().available,false);
+  assert.deepEqual(await disabled.workspacePathApplications({path},signal),[]);
+  await assert.rejects(disabled.openWorkspacePath({path},signal),err=>err.code==='gateway/bad-request');
+  await assert.rejects(controller.openWorkspacePath({path},AbortSignal.abort()),err=>err.code==='gateway/cancelled');
+  assert.equal(calls.length,4);
+});
 test('chat prompts record the Typert caller and canonical time zone before attachment admission',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));

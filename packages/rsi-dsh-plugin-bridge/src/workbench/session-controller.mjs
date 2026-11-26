@@ -1,3 +1,5 @@
+import {hostname} from 'node:os';
+import {resolve} from 'node:path';
 import {updateQueue} from './queue.mjs';
 import {observeSessionEvents} from './event-stream.mjs';
 import {observeSessionState,readSessionState} from './session-state.mjs';
@@ -25,11 +27,11 @@ function sessionResource({args,parameters}) {
   }
 }
 
-export function sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque},scope,history,interactions,activate) {
+export function sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque,desktop},scope,history,interactions,activate) {
   return class extends TypertRemoteService {
     claims=new Map();
     static inject=['typert','remoteAccess'];
-    constructor(ctx) {super(ctx,'sessionController',{namespace:'session'});}
+    constructor(ctx,config={}) {super(ctx,'sessionController',{namespace:'session'});this.nativeOpen=config.nativeOpen;}
     [TypertRemoteService.init]() {
       const lookup=id=>scope.lookupAgent(id,activate,true);
       this.ctx.typert.resources.register('session',{resolve:sessionResource});
@@ -74,6 +76,42 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
       return this.readerAccess?scope.observeOwned(operation,signal):operation(signal);
     }
     modelCatalog() {return this.read(stop=>scope.modelCatalog(stop),this.ctx.invocation?.signal);}
+    canOpenWorkspacePath() {return this.nativeOpen??desktop.canOpenNativePath();}
+    workspaceDesktop() {
+      const fileManager=desktop.nativeFileManager();
+      return {name:hostname(),available:fileManager!==null&&this.canOpenWorkspacePath(),fileManager};
+    }
+    async verifiedDesktopPath(path,signal) {
+      if(!path.length)throw new RemoteError('gateway/bad-request','A non-empty file path is required',{});
+      signal.throwIfAborted();
+      const host=resolve(path),fs=this.ctx.get('fs'),mapped=fs.processPathFromHostPath(host);
+      if(mapped===undefined||fs.processPath(await fs.resolve(mapped,{signal}))!==host)
+        throw new RemoteError('gateway/bad-request','Path has no verified Host path',{});
+      signal.throwIfAborted();return host;
+    }
+    async openWorkspacePath({path,action,application},signal) {
+      try {
+        if(!this.canOpenWorkspacePath())throw new RemoteError('gateway/bad-request','Host desktop unavailable',{});
+        const host=await this.verifiedDesktopPath(path,signal);
+        if(action==='reveal')await desktop.revealNativePath(host,signal);
+        else if(application!==undefined)await desktop.openNativeFileApplication(host,application,signal);
+        else await desktop.openNativeAssociatedPath(host,signal);
+        return {opened:true};
+      }catch(error){
+        if(signal.aborted)throw new RemoteError('gateway/cancelled','path open was aborted',{});
+        if(error instanceof RemoteError)throw error;
+        throw new RemoteError('gateway/internal','path open failed',{},{cause:error});
+      }
+    }
+    async workspacePathApplications({path},signal) {
+      if(!this.canOpenWorkspacePath())return [];
+      try{return await desktop.nativeFileApplications(await this.verifiedDesktopPath(path,signal),signal);}
+      catch(error){
+        if(signal.aborted)throw new RemoteError('gateway/cancelled','application query was aborted',{});
+        if(error instanceof RemoteError)throw error;
+        throw new RemoteError('gateway/internal','file application query failed',{},{cause:error});
+      }
+    }
     selectModel(request,signal) {return scope.selectModel(request,signal);}
     async rename({sessionId,title}) {
       const agent=await scope.lookupAgent(sessionId,activate);
