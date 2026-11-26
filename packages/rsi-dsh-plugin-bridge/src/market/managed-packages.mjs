@@ -50,15 +50,20 @@ export function managedPackages(Manager,market,{parseInstallSpec,classifyInstall
       current.work=market().exclusive(async()=>{
         const {profile,modules}=market();
         const load=name=>import(pathToFileURL(modules.entry(name)));
-        const [atomic,registry]=await Promise.all([load('@deepseek-ai/dsh-atomic-write'),load('@deepseek-ai/dsh-plugin-manager/registry')]);
+        const [atomic,registry,boot]=await Promise.all([
+          load('@deepseek-ai/dsh-atomic-write'),load('@deepseek-ai/dsh-plugin-manager/registry'),load('@deepseek-ai/dsh-app-boot'),
+        ]);
         const yaml=createRequire(modules.entry('@deepseek-ai/dsh-plugin-manager'))('yaml');
         return atomic.withFileLock(join(profile,'package.json'),async()=>{
           signal.throwIfAborted();operation('started');
           if(!spec.trim()||spec.startsWith('-'))throw Object.assign(new Error('invalid-spec'),{code:'invalid-spec'});
           const parsed=parseInstallSpec(spec);
           const known=parsed.kind==='registry'?parsed.name:parsed.kind==='path'?(await readProfileManifest(join(parsed.path,'package.json'),{})).name:undefined;
-          const existing=(await this.listBundles()).find(row=>row.name===known&&row.installed);
-          if(existing&&!existing.removable)throw Object.assign(new Error('not-removable'),{code:'not-removable'});
+          const dependencies=boot.readProfileManifest('dsh',profile).dependencies??{};
+          if(known!==undefined && Object.hasOwn(dependencies,known)){
+            const existing=(await this.listBundles()).find(row=>row.name===known&&row.installed);
+            if(existing&&!existing.removable)throw Object.assign(new Error('not-removable'),{code:'not-removable'});
+          }
           if(options.approvedBuilds){await buildPolicy(profile,yaml,atomic,{approve:options.approvedBuilds});result.approvedBuilds=options.approvedBuilds;}
           const plan=registry.registryPlan(options.registry,await this.registries());
           result.registries=[];

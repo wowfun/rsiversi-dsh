@@ -1212,7 +1212,9 @@ replacement of an installed profile-owned package, including an unchanged
 version or absolute local directory. Manifest restoration reuses an available,
 already leased selection when its exact version matches, repairing its profile
 link without downloading it again. Every explicit install resolves its current
-content; a repeated operation ID returns its original receipt. Installation-owned
+content; a repeated operation ID returns its original receipt. The profile manifest
+identifies installed dependencies. Only a previously installed name needs a
+bundle inventory lookup for replacement eligibility. Installation-owned
 runtime packages retain their existing protection. Application recovery owns the
 affected running entries, and the selection journal restores package state and
 Profile files. Neither treats a successful subprocess as proof of runtime application.

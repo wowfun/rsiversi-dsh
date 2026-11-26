@@ -97,9 +97,15 @@ test('real local module replacement drains old callbacks, resolves same-version 
     t.after(()=>app.close());
     await app.reconcile([]);
     const manager=app.ctx.pluginManager;
+    const inventory=t.mock.method(manager,'listBundles');
     const first=await manager.installBundle(source,{requestId:'first'});
     assert.equal(first.application,'applied',JSON.stringify(first));
+    assert.equal(inventory.mock.callCount(),0,'a first install does not enumerate installed bundles');
     assert.equal(app.ctx.replacementProbe.version,'v1');
+    inventory.mock.mockImplementationOnce(async()=>[{name,installed:true,removable:false}]);
+    const protectedResult=await manager.installBundle(source,{requestId:'protected'});
+    assert.equal(protectedResult.error.code,'not-removable');
+    assert.equal(imports,1,'a protected dependency must not stage replacement code');
     const firstDigest=Object.keys(roots({}))[0];
     const gate=Promise.withResolvers(),view=await boundary.capture(new AbortController().signal,()=>{});
     const callback=view.run(()=>app.ctx.replacementProbe.work(gate.promise));
