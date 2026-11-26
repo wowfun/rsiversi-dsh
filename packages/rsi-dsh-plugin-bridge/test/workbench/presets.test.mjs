@@ -4,10 +4,36 @@ import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
+import {setImmediate} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
 import {workbenchPresetRegistry} from '../../src/workbench/presets.mjs';
 
 const cohort=process.env.RSI_DSH_MARKET_COHORT;
+test('simultaneous declarations can outnumber the finite calls of their Host owner',async()=>{
+  const active=new Set(),lookups=[],installed=[];
+  const sessions={
+    withCaller:fn=>fn(),
+    async resolvePreset(id){
+      if(active.size>=4)throw Error('owner data lane at capacity');
+      active.add(id);lookups.push(id);
+      await setImmediate();
+      active.delete(id);
+      return id==='standard'?{id}:null;
+    },
+  };
+  class Registry {
+    ctx={};
+    async register(definition){installed.push(definition);return ()=>{};}
+  }
+  const Bridge=workbenchPresetRegistry(Registry,Error,sessions,undefined,{},()=>['native']);
+  const service=new Bridge();
+  const ids=['standard','minimal','ptc','cordis','extra','another'];
+  const results=await Promise.allSettled(ids.map(id=>service.register({id,plugins:['declared']})));
+  for(const result of results)assert.equal(result.status,'fulfilled',result.reason?.message);
+  assert.deepEqual(lookups.toSorted(),ids.toSorted());
+  assert.deepEqual(installed.sort((a,b)=>a.id.localeCompare(b.id)),
+    ids.toSorted().map(id=>({id,plugins:[id==='standard'?'native':'declared']})));
+});
 test('a colliding Cordis preset uses native configuration, execution and session locking',{skip:!cohort},async t=>{
   const require=createRequire(join(cohort,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));

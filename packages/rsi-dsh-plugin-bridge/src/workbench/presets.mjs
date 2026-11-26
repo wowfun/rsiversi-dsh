@@ -60,7 +60,11 @@ export function workbenchPresetRegistry(Registry,RemoteError,sessions,refresh,{s
       // Keep the declaring context for relative child modules if the native source is removed.
       const declaration={install:()=>super.register(definition)};
       this.declarations.set(id,declaration);
-      try {await this.useSource(id,!!await this.nativePreset(id));}
+      try {
+        // All declarations probe through the same Host caller. Release it before mounting child plugins.
+        const native=await this.changes([nativeSource],()=>this.nativePreset(id));
+        await this.useSource(id,!!native);
+      }
       catch(error){this.declarations.delete(id);throw error;}
       return async()=>{
         if(this.declarations.get(id)!==declaration)return;
