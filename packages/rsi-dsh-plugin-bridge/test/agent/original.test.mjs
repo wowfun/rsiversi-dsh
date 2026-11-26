@@ -20,7 +20,10 @@ integration('native command catalog preserves draft revision zero and stages ori
   const call = (operation_id, input) => bridge.agentCommand({ session_id: 'session-one', operation_id, name: 'plan', input, fact_horizon: 0 });
   const first = await call('draft-on', 'Inspect the source');
   assert.equal(first.kind, 'staged', first.diagnostic);
-  assert.deepEqual(first.inputs, [{ delivery: 'steer', text: 'Inspect the source' }]);
+  assert.deepEqual(first.inputs, [
+    {delivery:'inject',text:'The user switched this session to plan mode.'},
+    {delivery:'steer',text:'Inspect the source'},
+  ]);
   await bridge.receipt('session-one', 'draft-on', first.token, 'draft_committed', 0);
   await bridge.receipt('session-one', 'draft-on', first.token, 'draft_committed', 0);
   assert.equal(bridge.canonical('session-one').revision, 0);
@@ -310,13 +313,13 @@ integration('generation disposal cancels a review even if the caller never answe
 });
 integration('an empty Last window honors its compatible seed instead of resetting to init', async t => {
   const bridge = await setup(t);
-  const checkpoint = bridge.checkpoint('session-one');
-  const state = { ...canonical(), seed: { ...checkpoint,
-    plan: { ...checkpoint.plan, val: { ...checkpoint.plan.val, active: true, activeAtLastHeader: true,
-      ...(Object.hasOwn(checkpoint.plan.val,'entered')?{entered:true}:{}) } },
-    todos: { ver: 2, seq: -1, val: [{ content: 'inherited', status: 'completed' }] },
-  } };
-  await bridge.load(state);
+  await commit(bridge,await bridge.command('session-one','plan-on','plan'),1);
+  await commit(bridge,await bridge.tool('session-one','set-todos','todo_write',{
+    todos:[{content:'inherited',status:'completed'}],
+  }),2);
+  const seed=bridge.checkpoint('session-one');
+  for(const row of Object.values(seed))row.seq=-1;
+  await bridge.load({...canonical(),seed});
   assert.equal(bridge.project('session-one').values.plan.active, true);
   assert.equal(bridge.project('session-one').values.todos[0].content, 'inherited');
 });

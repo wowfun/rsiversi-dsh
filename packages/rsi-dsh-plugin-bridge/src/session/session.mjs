@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
+import {callSessionListeners,notifySession} from './observers.mjs';
 
 // Event-local validation is reusable. Position and surface checks belong to each destination.
 const admitted = new WeakMap();
@@ -180,7 +181,7 @@ export function remap(input,seq,sourceAt) {
 export class SessionFacade {
   #events = []; #ctx; #api; #surface; #active = false; #bytes = 0; #retired = false; #announced = false;
   #branch; #base = 0; #requestHeader; #titleEvent;
-  #eventsSnapshot; #derived;
+  #eventsSnapshot; #derived; #publishing=false;
   constructor(ctx, api, { header, events = [], inheritedEventCount = 0, eventState }, announce = true) {
     this.header = validateHeader(header); this.id = header.id;
     if (!integer(inheritedEventCount) || inheritedEventCount > events.length) throw new Error('invalid inherited prefix');
@@ -190,7 +191,13 @@ export class SessionFacade {
     this.firstLiveSeq = this.seq;
     if (announce) this.attach();
   }
-  attach() { if (!this.#announced && !this.#retired) { this.#announced = true; this.#ctx.emit('session/created', this); } }
+  attach() {
+    if(this.#announced||this.#retired)return;
+    this.#announced=true;this.#publishing=true;
+    try{notifySession(this.#ctx,'session/created',this);}
+    catch(error){this.retire();throw error;}
+    finally{this.#publishing=false;}
+  }
   get seq() { return this.#base + this.#events.length; }
   get encodedBytes() { return this.#bytes; }
   #materializePrefix() {
@@ -287,7 +294,11 @@ export class SessionFacade {
   isOwnSeq(seq) { return integer(seq) && seq >= this.inheritedEventCount && seq < this.seq; }
   begin() { if (this.#retired || this.#active) throw new Error('Session mutation unavailable'); this.#active = true; }
   end() { this.#active = false; }
-  retire() { if (this.#retired) return; this.#retired = true; this.#active = false; this.#ctx.emit('session/disposed', this); }
+  retire() {
+    if(this.#retired)return;
+    this.#retired=true;this.#active=false;
+    if(this.#announced)notifySession(this.#ctx,'session/disposed',this);
+  }
   append(type, data, opts = {}) {
     if (!this.#active || this.#retired) throw new Error('append outside owning transaction');
     if(type==='model/selection')throw new Error('Model selection requires the native Session command');
@@ -323,16 +334,27 @@ export class SessionFacade {
     this.#bytes=bytes;this.#requestHeader=header;this.#titleEvent=title;this.#eventsSnapshot=undefined;
   }
   #admit(input, notify, adopt = false) {
+    if(this.#publishing)throw Error('session append cannot reenter while another append is being published');
     const event = adopt ? input : this.#api.snapshotJsonValue(input);
     if (!event) throw new Error('event must be lossless JSON');
     const bytes=this.#prepare(event,this.seq,this.#bytes,adopt);
     if (!this.#branch || this.#surface) this.surface.validateNext(event);
+    if(notify&&this.#announced){
+      this.#publishing=true;
+      try {
+        const args=['session/event',this,event];
+        const listeners=this.#ctx.events.dispatch('emit',args);
+        this.#record(event,bytes);
+        callSessionListeners(this.#ctx,'session/event',args,listeners);
+      } finally {this.#publishing=false;}
+    }else this.#record(event,bytes);
+    return event;
+  }
+  #record(event,bytes) {
     if(event.type==='request/header')this.#requestHeader=Object.freeze(this.#api.canonicalHeader(event.data.header));
     if(event.type==='session/title')this.#titleEvent=event;
     if(this.#branch && typeof event.surfaceOp === 'object') this.#branch.replaced = true;
     this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;
-    if (notify && this.#announced) this.#ctx.emit('session/event', this, event);
-    return event;
   }
   #prepare(event, seq, usedBytes, adopt) {
     envelope(event, seq, this.#api);

@@ -7,6 +7,7 @@ import {bindCheckpointSession,captureCheckpointAppend} from './plugin-checkpoint
 import {nativeForkSeed} from './fork-seed.mjs';
 import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
 import {bindPluginRecords} from '../session/plugin-records.mjs';
+import {notifySession} from '../session/observers.mjs';
 import {isChildSetupEvent,isPermissionEvent} from '../session/session.mjs';
 import {appendPermission,seedNativePermission} from './permission.mjs';
 
@@ -27,21 +28,6 @@ export async function registerWorkbenchContext(ctx,z) {
 export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget},{agentEvents,AgentModel,modelSelectionProjectionDefinition},snapshotJsonValue,subagents,goals) {
   const modelProjection=await ctx.sessionProjections.register(modelSelectionProjectionDefinition);
   const records=new Map(),opening=new Map(),creating=new Map(),changedDuringSetup=new Set();
-  function notifySession(record,name,event) {
-    const args=[record.sessionCarrier,name,record.agent.session];
-    if(event!==undefined)args.push(event);
-    // Cordis removes the carrier and name when it resolves the scoped listeners.
-    for(const listener of ctx.events.dispatch('emit',args)){
-      try{
-        const result=listener(...args);
-        if(result!==undefined)void Promise.resolve(result).catch(error=>
-          ctx.logger.warn(`session "${record.id}": ${name} listener rejected: ${String(error)}`));
-      }catch(error){
-        if(name==='session/created')throw error;
-        ctx.logger.warn(`session "${record.id}": ${name} listener threw: ${String(error)}`);
-      }
-    }
-  }
   function publishEvents(record) {
     const through=record.view.session.seq;
     const events=record.view.session.snapshotEvents(record.notified,through);record.notified=through;
@@ -49,7 +35,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       try {
         const previous=record.publishingEvent;
         record.publishingEvent=true;
-        try{notifySession(record,'session/event',event);}
+        try{notifySession(ctx,'session/event',record.agent.session,record.sessionCarrier,event);}
         finally{record.publishingEvent=previous;}
         if(event.type==='agent/inbox/spliced')
           for(const notification of record.owner.input.notifications().get(event.seq)??[])
@@ -366,10 +352,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
           record.closed=true;record.idleStop.abort(Error('Agent has retired'));
           await Promise.allSettled([record.refreshing,record.refreshQueued]);detach?.();
           if(records.get(id)===record)records.delete(id);
-          if(announced){
-            try{notifySession(record,'session/disposed');}
-            catch(error){ctx.logger.warn(`session "${id}": session/disposed dispatch threw: ${String(error)}`);}
-          }
+          if(announced)notifySession(ctx,'session/disposed',agent.session,record.sessionCarrier);
         }
       }
     }
@@ -392,7 +375,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       owner.fiber.assertActive();options.signal?.throwIfAborted();
       if(record.closing)throw Error('Agent owner retired during draft acquisition');
       records.set(id,record);
-      announced=true;notifySession(record,'session/created');
+      announced=true;notifySession(ctx,'session/created',agent.session,record.sessionCarrier);
       record.sessionAnnounced=true;
       const setup=await options.setup?.(agent.ctx,agent);
       await ctx.get('agentPresets')?.bindSession?.(agent,record.view.preset);

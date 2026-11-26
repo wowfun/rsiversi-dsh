@@ -522,6 +522,9 @@ events. Each scoped listener to `session/event` and `session/disposed` observes
 the notification independently. A synchronous failure in `session/created`
 stops publication and triggers disposal. Returned promises from all three
 notifications run independently of publication and report rejection to the logger.
+Workbench Agents and Agent extension mirrors use these observer rules. The
+extension resolves the listeners for a candidate event before committing it.
+If Cordis rejects dispatch at that point, the next sequence is still available.
 Plugins can append to an attached Session after its creation announcement returns.
 While its event listeners are being notified, another append to that Session
 is rejected so all observers see the same sequence in order.
