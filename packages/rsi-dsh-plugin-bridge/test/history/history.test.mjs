@@ -7,6 +7,7 @@ import { requestObserver } from '../../src/history/request-history.mjs';
 import { SessionFacade } from '../../src/session/session.mjs';
 import { restoreMapping, factObserver } from '../../src/history/history.mjs';
 import {factProjector} from '../../src/workbench/seed.mjs';
+import {cloneMapping} from '../../src/history/input-history.mjs';
 import {observeAttempt} from '../../src/history/model-history.mjs';
 
 const cohortRoot = process.env.RSI_DSH_COHORT;
@@ -123,7 +124,7 @@ integration('referenced request schemas share immutable bodies within one projec
     const first = session.requestHeader();
     session.appendObserved('step/start', {turn:1,step:1}, 11);
     await observeRequest(session, reference);
-    assert.equal(sourceReads,1,'sections referencing one Fact share a single lookup within this request');
+    assert.equal(sourceReads,0,'verified references reuse the projected sections without reading the original Fact');
     const second = session.requestHeader();
     assert.deepEqual(second, first);
     assert.equal(second.tools, first.tools, 'a referenced section must share its tool array and wrappers across series');
@@ -134,6 +135,7 @@ integration('referenced request schemas share immutable bodies within one projec
     isolated.begin();
     try {
       await requestObserver(read)(isolated, reference);
+      assert.equal(sourceReads,1,'a separate history reads the original once for both sections');
       assert.deepEqual(isolated.requestHeader(), first);
       assert.notEqual(isolated.requestHeader().tools[0].parameters, first.tools[0].parameters, 'decoder lifetime belongs to one projection');
     } finally { isolated.end(); }
@@ -154,6 +156,46 @@ integration('referenced request schemas share immutable bodies within one projec
     assert.notEqual(session.requestHeader().tools, first.tools, 'validated changed bytes replace the projected array');
     assert.equal(first.tools[0].description, 'Actual schema', 'previous series retains its captured definitions');
   } finally { session.end(); }
+});
+
+integration('staged native cuts reuse verified references and discard bindings from abandoned cuts', async () => {
+  const cohort = await loadCohort(cohortRoot);
+  const api = {...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session','surface'), ...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const session = new SessionFacade({},api,{header:{version:4,id:'cuts',createdAt:1,isSeeded:false}},false);
+  let mapping = restoreMapping(), reads = 0;
+  const original = {type:'model_intent',seq:1,timestamp_ms:1,purpose:{kind:'conversation'},snapshot,evidence:evidence()};
+  const changed = {...original,seq:3,evidence:{...original.evidence,system:inline([{role:'system',content:[{type:'text',content:{text:'Different'}}]}])}};
+  function reference(source,seq) {
+    const evidence = {availability:'available'};
+    for (const name of ['configuration','tools','system']) {
+      const part = source.evidence[name];
+      evidence[name] = {kind:'reference',seq:source.seq,section:name,sha256:part.sha256,bytes:Buffer.byteLength(part.text)};
+    }
+    return {...source,seq,evidence};
+  }
+  async function stage(fact) {
+    const candidate = session.branch(), next = cloneMapping(mapping);
+    const fetch = async (after,through) => {
+      if (through === fact.seq) return {through,value:[fact]};
+      reads++;
+      if (through !== original.seq) throw Error('source is outside the committed cut');
+      return {through,value:[structuredClone(original)]};
+    };
+    await factProjector(candidate,next,fetch,fact.seq)(fact.seq);
+    return () => {session.prepareBranch(candidate)();mapping = next;};
+  }
+  (await stage(original))();
+  (await stage(reference(original,2)))();
+  assert.equal(reads,0);
+  await stage(changed);
+  await assert.rejects(stage(reference(changed,4)), /outside the committed cut/);
+  (await stage(reference(original,5)))();
+  assert.equal(reads,1);
+  assert.equal(session.firstSurfaceEvent().data.message.content[0].text,'Actual instructions');
+  const wrongRoute = {...reference(original,6),snapshot:{...snapshot,model:'changed outside preparation'}};
+  await assert.rejects(stage(wrongRoute),/route differs/);
+  assert.equal(reads,1);
 });
 
 integration('privately decoded request schemas transfer once while external inputs remain detached', async t => {

@@ -1,6 +1,7 @@
 import { contentBlocks, inputMessage } from './conversation-history.mjs';
 import { claimRows } from '../agent/request-input.mjs';
 import { takeCommittedMessage } from './step-messages.mjs';
+import { inheritRequestEvidence } from './request-history.mjs';
 
 // Facts are immutable native observations. Checkpoints retain only coordinates;
 // a branch shares bodies instead of cloning a potentially multi-MiB pending input.
@@ -11,6 +12,7 @@ const count = fact => fact.type === 'tool_contexts_claimed' ? fact.messages.leng
 export function cloneMapping(mapping) {
   const next = structuredClone(mapping), facts = captured.get(mapping);
   if (facts) captured.set(next, new Map(facts));
+  inheritRequestEvidence(mapping, next);
   return next;
 }
 

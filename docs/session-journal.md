@@ -214,19 +214,15 @@ Tool-call arguments and inbox messages can remain shared immutable values.
 The producer does not mutate a transferred graph. External callers of
 `appendObserved` still receive snapshot isolation, and every transferred event
 retains the same schema, surface, coordinate and capacity checks.
-Within one native projection, references to the same decoded inline evidence
-reuse its parsed value and its projected tool-definition array. The array and
-its wrapper objects are allocated once per decoded tool section, then frozen
-by event admission and shared across request series. Weak keys follow the
-lifetime of that page's evidence objects, so projection does not retain old
-pages or build a second transcript.
-Each reference still checks its earlier Fact coordinate, section, byte count
-and digest binding. While projecting a single request, sections that point to
-the same earlier Fact share one read of that Fact. Temporary source references
-expire with that request. The inline text and digest identify the memoized decode;
-changed input crosses validation again. Shared schema subtrees become immutable
-at their first event admission. A new projection has a new decoder, with no
-cross-Session or durable evidence cache.
+Each live native history projection remembers the last verified inline Fact
+coordinate, SHA-256, byte count and projected value for each request section.
+A staged cut inherits those bindings from its captured parent. Its replacements
+become visible on commit. A matching reference reuses the projected settings,
+tool definitions or system content; the request still checks its captured model
+route. Other references to the same earlier Fact share one read within that
+request. Inline bytes are verified on every admission. No original evidence
+text or page is retained across cuts. A restored or independent projection
+resolves references from its own history.
 Request-header changes compare JSON structure, not its serialized spelling:
 object key order is irrelevant, while tool order, array order and values remain
 significant. Comparison can stop at shared immutable schema subtrees. A new
