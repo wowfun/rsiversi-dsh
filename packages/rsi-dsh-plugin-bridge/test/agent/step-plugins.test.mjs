@@ -74,7 +74,7 @@ test('released timeout middleware owns the deadline on both native and bridged c
           });
           return 'settled';
         }}));
-      const run = bridged ? toolPipeline(ctx,await cohort.subpath('@deepseek-ai/dsh-tools','pipeline'),tools) : input => nativeTool(ctx,input);
+      const run = bridged ? toolPipeline(ctx,await cohort.subpath('@deepseek-ai/dsh-tools','pipeline'),tools).execute : input => nativeTool(ctx,input);
       const input = {agent:{id:'deadline'},name:'cooperative',arguments:{},callId:'call',signal:AbortSignal.timeout(5000)};
       const result = await run(input);
       assert.equal(result.error?.info.code,'TOOL_TIMEOUT',JSON.stringify(result));

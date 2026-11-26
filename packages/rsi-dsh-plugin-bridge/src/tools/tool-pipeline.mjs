@@ -39,7 +39,7 @@ export function toolPipeline(ctx, {ToolExecutionPipeline}, {projectToolSchema}) 
     describe(definitions){return {schemas:definitions.map(definition=>projectToolSchema(definition,false))};},
     async execute(){throw new Error('Tool execution requires an RSI invocation authority');}
   });
-  return async (input,native,ask)=>{
+  async function execute(input,native,ask){
     const grant={input,native,ask,used:false};
     try {
       return await invocation.run(grant,async()=>{
@@ -52,5 +52,6 @@ export function toolPipeline(ctx, {ToolExecutionPipeline}, {projectToolSchema}) 
       grant.native=undefined;
       grant.ask=undefined;
     }
-  };
+  }
+  return {execute,executionMode:input=>pipeline.executionMode(input).kind};
 }

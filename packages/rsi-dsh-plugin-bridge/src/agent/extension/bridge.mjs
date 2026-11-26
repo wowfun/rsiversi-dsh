@@ -36,7 +36,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
   await ctx.plugin(prompt.default);
   await ctx.plugin(agents.AgentRegistry);
   const runtimeContext = runtimeContextProjection({...prompt,...llm});
-  const executeTool = toolPipeline(ctx,await cohort.subpath('@deepseek-ai/dsh-tools','pipeline'),tools);
+  const {execute:executeTool} = toolPipeline(ctx,await cohort.subpath('@deepseek-ai/dsh-tools','pipeline'),tools);
   await ctx.plugin(commands.default);
   ctx.provide('workingDirectory',nativeWorkingDirectory({ctx,lifetime:lifetime.signal,
     directoryOf:session=>records.get(session.id)?.cwd,

@@ -20,7 +20,7 @@ test('a released registry cannot dispatch a withdrawn registration after an asyn
     await ctx.plugin((await cohort.import('@deepseek-ai/dsh-session-projection')).default);
     await ctx.plugin((await cohort.import('@deepseek-ai/dsh-system-prompt')).default);
     await (await ctx.plugin(tools.default)).await();
-    const invoke=toolPipeline(ctx,await cohort.subpath('@deepseek-ai/dsh-tools','pipeline'),tools);
+    const {execute:invoke}=toolPipeline(ctx,await cohort.subpath('@deepseek-ai/dsh-tools','pipeline'),tools);
     let bodies=0;
     const definition=tools.defineTool({name:'sample',description:'sample',parameters:{},
       output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},

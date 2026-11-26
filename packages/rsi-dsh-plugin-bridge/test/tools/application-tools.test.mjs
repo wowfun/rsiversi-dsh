@@ -13,6 +13,42 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 const root=process.env.RSI_DSH_MARKET_COHORT;
 const nativeSelection={provider:'native',model:'selected',reasoningEffort:'low'};
 
+test('overlap follows the captured registration and the actual arguments without executing it',{skip:!root},async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-tool-classify-'));
+  const {load}=await cohortModules(root);
+  const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
+  for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
+  await ctx.plugin(tools.default);
+  const sessions=applicationSessions(()=>{throw Error('unexpected native request');});
+  t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
+  let enabled=true;
+  ctx.tools.register(tools.defineTool({name:'conditional',description:'conditionally parallel',
+    parameters:{action:{type:'string',required:true}},
+    isConcurrencySafe({action}){
+      if(action==='throw')throw Error('classifier failed');
+      if(action==='truthy')return 1;
+      return enabled&&action==='read';
+    },
+    output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},execute(){assert.fail('classification ran a tool');}}));
+  const key=randomUUID(),listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+  const post=async(path,input)=>{
+    const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,{method:'POST',headers:{authorization:key},body:JSON.stringify(input)});
+    assert.equal(response.status,200);return response.json();
+  };
+  const {view,tools:[{registration}]}=await post('capture',{view:randomUUID(),header:{id:'classification',cwd:directory},reserved:[],modelSelection:nativeSelection});
+  const classify=(args,identity=registration)=>post('parallel-safe',{view,registration:identity,
+    call:{id:'call',name:'conditional',kind:'function',arguments:args}});
+  assert.equal(await classify('{"action":"read"}'),true);
+  for(const args of ['{"action":"write"}','{"action":"throw"}','{"action":"truthy"}','{}','{']){
+    assert.equal(await classify(args),false);
+  }
+  assert.equal(await classify('{"action":"read"}','other-registration'),false);
+  enabled=false;
+  assert.equal(await classify('{"action":"read"}'),false);
+  await post('release',{view});enabled=true;
+  assert.equal(await classify('{"action":"read"}'),false);
+});
+
 test('HTTP cancellation remains admitted when work and slow bodies saturate the work lane',{skip:!root,timeout:15000},async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-tool-cancel-lane-'));
   const {load}=await cohortModules(root);
@@ -65,7 +101,7 @@ test('capture preserves actual optional deadlines and the original timeout wrapp
     }
     const key=randomUUID(),listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
     t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
-    assert.equal(listener.protocol,16);
+    assert.equal(listener.protocol,17);
     const post=async(path,input,status=200)=>{
       const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,{method:'POST',headers:{authorization:key,'content-type':'application/json'},body:JSON.stringify(input)});
       const value=await response.json();assert.equal(response.status,status,JSON.stringify(value));return value;

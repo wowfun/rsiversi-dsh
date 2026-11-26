@@ -1299,7 +1299,12 @@ for standalone use. Failed compensation fences subsequent mutations. Address
 the reported recovery failure, then restart the application with the same
 profile and its existing Host state. Startup retries the retained recovery
 intent; creating a new profile is not required for a supported journal format.
-Tool listener protocol 16 declares `requires_full_access` for each captured
+Tool listener protocol 17 uses the original execution pipeline's
+`executionMode` for overlap decisions on each captured application registration.
+The classifier sees the actual arguments and Agent scope. Only an exact positive
+decision allows concurrent dispatch. A retired view, undeclared classifier,
+invalid arguments or throwing classifier leaves an exclusive barrier.
+The listener declares `requires_full_access` for each captured
 registration. The mutating `plugin_manager` Tool requires it; the read-only
 `plugin_inspect` Tool lists plugins, bundles and operation status without it.
 The native executor admits full-access

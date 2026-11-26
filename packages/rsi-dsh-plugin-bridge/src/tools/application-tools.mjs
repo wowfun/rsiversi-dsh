@@ -18,7 +18,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   const {renderPrompt}=prompt;
   const {assembleContextFor,agentEvents}=await load('@deepseek-ai/dsh-agent');
   const runtimeContext=runtimeContextProjection({...prompt,...await load('@deepseek-ai/dsh-llm')});
-  const execute=toolPipeline(ctx,await load('@deepseek-ai/dsh-tools/pipeline'),tools);
+  const {execute,executionMode}=toolPipeline(ctx,await load('@deepseek-ai/dsh-tools/pipeline'),tools);
   const views=new Map(),secret=Buffer.from(key);
   const ledger=await toolLedger(directory,(await load('@deepseek-ai/dsh-atomic-write')).writeFileAtomic);
   const lanes={capture:{active:0,limit:24},release:{active:0,limit:64},cancel:{active:0,limit:24},work:{active:0,limit:24}};
@@ -116,6 +116,16 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
         if(input.callback==='stopping'&&row?.stopping)return row.stopping;
         throw Error('Callback outcome unavailable for this view');
       }
+      case '/v1/parallel-safe':{
+        const row=views.get(input.view),call=input.call;
+        if(!row?.agent||row.lease.signal.aborted||row.bindings.get(input.registration)!==call.name)return false;
+        let args=call.arguments;
+        if(call.kind==='function'){
+          try{args=args?JSON.parse(args):{};}catch{return false;}
+        }
+        return executionMode({agent:row.agent,toolSet:row.selection,callId:call.id,
+          name:call.name,arguments:args,signal})==='parallel';
+      }
       case '/v1/start':{
         const view=views.get(input.view);
         const admitted=view?.agent&&view.agent.id===input.session&&view.bindings.get(input.registration)===input.name;
@@ -162,7 +172,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     for(const id of views.keys())release(id);
     await boundary.close();
   },'close application tool source');
-  return {protocol:16,generation,port:server.address().port,
+  return {protocol:17,generation,port:server.address().port,
     retireOutcome:(session,effect,identity)=>ledger.retire(session,effect,identity)
       ?.catch(error=>ctx.logger.warn('Application tool receipt cleanup failed:',error))};
 }
