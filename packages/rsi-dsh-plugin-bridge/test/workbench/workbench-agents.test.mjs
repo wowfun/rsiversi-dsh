@@ -132,6 +132,41 @@ test('released telemetry captures a new fork marker and skips the saved log when
   await resumed.dispose();
 });
 
+test('Session announcement distinguishes synchronous creation vetoes from failures of observers',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context(),agentApi=await load('dsh-agent');
+  await ctx.plugin((await load('dsh-session-projection')).default);
+  await ctx.plugin(agentApi.AgentRegistry);
+  const api=await load('dsh-session'),session=api.Session.create('observer');
+  const scope=applicationSessions(async method=>assert.fail(method),{owner:'owner'});
+  t.after(async()=>{await ctx.fiber.dispose();await scope.close();});
+  scope.inbox.capture=async()=>({kind:'draft',shared:true,revision:0,pending:[]});
+  await workbenchAgents(ctx,scope,{
+    metadata:async()=>({selection_cursor:{kind:'draft',revision:0}}),
+    captureAgent:async()=>({session,options:{}}),
+  },await load('dsh-scope'),agentApi,(await load('dsh-util-values')).snapshotJsonValue);
+  const heard=[],warnings=[];
+  t.mock.method(ctx.logger,'warn',text=>warnings.push(String(text)));
+  ctx.on('session/created',()=>Promise.reject(Error('async creation')));
+  const veto=ctx.on('session/created',()=>{throw Error('veto');});
+  ctx.on('session/created',session=>heard.push(['created',session.id]));
+  ctx.on('session/disposed',()=>{throw Error('sync disposal');});
+  ctx.on('session/disposed',()=>Promise.reject(Error('async disposal')));
+  ctx.on('session/disposed',session=>heard.push(['disposed',session.id]));
+  const resume=()=>ctx.agents.resume({resumeSessionId:'observer'});
+  await assert.rejects(resume(),/veto/);
+  assert.equal(ctx.agents.get('observer'),undefined);
+  assert.deepEqual(heard,[['disposed','observer']]);
+  veto();
+  const handle=await resume();
+  assert.equal(ctx.agents.get('observer'),handle.agent);
+  await handle.dispose();await setImmediate();
+  assert.deepEqual(heard,[['disposed','observer'],['created','observer'],['disposed','observer']]);
+  for(const failure of ['async creation','sync disposal','async disposal'])
+    assert.equal(warnings.filter(text=>text.endsWith('Error: '+failure)).length,2);
+});
+
 test('plugins claim an ordinary root on their native caller and publish it only after setup',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));

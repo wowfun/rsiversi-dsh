@@ -50,6 +50,28 @@ test('original fused dispatch supplies the Agent subject and isolates throwing i
   assert.equal(notices.length,1);assert.equal(notices[0].agent,f.agent);assert.deepEqual(notices[0].message,message('observed'));
 });
 
+test('a committed Session splice reaches later observers and the Agent inbox after listener failures',enabled,async t=>{
+  const f=await nativeInboxFixture(t),seen=[],warnings=[];
+  t.mock.method(f.ctx.logger,'warn',text=>warnings.push(String(text)));
+  const splice=(session,event)=>session===f.agent.session&&event.type==='agent/inbox/spliced';
+  f.ctx.on('session/event',(session,event)=>{
+    if(splice(session,event)){
+      assert.equal(session.eventAt(event.seq),event);
+      throw Error('sync event observer');
+    }
+  });
+  f.ctx.on('session/event',(session,event)=>{
+    if(splice(session,event))return Promise.reject(Error('async event observer'));
+  });
+  f.ctx.on('session/event',(session,event)=>{if(splice(session,event))seen.push('session');});
+  f.ctx.on('agent/inbox/inserted',({message})=>seen.push(message.id));
+  await f.scope.runOwned(()=>f.agent.inject(message('delivered')));
+  await setImmediate();
+  assert.deepEqual(seen,['session','delivered']);
+  assert.ok(warnings.some(text=>text.endsWith('Error: sync event observer')));
+  assert.ok(warnings.some(text=>text.endsWith('Error: async event observer')));
+});
+
 test('idle waiting includes activation cleanup but ignores a paused retained queue',enabled,async t=>{
   const f=await nativeInboxFixture(t,{kind:'durable'});f.state.activeTurn=true;f.state.activationActive=true;
   let settled=false;const idle=f.agent.whenIdle().then(()=>{settled=true;});

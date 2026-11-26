@@ -518,7 +518,11 @@ releases its scoped registrations; an automatically attached parent mirror does
 not own or cancel native Headless work.
 Owned Agents observe native history changes independently of browser requests and
 emit the original `session/event` notification for newly projected committed
-events. Published Sessions wait on native Fact/control cursors; unpublished drafts
+events. Each scoped listener to `session/event` and `session/disposed` observes
+the notification independently. A synchronous failure in `session/created`
+stops publication and triggers disposal. Returned promises from all three
+notifications run independently of publication and report rejection to the logger.
+Published Sessions wait on native Fact/control cursors; unpublished drafts
 wait for native revision changes until publication. Disposal cancels and drains this observer.
 Tool capture ensures an attached Agent and its exact scoped context, including
 setup registrations, even on first contact from native execution. Prompt
