@@ -35,7 +35,7 @@ export function inboxObservationProjection(journal,events,transitions) {
       }
     } else {
       // Native predecessors determine insertion order; pending local inputs form the tail.
-      for(const row of transition.before.slice(0,event.data.start)) {
+      for(const row of transition.predecessors) {
         const index=list.findIndex(item=>item.key===identity(row).key);
         if(index>=0)start=index+1;
       }

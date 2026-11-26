@@ -24,7 +24,7 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
       const originalEffect=original.mapping.model?.effectId;
       let settlement;
       const next={...original,session:session.branch(),mapping:cloneMapping(original.mapping),
-        model:original.model.branch(),inbox:original.inbox.branch(),
+        model:original.model.branch(),
         spawning:new Set(original.spawning),spawned:new Map(original.spawned),
         origins:new Map()};
       const loadFacts=nativeFactPages(call,release,signal);
@@ -76,7 +76,10 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
             }
             else if(event.kind==='working_directory_changed') {
               next.session.adoptObserved({type:'workspace-root/change',seq:next.session.seq,time:event.time,data:{cwd:event.cwd}});
-            } else if(event.kind!=='goal'&&event.kind!=='permission'&&event.kind!=='preset')next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
+            } else if(event.kind!=='goal'&&event.kind!=='permission'&&event.kind!=='preset') {
+              if(next.inbox===original.inbox)next.inbox=original.inbox.branch();
+              next.inbox.observe(event,next.session,next.mapping.turn,inboxSlotFrom);
+            }
             if(event.preset!==undefined) {
               if(event.preset!==(next.preset??creationPreset))
                 next.session.adoptObserved({type:'agent-preset/selected',seq:next.session.seq,time:event.time,data:{agentPreset:event.preset}});

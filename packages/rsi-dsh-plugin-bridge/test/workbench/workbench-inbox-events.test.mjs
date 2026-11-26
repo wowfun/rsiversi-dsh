@@ -38,6 +38,15 @@ test('an accepted control carries its body without rereading the native acceptan
   }
   finally {session.end();}
   assert.equal(inbox.snapshot()['next-step'][0].content[0].text,'owned');
+  const accepted=inbox.transitions.get(0).inserted[0];
+  const promoted=inbox.branch();
+  session.begin();
+  try {promoted.observe({kind:'promoted',message_id:'one',seq:2,time:2},session,0);}
+  finally {session.end();}
+  assert.equal(promoted.transitions.get(1).removed[0],accepted);
+  assert.equal(accepted.target,'next_step');
+  assert.equal(promoted.transitions.get(2).inserted[0].target,'next_turn');
+  assert.deepEqual(inbox.snapshot()['next-turn'],[]);
 });
 for(const sourceType of ['command','human'])test(`${sourceType} inbox transitions agree with the original DSH fold across replacement, promotion, claim and discard`,
   {skip:!root||!source},async t=>{

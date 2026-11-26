@@ -466,6 +466,11 @@ event and leaves that newer choice pending. The original Side Chat model fold
 consumes these ordinary model-selection events.
 
 The shared workbench owner stages native observation against a private branch.
+It shares the committed inbox until the batch processes its first queue control.
+Pending messages and their transition history remain visible at the committed
+cut while the batch runs. Insertions retain references to preceding queue
+entries to place native input relative to pending local input. Removal needs
+only the affected entry. Promotion records a new entry for the new target.
 Fact mappings, model state, inbox state and the native source cursor advance only
 after the entire batch is projected successfully. Each caller supplies its own
 authorized read function and cancellation signal; a retained projector does not

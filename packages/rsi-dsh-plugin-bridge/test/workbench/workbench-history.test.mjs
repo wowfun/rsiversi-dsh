@@ -98,9 +98,23 @@ test('one control page reconstructs a full native inbox without per-message read
   const stage=await source.stage(call,async()=>{},undefined,0,64);
   assert.equal(calls.length,1);
   assert.equal(source.current.session.seq,0);
+  assert.deepEqual(source.current.inbox.snapshot()['next-step'],[]);
   assert.deepEqual(stage.value.inbox.snapshot()['next-step'].map(message=>message.content[0].text),
     controls.map(event=>event.message.content[0].text));
   stage.commit();assert.equal(source.current.controlThrough,64);
+  const inbox=source.current.inbox;
+  controls.push({kind:'model',seq:65,time:65,after_fact_seq:0,selection:baseline},
+    {kind:'discarded',seq:66,time:66,after_fact_seq:0,message_id:'input-0'});
+  const read=async op=>historyPage(controls.slice(op.after_seq,op.through_seq),op.through_seq,op.offset);
+  const choice=await source.stage(read,async()=>{},undefined,0,65);
+  assert.equal(choice.value.inbox,inbox,'model selection preserves the committed inbox');
+  choice.commit();
+  const withdrawal=await source.stage(read,async()=>{},undefined,0,66);
+  assert.equal(withdrawal.value.inbox.snapshot()['next-step'].length,63);
+  assert.equal(inbox.snapshot()['next-step'].length,64);
+  assert.equal(inbox.transitions.size,64);
+  withdrawal.commit();
+  assert.equal(source.current.inbox.transitions.size,65);
 });
 
 test('native controls split observation without splitting the captured Fact page',{skip:!root},async t=>{
