@@ -68,6 +68,11 @@ The original preset-scoped `/compact` command delegates idle compaction to
 the Host with its command ID. Its completion links to the projected installed
 summary. A busy Session or an empty selection returns the original command
 outcome. An already-running model Turn keeps its execution owner.
+During an open Turn, an enabled plugin can pass two retained surface sequence
+numbers to `compactRegion`. The bridge resolves these to the native positions
+at the observed Fact prefix. The system head and partial tool interactions
+cannot be selected. The result names the installed checkpoint, its summary
+event and the application sequences it replaced.
 It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
 surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot

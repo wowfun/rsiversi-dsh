@@ -59,14 +59,18 @@ async function observeFact(session, mapping, fact, readFact, llm, observeRequest
     return;
   }
   const pending = mapping.compaction && session.lastEvent('compaction/start');
+  const prepared = compactionPrepared(fact);
   const closeFailed = () => {
     session.adoptObserved({type:'compaction/end', seq:session.seq, time:fact.timestamp_ms,
       data:{...pending.data, error:'The native attempt ended without installing a checkpoint.'}});
     delete mapping.compaction;
     delete mapping.compactionSettlement;
   };
-  if (mapping.compactionSettlement && (pending.data.turn === null || fact.type === 'model_intent' || fact.type === 'turn_terminal')) closeFailed();
-  if (compactionPrepared(fact)) {
+  // A region can settle while another model is running. Ordinary model
+  // activity does not decide whether that region installed.
+  if (pending && (fact.type === 'turn_terminal' || prepared
+      || mapping.compactionSettlement && pending.data.turn === null)) closeFailed();
+  if (prepared) {
     compactionStart(session, mapping, fact);
     return;
   }

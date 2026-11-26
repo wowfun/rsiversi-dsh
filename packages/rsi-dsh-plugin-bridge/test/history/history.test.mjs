@@ -9,6 +9,7 @@ import { restoreMapping, factObserver } from '../../src/history/history.mjs';
 import {factProjector} from '../../src/workbench/seed.mjs';
 import {cloneMapping} from '../../src/history/input-history.mjs';
 import {observeAttempt} from '../../src/history/model-history.mjs';
+import {compactionLanguage} from '../../src/history/compaction-history.mjs';
 
 const cohortRoot = process.env.RSI_DSH_COHORT;
 const integration = (name, run) => test(name, { skip: !cohortRoot }, run);
@@ -22,6 +23,53 @@ const evidence = () => ({ availability: 'available',
     settings: { stop: [] }, response_format: { type: 'text' }, extensions: [] }),
   tools: inline({ definitions: [{ name: 'todo_write', description: 'Actual schema', input_schema: { type: 'object' } }], hosted: [], choice: { type: 'auto' } }),
   system: inline([{ role: 'system', content: [{ type: 'text', content: {text:'Actual instructions'} }] }]) });
+
+integration('a region survives foreground intent and an interrupted region closes with its owning Turn', async () => {
+  const cohort = await loadCohort(cohortRoot);
+  const api = {...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session','surface'),...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const llm = compactionLanguage(await cohort.import('@deepseek-ai/dsh-llm'),(name,path)=>cohort.subpath(name,path));
+  const native = api.Session.create('overlapping-region');
+  native.append('turn/start',{turn:1,rsi:{session:native.id,turn:'t',fact:1}});
+  native.append('system/message',{turn:1,step:1,message:{id:'head',role:'system',
+    source:{kind:'system-prompt'},content:[{type:'text',text:'Actual instructions'}]}},{surfaceOp:'append'});
+  const original = native.append('user/message',{id:'u',role:'user',source:{kind:'user'},
+    content:[{type:'text',text:'selected text'}]},{surfaceOp:'append'});
+  const session = new SessionFacade({},api,{header:native.header,events:native.snapshotEvents()},false);
+  const mapping = {...restoreMapping(),turn:1,turnId:'t',step:1,stepId:'s'};
+  const facts = [];
+  const observe = factObserver(session,mapping,seq=>facts[seq-1],llm);
+  const add = async value => {
+    const seq=facts.length+1;
+    const fact={turn_id:'t',seq,timestamp_ms:seq,...value};
+    facts.push(fact);
+    await observe(fact);
+    mapping.factCursor=seq;
+  };
+  const prepare = effect_id => add({type:'model_intent',effect_id,snapshot,purpose:{kind:'context_compaction',
+    plan:{trigger:{kind:'region',start:0,end:0},prior:null,maximum_output_tokens:128,
+      selections:[{session:native.id,turn:'t',first:0,count:1}]}}});
+  session.begin();
+  try {
+    await prepare('installed');
+    await add({type:'model_attempt_settled',effect_id:'installed',purpose:'context_compaction',
+      attempt:{events:[[0,{type:'content_started',index:0,content:{type:'text'}}],
+        [1,{type:'content_delta',index:0,delta:{type:'text',value:'brief'}}],
+        [2,{type:'content_finished',index:0}],[3,{type:'finished',reason:'stop',replay:null}]]}});
+    await add({type:'model_intent',effect_id:'foreground',purpose:{kind:'conversation'},snapshot,evidence:evidence()});
+    await add({type:'context_compaction_installed',effect_id:'installed',settlement_seq:2});
+    assert.deepEqual(session.lastEvent('compaction/summary').data.shadowedSeqs,[original.seq]);
+    assert.equal(mapping.model.effectId,'foreground');
+    assert.equal(session.eventAt(original.seq).data.content[0].text,'selected text');
+    await prepare('interrupted');
+    await add({type:'turn_terminal',outcome:{status:'interrupted'}});
+    const end=session.lastEvent('compaction/end');
+    assert.equal(end.data.compactionId,'interrupted');
+    assert.equal(typeof end.data.error,'string');
+    assert.equal(mapping.compaction,undefined);
+    assert(end.seq<session.lastEvent('turn/end').seq);
+  } finally { session.end(); }
+});
 
 integration('prepared requests preserve an unchanged system head restored from a DSH Session', async t => {
   const cohort = await loadCohort(cohortRoot);

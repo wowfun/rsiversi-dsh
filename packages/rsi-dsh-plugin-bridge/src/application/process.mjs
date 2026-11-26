@@ -124,7 +124,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const defaults=await workbenchHostSettings(hostModules,load,sessionScope);
     const basic='@deepseek-ai/dsh-compaction-basic';
     hostModules.set(basic,workbenchCompaction((await load(basic)).default,
-      (await load('@deepseek-ai/dsh-compaction')).ManualCompactionError,sessionScope,(id,signal)=>agents.refresh(id,signal)));
+      (await load('@deepseek-ai/dsh-compaction')).ManualCompactionError,sessionScope,(id,signal)=>agents.refresh(id,signal),
+      (agent,start,end)=>agents.compactionRegion(agent,start,end)));
     hostModules.set(presets,workbenchPresetRegistry(presetModule.default,RemoteError,sessionScope,
       (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load),defaults));
     const {Deque}=await load('@deepseek-ai/dsh-deque');

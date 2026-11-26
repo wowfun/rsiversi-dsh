@@ -1,6 +1,7 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import {isAbsolute} from 'node:path';
 import {captureAgentView} from './agent-view.mjs';
+import {retainedRegion} from './compaction.mjs';
 import {nativeForkSeed} from './fork-seed.mjs';
 import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
 import {bindPluginRecords} from '../session/plugin-records.mjs';
@@ -412,6 +413,11 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       return true;
     },
     refresh:(id,signal)=>refresh(records.get(id),signal),
+    compactionRegion(agent,start,end) {
+      const record=records.get(agent.id);
+      if(!record?.owner || record.agent.session!==agent.session)throw Error('Agent Session is not registered');
+      return retainedRegion(record.owner,start,end);
+    },
     sharedBlankChanged,
     async ensure(id,signal,source='resume') {
       const pending=opening.get(id);
