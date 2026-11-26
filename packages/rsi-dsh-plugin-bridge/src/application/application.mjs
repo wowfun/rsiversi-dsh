@@ -141,21 +141,21 @@ export async function createApplication({modules, profile, provide,hostModules=n
       }};
       visit(boot.composeEntries([patches]));return result;
     };
-    const before=rows(previous),after=rows(patches);
-    let replaced=false;
+    let before,after,replaced=false;
     for(const entry of ctx.loader.entries()) {
       const source=sources.get(entry.moduleNamespace);
       if(!source || entry.disabled)continue;
-      // Match DSH's root-composition ownership: nested Includes own their own IDs.
-      const removed=entry.parent.tree===rootInclude?.subgroup?.tree&&before.has(entry.options.id)
-        &&after.get(entry.options.id)?.name!==entry.options.name;
-      if(removed) {
-        try {replaced ||= source!==modules.entry(entry.options.name);}
-        catch {replaced=true;}
-        continue;
-      }
-      if(source===modules.entry(entry.options.name))continue;
+      let resolutionError;
+      try {if(source===modules.entry(entry.options.name))continue;}
+      catch(error){resolutionError=error;}
       replaced=true;
+      // Match DSH's root-composition ownership: nested Includes own their own IDs.
+      if(entry.parent.tree===rootInclude?.subgroup?.tree) {
+        before??=rows(previous);
+        after??=rows(patches);
+        if(before.has(entry.options.id)&&after.get(entry.options.id)?.name!==entry.options.name)continue;
+      }
+      if(resolutionError)throw resolutionError;
       changed.add(entry);
     }
     // Replacing an ancestor already retires its configured descendants. The
@@ -209,8 +209,9 @@ export async function createApplication({modules, profile, provide,hostModules=n
       if (retired) return Promise.reject(new Error('Profile retired'));
       const next=[...base,...layers.flat()];
       const reconcile=async()=>{
-        const previous=structuredClone(rootInclude?.options.config.patches??[]);
+        const previous=rootInclude?.options.config.patches??[];
         const {changed,replaced}=await replacements(next,previous);
+        const rollback=replaced?structuredClone(previous):undefined;
         const snapshots=replaced?[...ctx.loader.entries()].filter(entry=>entry.moduleNamespace)
           .map(entry=>({name:entry.options.name,module:entry.moduleNamespace})):[];
         for(const {module} of snapshots)retainedModules.add(module);
@@ -218,8 +219,8 @@ export async function createApplication({modules, profile, provide,hostModules=n
           for(const entry of changed)await retire(entry);
           return await apply(next,restore,changed);
         } catch(error) {
-          if(replaced) {
-            try {await restoreComposition(previous,snapshots);}
+          if(rollback) {
+            try {await restoreComposition(rollback,snapshots);}
             catch(rollback){throw new AggregateError([error,rollback],'Plugin replacement and recovery failed',{cause:error});}
           }
           throw error;

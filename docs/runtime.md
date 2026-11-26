@@ -1182,7 +1182,9 @@ Restoring a committed profile keeps healthy bundles running when another
 installed bundle is unavailable. The Host reports the affected package or
 Fiber. The workbench's required Host entries must start. Subsequent changes
 use DSH's reconciliation contract, which distinguishes an unchanged inactive
-entry from a new or changed activation failure.
+entry from a new or changed activation failure. Entries keep their immutable
+modules across configuration edits. The bridge captures rollback patches
+when an active package binding changes or disappears.
 Raw package subprocesses publish the package view without selecting or activating
 a bundle. Discover and the external market's recoverable install seat use managed
 candidate preparation and commit, preserving their explicit enable option.

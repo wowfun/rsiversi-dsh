@@ -62,6 +62,16 @@ test('replacement may remove an obsolete export before the next composition moun
   assert.equal([...f.app.ctx.loader.entries()].some(entry=>entry.options.id==='probe'),false);
 });
 
+test('a still configured entry keeps its active fiber when its binding disappears',{skip:!root},async t=>{
+  const f=await fixture(t);
+  await f.code('probe','v1',implementation('v1'));
+  await f.app.reconcile(f.rows);
+  f.selected.delete('probe');
+  await assert.rejects(f.app.reconcile(f.rows),{code:'MODULE_NOT_FOUND'});
+  assert.deepEqual(f.app.ctx.replacementProbe,{version:'v1',value:'original'});
+  assert.deepEqual(f.events,[]);
+});
+
 test('failed code replacement restores removed siblings and drops candidate-only entries',{skip:!root},async t=>{
   const f=await fixture(t);
   await f.code('probe','v1',implementation('v1'));
