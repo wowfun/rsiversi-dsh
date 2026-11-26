@@ -3,7 +3,7 @@ import {join} from 'node:path';
 
 const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-agent-loop','dsh-agent-preset-registry','dsh-agent-preset',
   'dsh-host-directory-picker-auto','dsh-host-open-in-app','dsh-host-plugin-inventory','dsh-commands','dsh-goal','dsh-session-title','dsh-session-stats','dsh-session-turn-outline','dsh-token-meter','dsh-storage',
-  'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-skill-office','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
+  'dsh-storage-json','dsh-storage-domain','dsh-schedule','dsh-skill','dsh-skill-office','dsh-office-kit','dsh-attachment-local','dsh-session-query-sqlite','dsh-message-feedback','dsh-command-feedback',
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy','dsh-fs-sandbox',
   'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env','dsh-jobs-local','dsh-action-cards',
   'dsh-user-questions','dsh-permission-presets','dsh-web','dsh-web-fetch-http','dsh-ptc-runtime-node',

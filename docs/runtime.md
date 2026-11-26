@@ -1067,6 +1067,9 @@ layout and runtime shards from its own lease.
 
 The DSH application release includes the LibreOffice engine selected by its
 Office provider. A target with a declared native engine requires that package.
+The workbench activates the Office service declared by the Web bundle with its
+profile-local output directory. The document preview reads the selected file
+through the session's workspace file service before conversion.
 Other targets require the WASM engine. An independent dependency on another
 engine keeps its own package in the npm closure. Plugins installed from the
 registry retain their declared dependencies.

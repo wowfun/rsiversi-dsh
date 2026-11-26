@@ -45,10 +45,13 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const web=modules.directory('@deepseek-ai/dsh-web-app');
   const webManifest=JSON.parse(await readFile(join(web,'package.json'),'utf8'));
   const declared=entries=>entries.filter(row=>row.name==='@deepseek-ai/dsh-agent-preset');
-  const upstream=declared(boot.composeEntries(boot.bundlePatchPaths(web,webManifest.dsh.bundle)
-    .map(file=>boot.loadOverlayPatches('test',file))));
-  assert.ok(upstream.some(row=>row.config.id==='minimal'));
-  assert.deepEqual(declared(selected.rows),upstream);
+  const upstream=boot.composeEntries(boot.bundlePatchPaths(web,webManifest.dsh.bundle)
+    .map(file=>boot.loadOverlayPatches('test',file)));
+  assert.ok(declared(upstream).some(row=>row.config.id==='minimal'));
+  assert.deepEqual(declared(selected.rows),declared(upstream));
+  const office=upstream.find(row=>row.name==='@deepseek-ai/dsh-office-kit');
+  assert.ok(office?.config.outputDirectory);
+  assert.deepEqual(selected.rows.find(row=>row.id===office.id),office);
   assert.ok(selected.rows.some(row=>row.id==='action-cards'));
   const managed=await workbenchProfile(modules,boot,profile,{importer:true,language:true});
   for(const {rows} of [selected,managed]){
