@@ -35,6 +35,20 @@ const implementation=version=>`export function apply(ctx,config){
   ctx.effect(()=>()=>ctx.testEvents.push('dispose ${version}'));
 }`;
 
+test('installed plugin configurations resolve paths through the workbench Loader', {skip:!root}, async t=>{
+  const f=await fixture(t);
+  const home=await f.code('probe','v1',`export function apply(ctx, config){ctx.provide('fixturePaths',config);}`);
+  const previous=process.env.DSH_HOME;
+  process.env.DSH_HOME=home;
+  try {
+    const config={directory:{__jsExpr:"dshHomePath('fixture', 'outputs')"},state:{__jsExpr:"dshPath('state', 'fixture')"}};
+    await f.app.reconcile([{insert:[{id:'probe',name:'probe',config}]}]);
+    assert.deepEqual(f.app.ctx.get('fixturePaths'),{directory:join(home,'fixture','outputs'),state:join(home,'state','fixture')});
+  } finally {
+    if(previous===undefined)delete process.env.DSH_HOME;else process.env.DSH_HOME=previous;
+  }
+});
+
 test('plugins enabled later receive the same immutable launch environment as the root',{skip:!root},async t=>{
   const key='RSI_DSH_LAUNCH_FIXTURE';
   const previous=process.env[key];
