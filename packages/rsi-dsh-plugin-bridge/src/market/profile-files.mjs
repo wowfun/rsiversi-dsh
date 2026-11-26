@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {createReadStream} from 'node:fs';
-import {lstat, mkdir, readlink, rename, symlink, unlink, writeFile} from 'node:fs/promises';
+import {lstat, mkdir, readlink, rename, rmdir, symlink, unlink, writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {basename, dirname, join, relative, resolve} from 'node:path';
 import {packageLocation} from '../../../rsi-dsh-cordis/src/release/layout.mjs';
@@ -143,15 +143,28 @@ export async function linkProfilePackage(profile,name,root,publish) {
     if(error.code==='EINVAL') throw new Error('Profile package view collides with '+name,{cause:error});
     if(error.code!=='ENOENT') throw error;
   }
-  if(current!==undefined) {
-    if(relative(resolve(dirname(link),current),root)==='') {
-      publish?.(name,root);
-      return;
+  if(current!==undefined && relative(resolve(dirname(link),current),root)==='') {
+    publish?.(name,root);
+    return;
+  }
+  if(current===undefined)await mkdir(dirname(link),{recursive:true});
+  // Windows first creates a directory, then attaches the junction to it.
+  // Profile mutations are serialized. Retry the same reserved sibling after an interrupted build.
+  const staging=process.platform==='win32'?join(dirname(link),'.rsi-junction-'+basename(link)):undefined;
+  if(staging) {
+    try {await symlink(root,staging,'junction');}
+    catch(error) {
+      if(error.code!=='EEXIST')throw error;
+      await rmdir(staging);
+      await symlink(root,staging,'junction');
     }
+  }
+  if(current!==undefined) {
     await unlink(link);
     publish?.(name,undefined);
-  } else await mkdir(dirname(link),{recursive:true});
-  await symlink(root,link,process.platform==='win32'?'junction':'dir');
+  }
+  if(staging)await rename(staging,link);
+  else await symlink(root,link,'dir');
   publish?.(name,root);
 }
 

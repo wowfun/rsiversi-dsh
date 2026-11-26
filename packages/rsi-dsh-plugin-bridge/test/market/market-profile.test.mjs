@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {spawnSync} from 'node:child_process';
 import {AsyncResource} from 'node:async_hooks';
-import {chmod,link,lstat,mkdir,mkdtemp,readFile,realpath,unlink,writeFile,rm} from 'node:fs/promises';
+import {chmod,link,lstat,mkdir,mkdtemp,readFile,readdir,realpath,unlink,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -326,6 +327,46 @@ test('the profile follows the leased package after replacement or collection and
   await unlink(link);await mkdir(link);await writeFile(join(link,'keep'),'local data');
   await assert.rejects(linkProfilePackage(dir,name,first),/collides/);
   assert.equal(await readFile(join(link,'keep'),'utf8'),'local data');
+});
+
+test('an interrupted Windows junction installation can reopen the package',{skip:process.platform!=='win32'},async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-interrupted-link-'));
+  t.after(()=>rm(profile,{recursive:true,force:true}));
+  const name='@example/plugin',root=join(profile,'lease'),dest=join(profile,'node_modules',name);
+  await mkdir(root);
+  // Stop between the two filesystem changes involved in creating a Windows junction.
+  const action=`
+    import fs from 'node:fs/promises';
+    import {syncBuiltinESMExports} from 'node:module';
+    const [module,profile,name,root,step]=process.argv.slice(1);
+    if(step==='create')fs.symlink=async(_root,path,type)=>{
+      if(type!=='junction')throw Error('unexpected link type');
+      await fs.mkdir(path);
+      process.exit(71);
+    };
+    else fs.rename=async()=>process.exit(71);
+    syncBuiltinESMExports();
+    await (await import(module)).linkProfilePackage(profile,name,root);
+  `;
+  const module=new URL('../../src/market/profile-files.mjs',import.meta.url).href;
+  function interrupt(target,step){
+    const child=spawnSync(process.execPath,['--input-type=module','-e',action,module,profile,name,target,step],{encoding:'utf8',windowsHide:true});
+    assert.equal(child.status,71,child.stderr);
+  }
+  interrupt(root,'create');
+  await assert.rejects(lstat(dest),{code:'ENOENT'});
+  await linkProfilePackage(profile,name,root);
+  assert.equal(await realpath(dest),await realpath(root));
+  const next=join(profile,'next');
+  await mkdir(next);await writeFile(join(next,'keep'),'lease content');
+  interrupt(next,'create');
+  assert.equal(await realpath(dest),await realpath(root));
+  interrupt(next,'rename');
+  await linkProfilePackage(profile,name,next);
+  assert.equal(await readFile(join(dest,'keep'),'utf8'),'lease content');
+  assert.deepEqual(await readdir(join(profile,'node_modules','@example')),['plugin']);
+  await unlink(dest);await mkdir(dest);
+  await assert.rejects(linkProfilePackage(profile,name,root),/collides/);
 });
 
 test('Cordis keeps the exact imported payload until its entry retires',{skip:!root},async t=>{

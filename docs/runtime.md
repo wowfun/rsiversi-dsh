@@ -1113,7 +1113,10 @@ The release and installed plugins share a generated `node_modules` view in the
 DSH profile. Opening the application or committing a plugin points its managed
 directory link at the currently leased package, including when the previous
 link is stale or dangling. A regular file or directory at that location is a
-collision and is preserved.
+collision and is preserved. On Windows the bridge constructs a junction beside
+its destination before publishing it by rename. If construction stops, reopening
+can retry the bridge's unfinished junction and a package lookup cannot see its
+temporary empty directory.
 
 Bundle activation follows the order in the portable profile. A bundle shipped
 as a dependency of the selected DSH runtime resolves through that runtime's
