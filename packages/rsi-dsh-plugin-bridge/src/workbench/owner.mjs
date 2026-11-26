@@ -48,7 +48,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       initial=await source.stage(call,release,signal,meta.through,initialCut.control_seq??0,
         id=>ids.has(id),restore.inboxSlotFrom,first,meta.preset);
     }
-    const listeners=new Set(),waiters=new Set();let version=0,batch,tail=Promise.resolve();
+    const listeners=new Set(),waiters=new Set();let version=0,batch,selectedModel,tail=Promise.resolve();
     const report=error=>ctx.logger.warn('Application Session observer failed:',error);
     const changed=()=>{version++;for(const wake of waiters)wake();};
     const publish=event=>{
@@ -57,7 +57,11 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{restore,adoptRestore:true,nativeEventState:'shared-frozen',
       native:initial?.value.session.snapshotEvents(),transitions:initial?.value.inbox.transitions,nativePreset:()=>source.current.preset??row.meta?.preset,
       save:storage?value=>storage.save(header.id,value):undefined,report,
-      notify:(_session,event)=>batch?batch.push(event):publish(event)});
+      notify:(_session,event)=>{
+        if(event.type==='model/selection')selectedModel=event.data;
+        if(batch)batch.push(event);else publish(event);
+      }});
+    selectedModel=journal.session.lastEvent('model/selection')?.data;
     restore=undefined;
     const nativeCommand=(operation,signal)=>{
       if(!command)throw Error('Native Session commands unavailable');
@@ -143,10 +147,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           return event&&{...event,seq:row.applicationSeq(event.seq)};
         };
       },
-      model(){
-        const value=source.current.model.snapshot(journal.session),chosen=journal.session.lastEvent('model/selection');
-        return chosen?{...value,next:chosen.data}:value;
-      },
+      model(){return source.current.model.snapshot(journal.session,selectedModel);},
     };
     retained.set(journal.session,row);
     return row;

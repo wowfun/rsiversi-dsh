@@ -18,8 +18,8 @@ function state(selected) {
       selected=convert(event.selection);
       return session.adoptObserved({type:'model/selection',seq:session.seq,time:event.time,data:selected});
     },
-    snapshot(session) {
-      return {lastUsed:lastUsedModel(session.requestHeader()),next:selected};
+    snapshot(session,next=selected) {
+      return {lastUsed:lastUsedModel(session.requestHeader()),next};
     },
   };
 }

@@ -439,6 +439,12 @@ restoring operations. A lookup reads the current receipt by that identity
 even when later inbox operations share the journal. This reference lives
 only in memory.
 
+The workbench owner reads the latest effective model choice when reopening
+the journal and follows committed selection events thereafter. An attached
+Agent and its history readers see that choice, or the current native baseline
+when the log contains no selection. A temporary request header supplies the
+last-used model independently.
+
 An attempt failure is retained separately from a successful receipt. The current
 native transport does not distinguish a rejected command from an unknown outcome,
 so this driver reports an unconfirmed selection, not a definitive rejection. An

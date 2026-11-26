@@ -408,14 +408,23 @@ test('intervening external model selection requires a new effective event withou
   {skip:!root},async t=>{
     const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session);
     const accepted=owner.driver.accept({...base,reasoningEffort:'high'},{},2);
+    assert.deepEqual(owner.model().next,accepted.data);
     f.change({selection:native({...base,model:'external'})});await f.capture();
     assert.equal(session.lastEvent('model/selection').data.model,'external');
+    assert.equal(owner.model().next.model,'external');
     await owner.driver.ready();await f.capture();
     assert.equal(session.eventAt(accepted.seq),accepted);assert.equal(session.seq,4);
     assert.equal(session.eventAt(3).data.reasoningEffort,'high');assert.equal(session.eventAt(3).data.model,'configured');
     assert.equal(owner.journal.sourceAt(2).seq,3);assert.equal(owner.journal.operations()[0].seq,1);
     const cold=workbenchHistory(f.options);t.after(()=>cold.close());
-    assert.deepEqual((await cold.capture('one',await cold.metadata('one'))).snapshotEvents(),session.snapshotEvents());
+    const recovered=await cold.capture('one',await cold.metadata('one'));
+    assert.deepEqual(recovered.snapshotEvents(),session.snapshotEvents());
+    const reader=cold.owner(recovered);
+    let eventReads=0;
+    const eventAt=recovered.eventAt.bind(recovered);
+    recovered.eventAt=seq=>{eventReads++;return eventAt(seq);};
+    for(let i=0;i<10;i++)assert.deepEqual(reader.model().next,accepted.data);
+    assert.equal(eventReads,0,'repeated option reads use the committed selection');
     const directory=await mkdtemp(join(tmpdir(),'rsi-original-sidechat-'));t.after(()=>rm(directory,{recursive:true,force:true}));
     const outfile=join(directory,'core.mjs');
     const {build}=await import('esbuild');
