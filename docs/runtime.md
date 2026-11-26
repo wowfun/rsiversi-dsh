@@ -1422,8 +1422,11 @@ cannot manufacture native conversation or execution events. Appends preserve
 the supplied event coordinates and timestamps, and publish a validated batch
 atomically without copying existing event bodies. Flush and write-handle close
 complete the journal's durability barrier. Cold writes do not create an Agent
-or wake a model. The bounded captured-view cache includes the native
-draft revision or durable Fact/control pair and the application journal revision.
+or wake a model. Up to 16 recent identities can reuse a live captured view at the
+same native draft revision or durable Fact/control pair and application journal
+revision. The lookup holds a weak reference. Idle read handles retain their
+opening identity and last sequence. When the last consumer releases a view,
+its history can be collected and a later read can reconstruct it from storage.
 Persisted opens and reads use a fresh native history capture, including a cold
 open. It returns the authorized immutable model baseline and Fact/control cut
 with the first missing slices from the retained projector's positions. A changed

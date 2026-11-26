@@ -115,8 +115,32 @@ test('a delayed capture does not hold other Sessions; point reads stay at the op
   const view=await other;events.push({type:'retained',seq:4096},{type:'later',seq:4097});
   assert.equal(view.lastEvent('retained'),events[4095]);assert.equal(view.lastEvent('later'),undefined);
   assert.equal(view.eventAt(4),events[4]);assert.throws(()=>view.eventAt(4096),RangeError);
+  assert.equal(await service.capture('fast'),view,'a consumer holding the same cut can reuse it');
   assert.equal(slices,0);
 });
+
+test('a retained read handle can reread history after its last result is collected',
+  {skip:typeof globalThis.gc!=='function'},async()=>{
+    const id='cold',header={id},meta={id,created_at:1,selection_cursor:{kind:'durable',fact_seq:1,control_seq:0}};
+    let captures=0;
+    const service=workbenchPersistence({
+      async stored(){return {meta};},
+      async capture(){
+        captures++;
+        const event=Object.freeze({seq:0,type:'retained'});
+        return {id,header,seq:1,inheritedEventCount:0,requestHeader:()=>undefined,
+          eventAt:()=>event,snapshotEvents:()=>[event]};
+      },
+    },{});
+    const handle=await service.open(id,'read');
+    const observed=async()=>new WeakRef((await handle.read()).events[0]);
+    const reference=await observed();
+    for(let i=0;i<3;i++){await new Promise(resolve=>setImmediate(resolve));globalThis.gc();}
+    assert.equal(reference.deref(),undefined);
+    assert.deepEqual((await handle.read()).events,[{seq:0,type:'retained'}]);
+    assert.equal(captures,2);
+    await handle.close();
+  });
 
 test('native read handles refresh control-only history, bind opening authority, and release independently',{skip:!root},async()=>{
   const require=createRequire(join(root,'package.json'));
