@@ -18,7 +18,7 @@ export async function receiveControl(carrier, {request, sessionId, control, wake
   const command = operation => carrier.request('application.command', {request, session_id:sessionId, operation},{signal});
   let response;
   try {
-    response = {result:control.type==='disarm_goal'
+    response = {result:control.type==='disarm_goal' || control.type==='begin_maintenance'
       ? await command(control)
       : await commitChange(command,control,signal)};
   } catch (error) {

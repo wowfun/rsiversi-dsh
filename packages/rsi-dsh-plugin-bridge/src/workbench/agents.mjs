@@ -1,4 +1,5 @@
 import {setTimeout as delay} from 'node:timers/promises';
+import {randomUUID} from 'node:crypto';
 import {isAbsolute} from 'node:path';
 import {captureAgentView} from './agent-view.mjs';
 import {retainedRegion} from './compaction.mjs';
@@ -127,7 +128,10 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     });
     record.tail=settled;
     record.pending.add(settled);
-    void settled.finally(()=>record.pending.delete(settled)).catch(error=>ctx.logger.warn('Native Agent mutation failed:',error));
+    void settled.finally(()=>{
+      record.pending.delete(settled);
+      if(record.pendingWake===settled)record.pendingWake=undefined;
+    }).catch(error=>ctx.logger.warn('Native Agent mutation failed:',error));
     return settled;
   }
   function whenIdle(record) {
@@ -137,10 +141,11 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       for(;;) {
         const prior=record.tail;
         await prior?.catch(()=>{});
+        if(record.maintenance)await record.maintenance.done;
         await scope.inbox.waitIdle(record.id,signal);
         if(record.closed)return;
         await refresh(record,signal);
-        if(prior===record.tail&&!record.view.inbox.driver_active&&!record.view.inbox.active_turn_id)return;
+        if(!record.maintenance&&prior===record.tail&&!record.view.inbox.driver_active&&!record.view.inbox.active_turn_id)return;
       }
     },record.idleStop.signal);
     record.idleWait=pending;
@@ -150,7 +155,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
   }
   function mirror(record,newSession) {
     function appendOwned(write,setup=false) {
-      if(record.closing||record.closed)throw Error('Agent has retired');
+      if(record.closed||(record.closing&&!record.maintenance))throw Error('Agent has retired');
       if(!record.owner)throw Error('This Session event requires its owning native command');
       let event;
       if(setup)stage(record,async()=>{if(event)await record.owner.flush();return false;});
@@ -198,12 +203,18 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       return appendOwned(journal=>journal.appendPluginRecord(type,data)).seq;
     });
     const input=()=>{if(!record.owner)throw Error('Agent inbox requires its shared Session owner');return record.owner.input;};
-    function change(action) {
+    function change(action,wakes=false) {
       let accepted=false,through;
-      stage(record,async signal=>{if(!accepted)return false;await input().ready(signal,through);});
+      const pending=stage(record,async signal=>{if(!accepted)return false;await input().ready(signal,through);});
       const before=record.view.session.seq;
       try {return action();}
-      finally {through=record.view.session.seq;accepted=through!==before;if(accepted)publishEvents(record);}
+      finally {
+        through=record.view.session.seq;accepted=through!==before;
+        if(accepted){
+          if(wakes)record.pendingWake=pending;
+          publishEvents(record);
+        }
+      }
     }
     function clear(inboxOnly,keepInbox=false) {
       let operations=[],accepted=false;
@@ -231,20 +242,54 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       model:new AgentModel(modelProjection.readerFor(session),session,record.view.options),
       get options(){return record.owner?.model().next??record.view.options;},
       whenIdle:()=>whenIdle(record),
-      get status(){return record.view.inbox.driver_active||record.view.inbox.active_turn_id?'running':'idle';},
+      get status(){return !record.maintenance&&(record.view.inbox.driver_active||record.view.inbox.active_turn_id)?'running':'idle';},
+      runMaintenance(job){
+        if(record.closing||record.closed)throw Error('Agent has retired');
+        const key=randomUUID();
+        if(record.maintenance||record.pendingWake||!scope.commitControl(record.id,{type:'begin_maintenance',key}))
+          throw Error(`agent "${record.id}" already has active work`);
+        const controller=new AbortController(), watcher=new AbortController();
+        const settled=Promise.withResolvers();
+        record.maintenance={controller,done:settled.promise};
+        return (async()=>{
+          try {
+            void scope.observeOwned(async signal=>{
+              await scope.command(record.id,{type:'wait_maintenance_cancel',key},signal);
+              controller.abort({kind:'user'});
+            },watcher.signal).catch(error=>{if(!watcher.signal.aborted)controller.abort(error);});
+            return await job(controller.signal);
+          } finally {
+            watcher.abort();
+            try {
+                try {if(record.maintenance.stopping)await record.maintenance.stopping;}
+                finally {await scope.runOwned(signal=>scope.command(record.id,{type:'finish_maintenance',key},signal));}
+            } finally {
+              record.maintenance=undefined;
+              settled.resolve();
+              if(!record.closing&&agent.status==='running')record.dispatch.emit('agent/status',{status:'running'});
+            }
+          }
+        })();
+      },
       inject(message){
         change(()=>input().accept(message));
       },
       followup(message){
-        change(()=>input().accept(message,'next_turn'));
+        change(()=>input().accept(message,'next_turn'),true);
       },
       steer(message){
         const delivery=record.abortingTurn&&record.abortingTurn===record.view.inbox.active_turn_id?'next_turn':'steer';
-        change(()=>input().accept(message,delivery));
+        change(()=>input().accept(message,delivery),true);
       },
-      cancel(_cause,{keepInbox=false}={}){
-        clear(false,keepInbox);
-        record.abortingTurn=record.view.inbox.active_turn_id;
+      cancel(cause,{keepInbox=false}={}){
+        try {clear(false,keepInbox);}
+        finally {
+          if(record.maintenance) {
+            record.maintenance.stopping=record.tail;
+            record.maintenance.controller.abort(cause);
+          }
+          record.abortingTurn=record.view.inbox.active_turn_id;
+        }
       },
     };
     bindCheckpointSession(session,{scope,region:(start,end)=>retainedRegion(record.owner,start,end),
@@ -277,18 +322,23 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     let detach,announced=false,disposing,world;
     const publication=Promise.withResolvers(),retentionStop=new AbortController();
     async function stop() {
+      let failure;
+      try {if(record.maintenance)agent.cancel({kind:'disposed'},{keepInbox:!announced});}
+      catch(error){failure=error;}
       record.closing=true;
       retentionStop.abort(Error('Agent owner retired'));
       await publication.promise;
       try {
         record.observerStop?.abort();await record.observation;
         await Promise.allSettled([...record.pending]);
+        if(record.maintenance)await record.maintenance.done;
         await record.owner?.flush();
         if(created)await scope.runOwned(async signal=>{
           if(!record.view.inbox.driver_active&&!record.view.inbox.active_turn_id)return;
           await scope.cancel({sessionId:id,keepInbox:true},signal);
           await scope.inbox.waitIdle(id,signal);
         });
+        if(failure)throw failure;
       } finally {
         try {await record.releaseDraft?.();}
         finally {

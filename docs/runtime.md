@@ -525,6 +525,17 @@ Attached `Agent.whenIdle()` first drains accepted application writes, then waits
 for native driver quiescence and refreshes the shared view. It follows a newer
 accepted publication before resolving, including work started by its refreshed
 event observers. Overlapping callers share one pending convergence promise.
+An enabled trusted plugin can call `Agent.runMaintenance(job)` on an idle
+Session. The Host reserves model execution before the callback starts. Web,
+TUI and plugin inputs can enter the same withdrawable inbox during the job.
+Status remains idle. Another maintenance job cannot enter. A previously
+accepted local wake keeps its place even while the native submission is in
+flight. Native admission decides whether other clients already own the driver.
+Session stop
+signals the callback, and Agent disposal waits for it to settle. Releasing
+the reservation wakes the ordinary driver if eligible inputs remain.
+`whenIdle()` follows the job and subsequent queued work. The callback and
+its reservation live only for the attached application generation.
 Factory disposal uses the same native idle wait after Session cancellation;
 it has no polling timer or repeated full-inbox capture. A held or paused inbox
 does not by itself keep the driver active. The wait does not reserve future idle

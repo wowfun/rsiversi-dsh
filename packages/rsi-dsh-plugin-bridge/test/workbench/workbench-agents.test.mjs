@@ -13,6 +13,79 @@ import {SessionProjectionJournal} from '../../src/session/session-projection-jou
 import {inputIntents} from '../../src/session/inbox/input-intents.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('a waking input already staged by the plugin wins admission before maintenance',{skip:!root||!process.env.RSI_DSH_INBOX_SOURCE},async t=>{
+  const {nativeInboxFixture,message}=await import('../fixtures/native-inbox-fixture.mjs');
+  const f=await nativeInboxFixture(t,{commitControl(){throw Error('native maintenance preceded the staged input');}});
+  f.state.submitGate=Promise.withResolvers();
+  await f.scope.runOwned(()=>{
+    f.agent.followup(message('first'));
+    try {assert.throws(()=>f.agent.runMaintenance(()=>{}),/already has active work/);}
+    finally {f.state.submitGate.resolve();}
+  });
+});
+test('plugin maintenance owns the idle agent until its callback settles',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context(),agentApi=await load('dsh-agent');
+  await ctx.plugin((await load('dsh-session-projection')).default);await ctx.plugin(agentApi.AgentRegistry);
+  const api={...await load('dsh-session'),...await load('dsh-session/surface'),...await load('dsh-util-values')};
+  const id='maintenance';let saved;
+  const journal=new SessionProjectionJournal(ctx,api,{header:api.Session.create(id).header},{save:value=>{saved=value;}});
+  let held, stop, cleared=0;
+  const scope=applicationSessions(async(method,args,signal)=>{
+    if(method==='application.cancel'){
+      assert.equal(args.keep_inbox,false);cleared++;return {session_id:id};
+    }
+    if(method==='application.command'){
+      assert.equal(args.operation.key,held);
+      if(args.operation.type==='wait_maintenance_cancel'){
+        await Promise.race([stop.promise,new Promise(done=>signal.addEventListener('abort',done,{once:true}))]);
+        return null;
+      }
+      assert.equal(args.operation.type,'finish_maintenance');held=undefined;return null;
+    }
+    throw Error('Unexpected native request '+method);
+  },{owner:'owner',commitControl(caller,session,op){
+    assert.equal(caller,'owner');assert.equal(session,id);assert.equal(op.type,'begin_maintenance');
+    assert.equal(held,undefined);held=op.key;stop=Promise.withResolvers();return true;
+  }});
+  t.after(async()=>{await ctx.fiber.dispose();await scope.close();});
+  scope.inbox.capture=async()=>({kind:'draft',shared:true,revision:0,pending:[]});
+  scope.inbox.waitIdle=async()=>{assert.equal(held,undefined);};
+  await workbenchAgents(ctx,scope,{
+    owner:()=>({journal,flush:options=>journal.flush(options),input:{reconcileClears(){},observeDraft(){},clear:()=>[],confirmClear(){},abandonClear(){}}}),
+    metadata:async()=>({selection_cursor:{kind:'draft',revision:0}}),
+    captureAgent:async()=>({session:journal.session,options:{}}),
+  },await load('dsh-scope'),agentApi,api.snapshotJsonValue);
+  const handle=await ctx.agents.resume({resumeSessionId:id}),{agent}=handle;
+  const afterStop=Promise.withResolvers();
+  let signal, idle=false;
+  const work=agent.runMaintenance(s=>{signal=s;return afterStop.promise;});
+  assert.equal(signal.aborted,false,'callback starts synchronously on native admission');
+  assert.equal(agent.status,'idle');
+  assert.throws(()=>agent.runMaintenance(()=>{}),/active work/);
+  const converged=agent.whenIdle().then(()=>{idle=true;});
+  const aborted=new Promise(done=>signal.addEventListener('abort',done,{once:true}));
+  stop.resolve();
+  await aborted;
+  assert.equal(idle,false);
+  assert.equal(signal.reason.kind,'user');
+  afterStop.resolve(17);
+  assert.equal(await work,17);
+  await converged;
+  await assert.rejects(agent.runMaintenance(()=>{throw Error('plugin failed');}),/plugin failed/);
+  assert.equal(held,undefined);
+  const closingWork=agent.runMaintenance(async s=>{
+    await new Promise(done=>s.addEventListener('abort',done,{once:true}));
+    agent.session.append('session/title',{title:'Maintenance finished',source:{kind:'user'},messageSeqs:[]});
+    return s.reason.kind;
+  });
+  await handle.dispose();
+  assert.equal(await closingWork,'disposed');assert.equal(held,undefined);assert.equal(cleared,1);
+  assert.equal(journal.session.lastEvent('session/title').data.title,'Maintenance finished');
+  assert.match(JSON.stringify(saved),/Maintenance finished/);
+});
+
 test('released telemetry captures a new fork marker and skips the saved log when that Agent reopens',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
