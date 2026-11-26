@@ -179,7 +179,7 @@ test('an acceptance with altered command provenance or content cannot acknowledg
 test('cold verification hashes the native splice before coordinate translation',enabled,async t=>{
   const f=await fixture(t);f.accept('input',user('input'));f.external('external');f.acknowledgement('input');await f.capture();
   const events=f.owner.source.current.session.snapshotEvents(),before=f.journal.encode();
-  const {projections,correlations}=inboxObservationProjection(f.journal,events,f.owner.source.current.inbox.transitions);
+  const {projections,correlations}=inboxObservationProjection(f.journal,events,seq=>events[seq]);
   const changed=structuredClone(events);changed[1].data.start=999;
   assert.throws(()=>f.journal.merge(changed,correlations,0,projections),/Native event prefix changed/);
   assert.equal(f.journal.encode(),before);await f.cold();

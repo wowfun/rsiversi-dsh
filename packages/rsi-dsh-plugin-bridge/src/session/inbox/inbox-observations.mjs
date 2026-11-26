@@ -1,13 +1,13 @@
 import {isDeepStrictEqual} from 'node:util';
-import {inboxReader} from './inbox-state.mjs';
+import {inboxReader,inboxTransitions} from './inbox-state.mjs';
 
 /** Translate native queue operations into the shared application's positional log. */
-export function inboxObservationProjection(journal,events,transitions) {
+export function inboxObservationProjection(journal,events,nativeEventAt) {
   const projections=new Map(),correlations=new Map();
-  if(!events.some(event=>transitions.has(event.seq)))return {projections,correlations};
-  const reader=inboxReader(journal,transitions),{identity,session,state,withdrawn}=reader;
+  if(!events.some(event=>inboxTransitions.has(event)))return {projections,correlations};
+  const reader=inboxReader(journal,nativeEventAt),{identity,session,state,withdrawn}=reader;
   for(const event of events) {
-    const transition=transitions.get(event.seq);if(!transition)continue;
+    const transition=inboxTransitions.get(event);if(!transition)continue;
     const inserted=transition.inserted.map(row=>({...identity(row),message:row.message,target:event.data.target}));
     const accepted=transition.kind==='accepted'&&inserted.length===1?inserted[0].operation:undefined;
     if(accepted) {

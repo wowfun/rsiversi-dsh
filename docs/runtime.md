@@ -612,8 +612,9 @@ Queue-only changes advance the real projected event log and notify ordinary
 Session observers. When only controls advance, the staged batch shares the
 committed Fact cursor, input claims and child catalog. A batch with new Facts
 isolates those changes until commit. Draft intents remain outside that durable event log.
-The inbox fold associates each Agent notification with its application event
-position. Publishing a batch consumes those positions in order, including a
+Each frozen native inbox splice owns its transition metadata. A staged splice
+is visible only through the log that contains that event, even when another
+branch uses the same sequence number. Publishing consumes the splices in order, including a
 native claim of an input that was already withdrawn locally.
 All events count toward the mirror's 64 MiB retained-log budget. Individual
 inputs use the native admission bounds; the workbench imposes no additional

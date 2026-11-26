@@ -55,7 +55,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       changed();for(const listener of listeners)try{listener(event);}catch(error){report(error);}
     };
     const journal=new SessionProjectionJournal(ctx,api,{header:source.current.session.header},{restore,adoptRestore:true,nativeEventState:'shared-frozen',
-      native:initial?.value.session.snapshotEvents(),transitions:initial?.value.inbox.transitions,nativePreset:()=>source.current.preset??row.meta?.preset,
+      native:initial?.value.session.snapshotEvents(),nativePreset:()=>source.current.preset??row.meta?.preset,
       save:storage?value=>storage.save(header.id,value):undefined,report,
       notify:(_session,event)=>{
         if(event.type==='model/selection')selectedModel=event.data;
@@ -72,7 +72,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       messageStatus:(id,signal)=>inbox.messageStatus(header.id,id,signal),
       readMessage:(id,seq,signal)=>readNativeMessage(operation=>read(header.id,operation,signal),
         operation=>releaseRead(header.id,operation),id,seq,signal),
-      transitions:()=>source.current.inbox.transitions,inbox:{
+      nativeEventAt:seq=>source.current.session.eventAt(seq),inbox:{
         capture:signal=>inbox.capture(header.id,signal),
         discardDraft:(ids,signal)=>inbox.discardDraft(header.id,ids,signal),
         mutate:(mutation,signal)=>inbox.mutate(header.id,mutation,signal),
@@ -109,7 +109,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           const saveCreation=!row.merged&&newOrigin;
           const after=row.merged?source.current.session.seq:0,events=native.session.snapshotEvents(after);
           const correlations=modelObservationCorrelations(journal,driver,events,native.origins);
-          const inbox=inboxObservationProjection(journal,events,native.inbox.transitions);
+          const inbox=inboxObservationProjection(journal,events,seq=>native.session.eventAt(seq));
           for(const [seq,id] of inbox.correlations)correlations.set(seq,id);
           const preceding=[];
           if(native.preset===undefined&&meta.preset!==undefined&&meta.preset!==(row.merged?row.meta?.preset:restoredNativePreset)) {

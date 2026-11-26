@@ -15,7 +15,7 @@ export class SessionProjectionJournal {
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
   #sourceDigest=createSourceDigest();#nativePreset;
   #liveTimer;#liveWrite=false;#liveRevision=-1;
-  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,adoptRestore=false,native,transitions,nativeEventState,nativePreset}={}) {
+  constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,adoptRestore=false,native,nativeEventState,nativePreset}={}) {
     this.#ctx=ctx;this.#api=api;this.#save=save;this.#notify=notify;this.#report=report;
     this.#sharedNative=nativeEventState==='shared-frozen';
     this.#nativePreset=nativePreset;
@@ -33,7 +33,7 @@ export class SessionProjectionJournal {
       for(const source of sources)this.#sourceDigest.update(source.hash);
       if(restore.version>=7&&this.#sourceDigest.copy().digest('hex')!==restore.sourceDigest)
         throw Error('Native event prefix changed');
-      seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native,transitions)),inheritedEventCount:restore.inheritedEventCount};
+      seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native)),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
       this.#restore(sources,restore.operations);
       this.#saved=0;this.#rewrite=restore.version<8;

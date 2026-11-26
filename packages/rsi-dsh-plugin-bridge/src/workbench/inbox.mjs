@@ -1,9 +1,9 @@
 import {contentBlocks,nativeMessageSource,nativeMessageId} from '../history/conversation-history.mjs';
+import {inboxTransitions} from '../session/inbox/inbox-state.mjs';
 
 /** Fold committed controls; the native queue remains the only execution owner. */
 export function workbenchInbox(seed) {
   const rows=new Map(seed?.rows);
-  const transitions=new Map(seed?.transitions);
   let successor=seed?.successor;
   const list=target=>[...rows.values()].filter(row=>row.target===target)
     .sort((a,b)=>a.accepted-b.accepted);
@@ -16,7 +16,7 @@ export function workbenchInbox(seed) {
       transition.inserted[index].message=event.data.inserted[index];
     if(effects.length)transition.notifications=effects.map(effect=>effect.type==='agent/inbox/inserted'
       ?{...effect,data:{message:event.data.inserted.find(message=>message.id===effect.data.message.id)}}:effect);
-    transitions.set(event.seq,transition);
+    inboxTransitions.set(event,transition);
   }
   function insert(session,time,row,kind,effects) {
     rows.set(row.nativeId,row);
@@ -33,7 +33,7 @@ export function workbenchInbox(seed) {
       {kind:event.kind,removed:[row],inserted:[]});
     return row;
   }
-  return {transitions,branch:()=>workbenchInbox({rows,transitions,successor}),
+  return {branch:()=>workbenchInbox({rows,successor}),
     snapshot:()=>({'next-step':list('next_step').map(row=>row.message),
     'next-turn':list('next_turn').map(row=>row.message)}),observe(event,session,turn,inboxSlotFrom=0) {
     if(successor&&event.kind!=='accepted')throw Error('Native inbox successor lacks its next acceptance');

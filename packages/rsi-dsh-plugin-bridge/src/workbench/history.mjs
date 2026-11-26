@@ -83,7 +83,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
         if(event.type==='model/selection')modelSelection={...modelSelection,next:event.data};
         if(event.type==='request/header')modelSelection={...modelSelection,lastUsed:lastUsedModel(api.canonicalHeader(event.data.header))};
         if(event.type==='agent/inbox/spliced'){
-          inboxPrefix??=inboxReader(owner.journal,()=>owner.source.current.inbox.transitions);
+          inboxPrefix??=inboxReader(owner.journal,seq=>owner.source.current.session.eventAt(seq));
           inbox=inboxPrefix.prefix(seq+1).snapshot();
         }
         if(event.type==='tool/result'&&next.values.subagentCatalog.length){

@@ -15,8 +15,8 @@ function queueReceipt(id,input,receipt) {
 }
 
 /** Application acceptance is synchronous; the native mailbox remains the execution owner. */
-export function inputIntents(journal,{command,submit,messageStatus,readMessage,beforeSubmit,inbox,transitions}) {
-  let tail=Promise.resolve(),settledThrough=0;const undispatched=new Set(),reader=inboxReader(journal,transitions);
+export function inputIntents(journal,{command,submit,messageStatus,readMessage,beforeSubmit,inbox,nativeEventAt}) {
+  let tail=Promise.resolve(),settledThrough=0;const undispatched=new Set(),reader=inboxReader(journal,nativeEventAt);
   const read=()=>reader.prefix();
   const inputs=()=>journal.operations().filter(row=>journal.session.eventAt(row.seq).type==='agent/inbox/spliced');
   const pendingClears=new Set(inputs().filter(row=>row.invocation?.kind==='clear-inputs'&&!row.receipt).map(row=>row.id));

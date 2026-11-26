@@ -300,7 +300,7 @@ for(const open of [false,true])test(`original registry owns ${open?'open':'compl
       if(!owner) {
         const journal=new SessionProjectionJournal(ctx,api,{header:{version:4,id,createdAt:1,cwd:process.cwd(),isSeeded:false}}, {save:async()=>{}});
         const input=inputIntents(journal,{command:(op,signal)=>scope.command(id,op,signal),
-          submit:(value,signal)=>scope.submit(id,value,signal),transitions:()=>new Map(),inbox:{
+          submit:(value,signal)=>scope.submit(id,value,signal),inbox:{
           capture:signal=>scope.inbox.capture(id,signal),discardDraft:(ids,signal)=>scope.inbox.discardDraft(id,ids,signal),
           mutate:(mutation,signal)=>scope.inbox.mutate(id,mutation,signal)}});
         owner={journal,input,flush:()=>journal.flush(),driver:{ready:async()=>{}},model:()=>({next:selection})};

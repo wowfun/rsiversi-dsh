@@ -7,6 +7,7 @@ import {setImmediate} from 'node:timers/promises';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {followAssistant} from '../../src/workbench/assistant.mjs';
 import {workbenchSource} from '../../src/workbench/source.mjs';
+import {inboxTransitions} from '../../src/session/inbox/inbox-state.mjs';
 import {historyPage} from '../fixtures/history-page.mjs';
 import {nativeInboxFixture} from '../fixtures/native-inbox-fixture.mjs';
 
@@ -115,9 +116,16 @@ test('one control page reconstructs a full native inbox without per-message read
   const withdrawal=await source.stage(read,async()=>{},undefined,0,66);
   assert.equal(withdrawal.value.inbox.snapshot()['next-step'].length,63);
   assert.equal(inbox.snapshot()['next-step'].length,64);
-  assert.equal(inbox.transitions.size,64);
+  const seq=source.current.session.seq;
+  const discarded=withdrawal.value.session.eventAt(seq);
+  controls[65]={...controls[65],message_id:'input-1'};
+  const other=await source.stage(read,async()=>{},undefined,0,66);
+  assert.equal(inboxTransitions.get(other.value.session.eventAt(seq)).removed[0].nativeId,'input-1');
+  assert.equal(inboxTransitions.get(discarded).removed[0].nativeId,'input-0');
+  assert.equal(source.current.session.eventAt(seq),undefined);
   withdrawal.commit();
-  assert.equal(source.current.inbox.transitions.size,65);
+  assert.equal(source.current.session.eventAt(seq),discarded);
+  assert.throws(()=>other.commit(),/lost its original source/);
 });
 
 test('native controls split observation without splitting the captured Fact page',{skip:!root},async t=>{

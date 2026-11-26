@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workbenchInbox} from '../../src/workbench/inbox.mjs';
+import {inboxTransitions} from '../../src/session/inbox/inbox-state.mjs';
 import {workbenchHistory} from '../../src/workbench/history.mjs';
 import {SessionFacade} from '../../src/session/session.mjs';
 import {inputMessage,observeInput} from '../../src/history/conversation-history.mjs';
@@ -38,14 +39,14 @@ test('an accepted control carries its body without rereading the native acceptan
   }
   finally {session.end();}
   assert.equal(inbox.snapshot()['next-step'][0].content[0].text,'owned');
-  const accepted=inbox.transitions.get(0).inserted[0];
+  const accepted=inboxTransitions.get(session.eventAt(0)).inserted[0];
   const promoted=inbox.branch();
   session.begin();
   try {promoted.observe({kind:'promoted',message_id:'one',seq:2,time:2},session,0);}
   finally {session.end();}
-  assert.equal(promoted.transitions.get(1).removed[0],accepted);
+  assert.equal(inboxTransitions.get(session.eventAt(1)).removed[0],accepted);
   assert.equal(accepted.target,'next_step');
-  assert.equal(promoted.transitions.get(2).inserted[0].target,'next_turn');
+  assert.equal(inboxTransitions.get(session.eventAt(2)).inserted[0].target,'next_turn');
   assert.deepEqual(inbox.snapshot()['next-turn'],[]);
 });
 for(const sourceType of ['command','human'])test(`${sourceType} inbox transitions agree with the original DSH fold across replacement, promotion, claim and discard`,
@@ -84,14 +85,14 @@ for(const sourceType of ['command','human'])test(`${sourceType} inbox transition
       session.begin();try{inbox.observe(control,session,1);}finally{session.end();}
       inbox=inbox.branch();
       assert.deepEqual(ctx.sessionProjections.snapshot(session).values.inbox,inbox.snapshot());
-      for(const [seq,transition] of inbox.transitions)for(const [position,row] of transition.inserted.entries())
-        assert.equal(row.message,session.eventAt(seq).data.inserted[position],'transitions retain the admitted frozen message');
+      for(const event of session.snapshotEvents())for(const [position,row] of inboxTransitions.get(event).inserted.entries())
+        assert.equal(row.message,event.data.inserted[position],'transitions retain the admitted frozen message');
       if(index===4)assert.deepEqual(inbox.snapshot()['next-turn'].map(row=>row.id),['a','b']);
       if(index===7)assert.deepEqual(inbox.snapshot()['next-turn'].map(row=>row.id),['a','b','original:c']);
     }
     assert.equal(reads.length,3,'native input larger than 256 KiB crosses control fragments without another message read');
     assert.ok(reads.every(op=>op.type==='controls'));
-    const notices=[...inbox.transitions.values()].flatMap(row=>row.notifications??[]);
+    const notices=session.snapshotEvents().flatMap(event=>inboxTransitions.get(event).notifications??[]);
     assert.deepEqual(notices.filter(row=>row.type==='agent/inbox/claimed').map(row=>[row.data.message.id,row.data.turn]),[['original:c',1],['b',1]]);
     assert.ok(notices.every(row=>Object.isFrozen(row.data.message)));
     const replay=new SessionFacade(ctx,api,{header:session.header,events:JSON.parse(JSON.stringify(session.snapshotEvents()))});

@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {presetId,remap} from './session.mjs';
 import {inboxObservationProjection} from './inbox/inbox-observations.mjs';
+import {inboxTransitions} from './inbox/inbox-state.mjs';
 import {restoreInputOperation} from './inbox/input-invocation.mjs';
 
 export const maximumJournalBytes=128*1024*1024;
@@ -94,7 +95,7 @@ export function readJournalDocument(document) {
 }
 
 /** Rebuild a candidate log; the owner's first merge verifies its source hashes and correlations. */
-export function restoreJournalEvents(state,native=[],transitions=new Map()) {
+export function restoreJournalEvents(state,native=[]) {
   if(state.version===1)return state.events;
   if(native.length<state.sources.length)throw Error('Native event prefix moved backwards');
   const events=new Array(state.eventCount),at=new Map(state.operations.map(row=>[row.seq,row]));
@@ -119,20 +120,22 @@ export function restoreJournalEvents(state,native=[],transitions=new Map()) {
     previous=event.seq;events[event.seq]=event;
   }
   for(const operation of state.operations)if(!integer(operation.seq)||!events[operation.seq])throw Error('Application mutation record lost its accepted event');
+  const splices=[];
   for(const [index,source] of state.sources.entries()) {
     const event=native[index];
     if(event?.seq!==index)throw Error('Native event positions are not dense');
+    if(inboxTransitions.has(event))splices.push(event);
     if(events[source.seq]) {
       if(at.get(source.seq)?.id!==source.operation||source.operation===undefined)
         throw Error('Native-only event body persisted in application journal');
     } else events[source.seq]=remap(event,source.seq,seq=>state.sources[seq]);
   }
   for(let seq=0;seq<events.length;seq++)if(!events[seq])throw Error('Application journal contains unowned event positions');
-  if(!transitions.size)return events;
+  if(!splices.length)return events;
   const operations=new Map(state.operations.map(row=>[row.id,row]));
   const view={session:{seq:events.length,eventAt:seq=>events[seq]},nativeSeq:state.sources.length,revision:0,
     sourceAt:seq=>state.sources[seq],operations:()=>state.operations,operation:id=>operations.get(id),operationAt:seq=>at.get(seq)};
-  const {projections}=inboxObservationProjection(view,native.slice(0,state.sources.length),transitions);
+  const {projections}=inboxObservationProjection(view,splices,seq=>native[seq]);
   for(const [index,data] of projections) {
     const seq=state.sources[index].seq;
     // An application event at a native position already matched its operation above.

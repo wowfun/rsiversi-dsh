@@ -1,5 +1,8 @@
 import {isDeepStrictEqual} from 'node:util';
 
+/** Queue provenance belongs to the frozen source event, including on an uncommitted branch. */
+export const inboxTransitions=new WeakMap();
+
 export const isDirectSubmission=source=>source?.type==='human'||source?.type==='application';
 
 export function inputNativeId(operation) {
@@ -36,7 +39,7 @@ function inputIdentities(journal) {
 }
 
 /** A prefix fold used by observation, public snapshots and mutation settlement. */
-export function inboxReader(journal,transitions=()=>new Map()) {
+export function inboxReader(journal,nativeEventAt) {
   const session=journal.session,nativeAtApplication=new Map();
   const state={'next-step':[],'next-turn':[]},withdrawn=new Set(),removed=new Map(),notifications=new Map();
   let through=0,nativeThrough=0,snapshot,identities,identityRevision;
@@ -45,9 +48,8 @@ export function inboxReader(journal,transitions=()=>new Map()) {
     return identities(row);
   }
   function updateSources() {
-    const current=typeof transitions==='function'?transitions():transitions;
     for(;nativeThrough<journal.nativeSeq;nativeThrough++) {
-      const source=journal.sourceAt(nativeThrough),transition=current.get(nativeThrough);
+      const source=journal.sourceAt(nativeThrough),transition=inboxTransitions.get(nativeEventAt?.(nativeThrough));
       if(transition&&!source.operation)nativeAtApplication.set(source.seq,transition);
     }
   }
