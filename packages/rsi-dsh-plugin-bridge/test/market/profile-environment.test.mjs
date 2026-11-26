@@ -19,6 +19,9 @@ test('the market separates runtime downloads and selects fixture-owned discovery
   await writeMarketServiceProfile({receipt,document:dir,state,profile:'market',output});
   const config=await readFile(output,'utf8');
   assert.match(config,/^host_desktop = true$/m);
+  assert.deepEqual(JSON.parse(/^replace_tools_in_presets = (.+)$/m.exec(config)[1]),['standard']);
+  assert.deepEqual(JSON.parse(/^replace_preset_tools = (.+)$/m.exec(config)[1]).sort(),
+    ['schedule_create','schedule_delete','schedule_list','schedule_resume']);
   // The producer emits an inline TOML table of JSON-quoted string fields.
   const table=/^environment = \{(.*)\}$/m.exec(config)[1];
   const env=JSON.parse('{'+table.replace(/("(?:[^"\\]|\\.)*") = /g,'$1:')+'}');

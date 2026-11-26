@@ -412,7 +412,8 @@ If the native submit handler returns an error, the bridge checks the original
 message ID. A committed input keeps its receipt. A confirmed refusal retires
 the local insertion before the producer retries. A lost transport reply leaves
 the original ID available for reconciliation.
-The market Host assigns the native `standard` preset's reminder tools to this
+The market Host assigns the native `standard` preset's `schedule_create`,
+`schedule_list`, `schedule_resume` and `schedule_delete` tools to this
 application. Its model calls use the original Schedule tools and the same store
 as the page. Other native presets keep the reminder tools in their composition.
 
