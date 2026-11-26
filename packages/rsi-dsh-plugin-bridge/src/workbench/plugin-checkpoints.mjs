@@ -47,10 +47,10 @@ export function checkpointEngine(Basic) {
       const provider = this[engineContext];
       const entry = loaderEntry(provider);
       if (!entry) throw Error('A plugin checkpoint requires its active Loader entry');
-      const region = binding.region(start, end);
       return runRegion(session, () => binding.scope.withCaller(async stop => {
         await binding.scope.checkpointOwner(agent.id, stop);
         provider.fiber.assertActive();
+        const region = binding.region(start, end);
         const transaction = {session, binding, next: session.seq};
         await transactions.run(transaction, () => super.compactRegion(start, end, agent, stop));
         const {summary, message, opening} = transaction;

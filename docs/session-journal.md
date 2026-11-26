@@ -74,7 +74,10 @@ at the observed Fact prefix. The system head and partial tool interactions
 cannot be selected. The result names the installed checkpoint, its summary
 event and the application sequences it replaced. A plugin extending the
 released basic engine can supply its own summary without configuring a
-conversation model. The Host records the Loader entry that supplied the engine,
+conversation model. For a plugin-supplied summary, the bridge captures the native
+positions after caller authorization, at the same surface the engine starts
+summarizing. A later change to that surface invalidates the replacement.
+The Host records the Loader entry that supplied the engine,
 including when another plugin calls it. Unloading that engine closes its ability
 to submit new checkpoints. The Host stores the framed user message with each
 text block in its native `content.text` field. Plugins and replayed DSH events

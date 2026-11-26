@@ -69,13 +69,19 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
       const value=Reflect.get(target,key,target);
       return typeof value==='function'?value.bind(target):value;
     }});
-    let fact, rejectCommit=true;
+    let fact, rejectCommit=true, through=2;
+    const authorizing=Promise.withResolvers(), authorized=Promise.withResolvers();
     const scope=applicationSessions(async(method,{session_id:id,request,operation:op})=>{
       assert.equal(method,'application.command');
       assert.equal(id,raw.id);
       if(request==='guest'){assert.equal(op.type,'check_checkpoint_owner');return false;}
-      assert.equal(request,'enabled-plugin');
+      if(request==='owner-browser' && op.type==='check_checkpoint_owner'){
+        authorizing.resolve();
+        return authorized.promise;
+      }
+      assert.ok(['enabled-plugin','owner-browser'].includes(request));
       assert.equal(op.type,'install_plugin_checkpoint');
+      assert.equal(op.checkpoint.through_seq,through,'the native prefix must match the surface observed by the summarizer');
       assert.equal(op.checkpoint.plugin,'dsh-template-checkpoint');
       assert.deepEqual(op.checkpoint.message.content.slice(1,-1),[{type:'text',content:{text:'ORCHID'}}]);
       if(rejectCommit)return {rejected:'conversation changed'};
@@ -83,7 +89,7 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
       return null;
     },{owner:'enabled-plugin'});
     t.after(()=>scope.close());
-    bindCheckpointSession(session,{region:()=>({turn_id:'open',through_seq:2,start:0,end:0}),
+    bindCheckpointSession(session,{region:()=>({turn_id:'open',through_seq:through,start:0,end:0}),
       lifecycle:(type,data)=>journal.accept(type+':'+data.compactionId,type,data),
       scope,
       async refresh(){
@@ -114,7 +120,15 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
     assert.equal(fact,undefined,'unloaded provider cannot submit a late summary');
     await ctx.loader.update(entry,{disabled:false});
     await ctx.loader.await();
-    const result=await engine.compactRegion(source.seq,source.seq,agent);
+    const owner=await scope.prepare({url:'/',headers:{'x-rsi-upstream-request':'owner-browser'}});
+    const compacted=owner(()=>engine.compactRegion(source.seq,source.seq,agent));
+    await authorizing.promise;
+    raw.append('user/message',llm.createUserMessage({content:[{type:'text',text:'arrived before summarization'}],
+      source:{kind:'user'}}),{surfaceOp:'append'});
+    journal.merge(raw.snapshotEvents());
+    through++;
+    authorized.resolve(true);
+    const result=await compacted;
     assert.equal(runs,3);
     assert.deepEqual(result.summary,[{type:'text',text:'ORCHID'}]);
     assert.deepEqual(result.shadowedSeqs,[source.seq]);
@@ -123,6 +137,7 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
     assert.match(session.eventAt(source.seq).data.content[0].text,/old text/);
     const framed=fact.checkpoint.message.content.map(({type,content})=>({type,text:content.text}));
     assert.deepEqual(session.eventAt(session.surface.nodes[0]).data.content,framed);
+    assert.equal(session.eventAt(session.surface.nodes.at(-1)).data.content[0].text,'arrived before summarization');
     assert.equal(session.snapshotEvents().filter(e=>e.type==='compaction/start').length,4);
     const cold=new SessionProjectionJournal(ctx,api,seed,{restore:readJournalDocument(journal.encode()),native:raw.snapshotEvents()});
     assert.deepEqual(cold.session.snapshotEvents(),session.snapshotEvents());
