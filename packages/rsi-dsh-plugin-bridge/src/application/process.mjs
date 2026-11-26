@@ -132,7 +132,9 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load,{tools,importer}),defaults));
     const {Deque}=await load('@deepseek-ai/dsh-deque');
     const desktop=await load('@deepseek-ai/dsh-native-command');
-    hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque,desktop},sessionScope,history,interactions,
+    const {SessionQueryError}=await load('@deepseek-ai/dsh-session-query');
+    const searchApi={...await load('@deepseek-ai/dsh-api-session-controller/types'),RemoteError,SessionQueryError};
+    hostModules.set('@deepseek-ai/dsh-api-session-controller',sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque,desktop,searchApi},sessionScope,history,interactions,
       (id,signal,source)=>agents.ensure(id,signal,source)));
     ctx.plugin((await load('@deepseek-ai/dsh-api-session-controller')).SessionSkillCatalog);
     const workspaceModule='@deepseek-ai/dsh-api-workspace-controller';

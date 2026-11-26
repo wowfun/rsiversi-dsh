@@ -450,7 +450,15 @@ An active HTTP caller retains its Workspace authority. Calls originating in
 the application use its trusted callback.
 Opening a workbench transcript attaches a live mirror without waking a model. Listing remains cold;
 sidebar reads refresh existing Agents and leave unattached side conversations for
-the caller's resume setup. Owned Agents and their working directories remain
+the caller's resume setup. Sidebar content search uses the workbench's scoped
+`sessionQuery` service. The released Web profile disables its full-text index
+by default. A deployment can select `first-search` on the same provider row.
+Searching then returns snippets from current user and assistant messages in
+visible Sessions with a working directory, without activating an Agent. Remote
+Session grants filter the bounded result page. The optional model search
+bundle owns its separate query scope.
+
+Owned Agents and their working directories remain
 accessible outside a browser request. Each mirror reads history and
 pending input at one native cut: durable inbox openings include the history
 metadata and model baseline from that same native inspection, with no separate

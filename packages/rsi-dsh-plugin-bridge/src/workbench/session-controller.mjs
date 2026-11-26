@@ -1,6 +1,7 @@
 import {hostname} from 'node:os';
 import {resolve} from 'node:path';
 import {updateQueue} from './queue.mjs';
+import {searchSessionMessages} from './session-search.mjs';
 import {observeSessionEvents} from './event-stream.mjs';
 import {observeSessionState,readSessionState} from './session-state.mjs';
 
@@ -27,7 +28,7 @@ function sessionResource({args,parameters}) {
   }
 }
 
-export function sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque,desktop},scope,history,interactions,activate) {
+export function sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque,desktop,searchApi},scope,history,interactions,activate) {
   return class extends TypertRemoteService {
     claims=new Map();
     static inject=['typert','remoteAccess'];
@@ -247,6 +248,12 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
       const items=rows.map(row=>this.summary(row));
       items.sort((left,right)=>right.updatedAt-left.updatedAt);
       return {items};
+    }
+    async search({query},signal) {
+      const access=this.readerAccess;
+      const result=await this.read(stop=>searchSessionMessages(this.ctx.get('sessionQuery'),query,stop,searchApi),signal);
+      if(access)result.items=result.items.filter(item=>access.allows({kind:'session',id:item.sessionId}));
+      return result;
     }
   };
 }
