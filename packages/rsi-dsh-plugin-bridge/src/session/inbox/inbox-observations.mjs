@@ -1,11 +1,12 @@
 import {isDeepStrictEqual} from 'node:util';
-import {inboxReader,inboxTransitions} from './inbox-state.mjs';
+import {inboxTransitions,inputIdentities,splicePending} from './inbox-state.mjs';
 
 /** Translate native queue operations into the shared application's positional log. */
-export function inboxObservationProjection(journal,events,nativeEventAt) {
+export function inboxObservationProjection(journal,events,reader) {
   const projections=new Map(),correlations=new Map();
   if(!events.some(event=>inboxTransitions.has(event)))return {projections,correlations};
-  const reader=inboxReader(journal,nativeEventAt),{identity,session,state,withdrawn}=reader;
+  const identity=inputIdentities(journal),{session,withdrawn}=reader;
+  let pending;
   for(const event of events) {
     const transition=inboxTransitions.get(event);if(!transition)continue;
     const inserted=transition.inserted.map(row=>({...identity(row),message:row.message,target:event.data.target}));
@@ -19,7 +20,10 @@ export function inboxObservationProjection(journal,events,nativeEventAt) {
       correlations.set(event.seq,accepted.id);projections.set(event.seq,original.data);
       continue;
     }
-    const source=journal.sourceAt(event.seq);reader.prefix(source?source.seq:session.seq);
+    const source=journal.sourceAt(event.seq);
+    // Replays visit published positions. New events share only the committed
+    // queue arrays; splicePending replaces a queue in the candidate's own view.
+    const state=source?reader.prefix(source.seq).state:(pending??={...reader.prefix().state});
     let target=event.data.target,list=state[target],start=0,removedCount=0;
     if(transition.removed.length) {
       const removed=transition.removed[0],key=identity(removed).key;
@@ -43,7 +47,7 @@ export function inboxObservationProjection(journal,events,nativeEventAt) {
     const visible=inserted.filter(row=>!withdrawn.has(row.key));
     const data={target,start,...(removedCount?{removedCount}:{}),inserted:visible.map(row=>row.message),
       ...(removedCount&&event.data.outcome?{outcome:event.data.outcome}:{})};
-    projections.set(event.seq,data);reader.apply(data,visible);
+    projections.set(event.seq,data);splicePending(state,data,visible);
     if(source)reader.observed(source.seq);
   }
   return {projections,correlations};

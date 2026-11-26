@@ -12,7 +12,7 @@ export function inputNativeId(operation) {
 }
 
 /** Bind native acceptances to local operations without using a reusable presentation ID. */
-function inputIdentities(journal) {
+export function inputIdentities(journal) {
   const observed=new Map(journal.operations().filter(row=>['observed-input','submission'].includes(row.invocation?.kind))
     .map(row=>[inputNativeId(row),row])),cache=new Map();
   return row=>{
@@ -38,6 +38,22 @@ function inputIdentities(journal) {
   };
 }
 
+/** Apply one positional splice, replacing only its target queue after validation. */
+export function splicePending(state,data,inserted) {
+  const list=state[data.target],count=data.removedCount??0;
+  if(!list||!Number.isSafeInteger(data.start)||data.start<0||!Number.isSafeInteger(count)||count<0||data.start+count>list.length)
+    throw Error('Application inbox splice is outside its accepted prefix');
+  const next=list.toSpliced(data.start,count,...inserted);
+  const other=state[data.target==='next-step'?'next-turn':'next-step'];
+  const ids=new Set();
+  for(const rows of [next,other])for(const row of rows) {
+    if(ids.has(row.message.id))throw Error('Application inbox contains a duplicate pending message');
+    ids.add(row.message.id);
+  }
+  state[data.target]=next;
+  return list;
+}
+
 /** A prefix fold used by observation, public snapshots and mutation settlement. */
 export function inboxReader(journal,nativeEventAt) {
   const session=journal.session,nativeAtApplication=new Map();
@@ -60,19 +76,10 @@ export function inboxReader(journal,nativeEventAt) {
       get nativeId(){return inputNativeId(journal.operation(id));}};
   }
   function apply(data,inserted,operation,event) {
-    const list=state[data.target],count=data.removedCount??0;
-    if(!list||!Number.isSafeInteger(data.start)||data.start<0||!Number.isSafeInteger(count)||count<0||data.start+count>list.length)
-      throw Error('Application inbox splice is outside its accepted prefix');
-    const next=list.toSpliced(data.start,count,...inserted);
-    const other=state[data.target==='next-step'?'next-turn':'next-step'];
-    const ids=new Set();
-    for(const row of [...next,...other]) {
-      if(ids.has(row.message.id))throw Error('Application inbox contains a duplicate pending message');
-      ids.add(row.message.id);
-    }
-    const old=list.slice(data.start,data.start+count);state[data.target]=next;
+    const list=splicePending(state,data,inserted);
     snapshot=undefined;
     if(operation) {
+      const old=list.slice(data.start,data.start+(data.removedCount??0));
       removed.set(operation.id,old);
       if(data.outcome==='canceled')for(const row of old)withdrawn.add(row.key);
       if(operation.invocation?.kind==='restored-input')for(const row of inserted)withdrawn.delete(row.key);
@@ -99,7 +106,7 @@ export function inboxReader(journal,nativeEventAt) {
       effect.type==='agent/inbox/claimed'||(effect.type==='agent/inbox/inserted'
         ?inserted.some(row=>row.message.id===effect.data.message.id):event.data.removedCount>0)));
   }
-  return {session,state,withdrawn,removed,notifications,identity,apply,
+  return {session,state,withdrawn,removed,notifications,
     prefix(end=session.seq) {
       if(end<through)throw Error('Native inbox observation rewound its application prefix');
       updateSources();

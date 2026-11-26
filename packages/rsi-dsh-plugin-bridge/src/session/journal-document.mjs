@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {presetId,remap} from './session.mjs';
 import {inboxObservationProjection} from './inbox/inbox-observations.mjs';
-import {inboxTransitions} from './inbox/inbox-state.mjs';
+import {inboxReader,inboxTransitions} from './inbox/inbox-state.mjs';
 import {restoreInputOperation} from './inbox/input-invocation.mjs';
 
 export const maximumJournalBytes=128*1024*1024;
@@ -135,7 +135,7 @@ export function restoreJournalEvents(state,native=[]) {
   const operations=new Map(state.operations.map(row=>[row.id,row]));
   const view={session:{seq:events.length,eventAt:seq=>events[seq]},nativeSeq:state.sources.length,revision:0,
     sourceAt:seq=>state.sources[seq],operations:()=>state.operations,operation:id=>operations.get(id),operationAt:seq=>at.get(seq)};
-  const {projections}=inboxObservationProjection(view,splices,seq=>native[seq]);
+  const {projections}=inboxObservationProjection(view,splices,inboxReader(view,seq=>native[seq]));
   for(const [index,data] of projections) {
     const seq=state.sources[index].seq;
     // An application event at a native position already matched its operation above.

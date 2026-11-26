@@ -3,6 +3,7 @@ import {SessionProjectionJournal} from '../session/session-projection-journal.mj
 import {modelIntents,modelObservationCorrelations} from '../session/model-intents.mjs';
 import {inboxObservationProjection} from '../session/inbox/inbox-observations.mjs';
 import {inputIntents} from '../session/inbox/input-intents.mjs';
+import {inboxReader} from '../session/inbox/inbox-state.mjs';
 import {workbenchSource} from './source.mjs';
 import {restoredPermissionSeed} from './permission.mjs';
 import {workbenchModel} from './model.mjs';
@@ -67,12 +68,13 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
       if(!command)throw Error('Native Session commands unavailable');
       return command(header.id,operation,signal);
     };
-    const driver=modelIntents(journal,nativeCommand),input=inputIntents(journal,{command:nativeCommand,
+    const reader=inboxReader(journal,seq=>source.current.session.eventAt(seq));
+    const driver=modelIntents(journal,nativeCommand),input=inputIntents(journal,{command:nativeCommand,reader,
       submit:(value,signal)=>submit(header.id,value,signal),beforeSubmit:signal=>driver.ready(signal),
       messageStatus:(id,signal)=>inbox.messageStatus(header.id,id,signal),
       readMessage:(id,seq,signal)=>readNativeMessage(operation=>read(header.id,operation,signal),
         operation=>releaseRead(header.id,operation),id,seq,signal),
-      nativeEventAt:seq=>source.current.session.eventAt(seq),inbox:{
+      inbox:{
         capture:signal=>inbox.capture(header.id,signal),
         discardDraft:(ids,signal)=>inbox.discardDraft(header.id,ids,signal),
         mutate:(mutation,signal)=>inbox.mutate(header.id,mutation,signal),
@@ -109,7 +111,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
           const saveCreation=!row.merged&&newOrigin;
           const after=row.merged?source.current.session.seq:0,events=native.session.snapshotEvents(after);
           const correlations=modelObservationCorrelations(journal,driver,events,native.origins);
-          const inbox=inboxObservationProjection(journal,events,seq=>native.session.eventAt(seq));
+          const inbox=inboxObservationProjection(journal,events,row.merged?reader:inboxReader(journal,seq=>native.session.eventAt(seq)));
           for(const [seq,id] of inbox.correlations)correlations.set(seq,id);
           const preceding=[];
           if(native.preset===undefined&&meta.preset!==undefined&&meta.preset!==(row.merged?row.meta?.preset:restoredNativePreset)) {

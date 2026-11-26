@@ -11,6 +11,7 @@ import {contextRequest} from '../../../src/session/inbox/input-invocation.mjs';
 import {contextIntent,nativeMessagePage} from '../../fixtures/native-inbox-fixture.mjs';
 import {historyPage} from '../../fixtures/history-page.mjs';
 import {inboxObservationProjection} from '../../../src/session/inbox/inbox-observations.mjs';
+import {inboxReader} from '../../../src/session/inbox/inbox-state.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT,source=process.env.RSI_DSH_INBOX_SOURCE;
 const enabled={skip:!root||!source};
@@ -71,6 +72,27 @@ async function fixture(t) {
   }
   return {session,owner,journal,capture,state,control,accept,acknowledgement,external,remove,cold,messages,controls,documents};
 }
+
+test('new native batches start at the committed inbox and discard rejected splices',enabled,async t=>{
+  const f=await fixture(t);
+  for(let n=0;n<32;n++)f.journal.accept('mode-'+n,'plan/mode',{active:n%2===0});
+  const before=f.owner.input.snapshot(),cut=f.session.seq;
+  const read=f.session.eventAt.bind(f.session);
+  let previousReads=0;
+  f.session.eventAt=seq=>{if(seq<cut)previousReads++;return read(seq);};
+  f.external('first');
+  f.external('second');
+  const advance=f.journal.advance.bind(f.journal);
+  f.journal.advance=()=>{throw Error('fixture rejects the batch');};
+  await assert.rejects(f.capture(),/fixture rejects the batch/);
+  assert.equal(f.owner.input.snapshot(),before);
+  f.journal.advance=advance;
+  await f.capture();
+  const next=f.owner.input.snapshot();
+  assert.deepEqual(next['next-step'].map(message=>message.content[0].text),['first','second']);
+  assert.equal(previousReads,0,'a new native batch reread committed application events');
+  await f.cold();
+});
 
 test('correlated input storage preserves local coordinates and rejects missing or changed native ownership',enabled,async t=>{
   const f=await fixture(t),text='native-owned-'.repeat(25_000),accepted=f.accept('owned',user('owned',text));
@@ -179,7 +201,7 @@ test('an acceptance with altered command provenance or content cannot acknowledg
 test('cold verification hashes the native splice before coordinate translation',enabled,async t=>{
   const f=await fixture(t);f.accept('input',user('input'));f.external('external');f.acknowledgement('input');await f.capture();
   const events=f.owner.source.current.session.snapshotEvents(),before=f.journal.encode();
-  const {projections,correlations}=inboxObservationProjection(f.journal,events,seq=>events[seq]);
+  const {projections,correlations}=inboxObservationProjection(f.journal,events,inboxReader(f.journal,seq=>events[seq]));
   const changed=structuredClone(events);changed[1].data.start=999;
   assert.throws(()=>f.journal.merge(changed,correlations,0,projections),/Native event prefix changed/);
   assert.equal(f.journal.encode(),before);await f.cold();

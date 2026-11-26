@@ -334,6 +334,9 @@ for the Agent's synchronous inbox mutation driver. Native observations alone do
 not prove withdrawal succeeded natively.
 
 The inbox reader retains an application event cursor and folds only new events.
+Each new native batch starts from the committed pending queues. Its proposed
+splices replace queues privately until the journal admits the whole batch.
+Cold replay translates previously published splices at their original positions.
 Unchanged reads reuse the immutable pending snapshot. Operation metadata is read
 through the journal's event-position index: preparation and receipts become
 visible without replaying the event prefix or changing an earlier public snapshot.
