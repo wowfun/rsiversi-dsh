@@ -1,5 +1,14 @@
 import {randomUUID} from 'node:crypto';
 
+const runningRegions = new WeakSet();
+
+export async function runRegion(session, compute) {
+  if (runningRegions.has(session)) throw Error('A compaction is already running');
+  runningRegions.add(session);
+  try { return await compute(); }
+  finally { runningRegions.delete(session); }
+}
+
 // The native projection and journal use different event sequences once plugins
 // append records. Only native retained messages occupy context positions.
 export function retainedRegion(owner, start, end) {
@@ -24,7 +33,7 @@ export function retainedRegion(owner, start, end) {
   throw Error('compactRegion requires ordered endpoints on the current surface');
 }
 
-function installedResult(session, matches, ManualCompactionError) {
+export function installedResult(session, matches, ManualCompactionError) {
   let summary, end;
   for (let seq = session.seq - 1; seq >= 0; seq--) {
     const event = session.eventAt(seq);
@@ -38,7 +47,8 @@ function installedResult(session, matches, ManualCompactionError) {
         summary:summary.data.summary,shadowedRange,shadowedSeqs,shadowedTokenCount};
     }
   }
-  throw new ManualCompactionError('commit','Installed native summary is missing from the Session');
+  const message = 'Installed native summary is missing from the Session';
+  throw ManualCompactionError ? new ManualCompactionError('commit', message) : Error(message);
 }
 
 /** The Kernel owns paid dispatch and installation for both compaction entry points. */
@@ -48,12 +58,14 @@ export function workbenchCompaction(Basic, ManualCompactionError, scope, refresh
     constructor(ctx,config) {
       super(ctx,{...config,auto:false});
     }
-    async compactRegion(start,end,agent,signal) {
-      signal?.throwIfAborted();
-      const region=regionFor(agent,start,end);
-      const effect=await scope.withCaller(stop=>scope.command(agent.id,{type:'compact_region',region},stop),signal);
-      await refresh(agent.id,signal);
-      return installedResult(agent.session,data=>data?.compactionId===effect,ManualCompactionError);
+    compactRegion(start,end,agent,signal) {
+      return runRegion(agent.session,async()=>{
+        signal?.throwIfAborted();
+        const region=regionFor(agent,start,end);
+        const effect=await scope.withCaller(stop=>scope.command(agent.id,{type:'compact_region',region},stop),signal);
+        await refresh(agent.id,signal);
+        return installedResult(agent.session,data=>data?.compactionId===effect,ManualCompactionError);
+      });
     }
     async compactNow(agent,signal,sourceCommandId) {
       signal?.throwIfAborted();

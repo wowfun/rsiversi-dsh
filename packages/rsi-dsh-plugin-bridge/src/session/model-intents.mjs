@@ -84,10 +84,17 @@ export function modelIntents(journal,command) {
 
 /** Reconcile native effective order while retaining a newer locally accepted choice. */
 export function modelObservationCorrelations(journal,driver,events,origins) {
+  function opening(event) {
+    if(event.type==='compaction/start')
+      return journal.operation('compaction/start:'+event.data.compactionId)?.id;
+  }
   if(!origins.size) {
     return new Map(events.flatMap(event=>{
       const source=journal.sourceAt(event.seq);
-      if(!source?.operation)return [];
+      if(!source?.operation) {
+        const id=!source && opening(event);
+        return id ? [[event.seq,id]] : [];
+      }
       return [[event.seq,source.seq===journal.operation(source.operation).seq?source.operation:{id:source.operation,reconcile:true}]];
     }));
   }
@@ -109,6 +116,8 @@ export function modelObservationCorrelations(journal,driver,events,origins) {
         previous.operation:{id:previous.operation,reconcile:true});
       continue;
     }
+    const checkpoint=opening(event);
+    if(checkpoint){correlations.set(event.seq,checkpoint);continue;}
     const origin=origins.get(event.seq);
     if(origin?.permissionOperation){
       correlations.set(event.seq,origin.permissionOperation);

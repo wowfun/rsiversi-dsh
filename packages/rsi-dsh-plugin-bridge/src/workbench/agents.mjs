@@ -2,6 +2,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {isAbsolute} from 'node:path';
 import {captureAgentView} from './agent-view.mjs';
 import {retainedRegion} from './compaction.mjs';
+import {bindCheckpointSession,captureCheckpointAppend} from './plugin-checkpoints.mjs';
 import {nativeForkSeed} from './fork-seed.mjs';
 import {snapshotForkAnnotations} from '../session/fork-annotations.mjs';
 import {bindPluginRecords} from '../session/plugin-records.mjs';
@@ -173,6 +174,8 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       isOwnSeq:seq=>record.view.session.isOwnSeq(seq),
       append(type,data,opts={}) {
         if(!record.owner)throw Error('This Session event requires its owning native command');
+        const checkpoint=captureCheckpointAppend(session,type,data,opts);
+        if(checkpoint)return checkpoint;
         if(type==='goal/change'&&goals)return goals.commit(record,scope,data,opts,stage,publishEvents);
         if(isPermissionEvent(type)&&!subagents?.configuring(record.id)){
           // The published service pins existing Sessions from its own initializer.
@@ -244,6 +247,10 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         record.abortingTurn=record.view.inbox.active_turn_id;
       },
     };
+    bindCheckpointSession(session,{scope,region:(start,end)=>retainedRegion(record.owner,start,end),
+      lifecycle:(type,data)=>appendOwned(journal=>journal.accept(
+        type + ':' + data.compactionId,type,data)),
+      refresh:signal=>refresh(record,signal)});
     return agent;
   }
   function attach(owner,options,source,created,prepare) {

@@ -72,7 +72,14 @@ During an open Turn, an enabled plugin can pass two retained surface sequence
 numbers to `compactRegion`. The bridge resolves these to the native positions
 at the observed Fact prefix. The system head and partial tool interactions
 cannot be selected. The result names the installed checkpoint, its summary
-event and the application sequences it replaced.
+event and the application sequences it replaced. A plugin extending the
+released basic engine can supply its own summary without configuring a
+conversation model. The Host stores the Loader plugin identity and exact
+user-role text blocks. The released engine owns token pricing, error recovery
+and checkpoint framing for this operation. Its opening event is visible while
+the summarizer runs. The journal correlates that opening with the Host's
+installed checkpoint. A summarizer failure closes the same opening with the
+original DSH error. Only a confirmed installation supplies a replacement message.
 It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
 surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot

@@ -313,6 +313,10 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
     claimBlank:(id,meta,signal)=>scoped('application.create',{fresh:id,cwd:meta.cwd,preset:meta.agentPreset},signal),
     createChild:(args,signal)=>scoped('application.child.create',{...args,tool:scope.getStore()?.tool},signal),
     withCaller:(operation,signal)=>scope.getStore()?operation(requestSignal(signal)):activities.run(operation,signal),
+    async checkpointOwner(id, signal) {
+      if(activeRequest()!==owner && !await scoped('application.command',
+        {session_id:id,operation:{type:'check_checkpoint_owner'}},signal))throw Error('Host owner required');
+    },
     async withPluginParent(parent,operation,signal){
       const active=scope.getStore();
       if(active){

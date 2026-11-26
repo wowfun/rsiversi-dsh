@@ -105,6 +105,35 @@ export function compactionStart(session, mapping, fact) {
       ...(fact.command_id ? {sourceCommandId:fact.command_id} : {})}});
 }
 
+/** One native application Fact supplies the checkpoint and its attribution on replay. */
+export async function pluginCheckpoint(session, mapping, fact, llm) {
+  const {start, end, message, presentation, plugin, summary_blocks} = fact.checkpoint;
+  const nodes = session.surface.nodes.filter(seq => {
+    const event = session.eventAt(seq);
+    return event.type !== 'system/message' && !event.data?.rsi?.syntheticToolResult;
+  });
+  const selected = nodes.slice(start, end + 1);
+  if (!selected.length || selected.length !== end - start + 1) throw Error('Plugin checkpoint source is absent');
+  const [{estimateMessage},{compactCheckpointSource}] = await llm.compactionContracts();
+  const id = fact.effect_id, time = fact.timestamp_ms;
+  const lifecycle = {compactionId:id, turn:mapping.turn};
+  const opening = session.adoptObserved({seq:session.seq,time,type:'compaction/start',data:lifecycle});
+  const shadowedRange = {start:selected[0],end:selected.at(-1)};
+  const summary = summary_blocks ? message.content.slice(summary_blocks.start, summary_blocks.end) : message.content;
+  const data = {...presentation, compactionId:id, summary, shadowedRange, shadowedSeqs:selected,
+    shadowedTokenCount:presentation?.shadowedTokenCount ?? selected.reduce((total, seq) =>
+      total + estimateMessage(session.deriveEventMessage(session.eventAt(seq))), 0),
+    provider:presentation?.provider ?? '', model:presentation?.model ?? '', rsi:{plugin}};
+  const written = session.adoptObserved({seq:session.seq,time,type:'compaction/summary',data});
+  const first = session.eventAt(selected[0]);
+  const head = first.data.id === headId(first.data.source?.compactionId);
+  session.adoptObserved({seq:session.seq,time,type:'user/message',
+    data:{...message,id:head ? headId(id) : 'rsi:checkpoint:region:' + id,source:compactCheckpointSource(id)},
+    sourceEventSeqs:[opening.seq,written.seq,...selected],
+    surfaceOp:{op:'replace',startSeq:shadowedRange.start,endSeq:shadowedRange.end}});
+  session.adoptObserved({seq:session.seq,time,type:'compaction/end',data:lifecycle});
+}
+
 export async function compactionInstalled(session, mapping, fact, readFact, llm) {
   const start = session.lastEvent('compaction/start');
   const [intent, settled] = await Promise.all([readFact(mapping.compaction), readFact(fact.settlement_seq ?? fact.seq - 1)]);

@@ -1,6 +1,6 @@
 import { requestObserver } from './request-history.mjs';
 import { observeAttempt } from './model-history.mjs';
-import {compactionInstalled, compactionPrepared, compactionStart} from './compaction-history.mjs';
+import {compactionInstalled, compactionPrepared, compactionStart, pluginCheckpoint} from './compaction-history.mjs';
 import { observeInput, observeTool } from './conversation-history.mjs';
 import { stepMessageText } from './step-messages.mjs';
 import { claimInput, clearClaims, preparedMessages } from './input-history.mjs';
@@ -52,6 +52,7 @@ export function factObserver(session, mapping, readFact, llm, projectMessage) {
 /** Only lifecycle Facts affect these counters; provider attempts do not fabricate acceptance. */
 async function observeFact(session, mapping, fact, readFact, llm, observeRequest, projectMessage) {
   if (!integer(fact.timestamp_ms) || fact.timestamp_ms === 0) throw new Error('invalid canonical Fact time');
+  if (fact.type === 'plugin_context_compacted') return pluginCheckpoint(session, mapping, fact, llm);
   const manual = fact.type === 'manual_compaction' && fact.event.stage;
   if (manual === 'installed' || fact.type === 'context_compaction_installed') {
     await compactionInstalled(session, mapping, fact, readFact, llm);

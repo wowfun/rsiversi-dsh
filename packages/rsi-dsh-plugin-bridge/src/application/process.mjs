@@ -3,6 +3,7 @@ import {basename,dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workerData} from 'node:worker_threads';
 import {workbenchCompaction} from '../workbench/compaction.mjs';
+import {installCheckpointEngine} from '../workbench/plugin-checkpoints.mjs';
 import {compactionLanguage} from '../history/compaction-history.mjs';
 import {commitControl} from './session-control.mjs';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
@@ -42,12 +43,13 @@ import {workbenchInteractions} from '../workbench/interactions.mjs';
 import {watchWorkbenchCatalog} from '../workbench/catalog.mjs';
 
 const {generation,roots,layout}=await readWorkerLaunch();
-let modules, recordWriter, app, opening, nativeSessions, language, workbench;
+let modules, recordWriter, checkpointEngine, app, opening, nativeSessions, language, workbench;
 async function open({protocol,profile,key,owner,importer,timings=false,tools=false,language:hasLanguage=false}) {
   const start=performance.now();
   if (protocol !== 16 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
   modules=installReleaseResolver(layout,roots,profile);
   recordWriter=installSessionRecordWriter(modules.entry('@deepseek-ai/dsh-session'));
+  checkpointEngine=installCheckpointEngine(modules.entry('@deepseek-ai/dsh-compaction-basic'));
   const boot = await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   // DSH's own metadata and Typert loaders also use Node lookup from the
   // profile. This view holds links to the already leased release packages.
@@ -239,7 +241,7 @@ function close() {
     await opening?.catch(()=>{});
     // Plugin disposal can still cancel its native work. Retire the caller after Cordis drains.
     try {await app?.close();} finally {
-      try{await nativeSessions?.close();}finally{recordWriter?.deregister();modules?.close();}
+      try{await nativeSessions?.close();}finally{checkpointEngine?.deregister();recordWriter?.deregister();modules?.close();}
     }
   })();
 }
