@@ -147,12 +147,17 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     const lane=req.url==='/v1/capture'?lanes.capture:req.url==='/v1/release'?lanes.release:req.url==='/v1/cancel'?lanes.cancel:lanes.work;
     if(lane.active>=lane.limit){res.writeHead(503).end();return;}
     lane.active++;
+    let readingOrServing=true;
     const abort=new AbortController();res.on('close',()=>abort.abort());
     try{
       const limit=req.url==='/v1/release'?1024:req.url==='/v1/prepare'?maxPreparationBytes:maxBytes;
       const chunks=[];let size=0;
       for await(const chunk of req){size+=chunk.length;if(size>limit)throw Error('Tool request exceeds capacity');chunks.push(chunk);}
-      const value=await dispatch(req.url,JSON.parse(Buffer.concat(chunks).toString()),abort.signal);
+      const input=JSON.parse(Buffer.concat(chunks).toString());
+      // Body admission ends before execution. The native scheduler owns each
+      // batch, and the ledger reserves outstanding effects until settlement.
+      if(req.url==='/v1/start'){lane.active--;readingOrServing=false;}
+      const value=await dispatch(req.url,input,abort.signal);
       if(res.destroyed)return;
       const json=JSON.stringify(value);
       const responseLimit=req.url==='/v1/prepare'||req.url==='/v1/callback-outcome'?36*1024*1024:maxBytes;
@@ -162,7 +167,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       const cause=error instanceof AggregateError&&!error.message?error.errors[0]:error;
       res.writeHead(400,{'content-type':'application/json'}).end(JSON.stringify({error:String(cause?.message||cause).slice(0,512)}));
     }
-    finally{lane.active--;}
+    finally{if(readingOrServing)lane.active--;}
   });
   const {WebSocketServer}=await load('ws');
   const closeNative=serveNativeTools(server,WebSocketServer,authenticated,views,sessions,execute);

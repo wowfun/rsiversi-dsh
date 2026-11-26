@@ -69,7 +69,7 @@ test('HTTP cancellation remains admitted when work and slow bodies saturate the 
     identity:{owner_id:'owner',invocation_id:effect,call_id:effect,request_sha256:'a'.repeat(64)}};
   const work=post('start',input);
   await entered.promise;
-  const requests=Array.from({length:23},()=>{
+  const requests=Array.from({length:24},()=>{
     const req=request('http://127.0.0.1:'+listener.port+'/v1/start',{method:'POST',headers:{authorization:key}});
     req.on('error',()=>{});req.write('{');return req;
   });
@@ -83,6 +83,41 @@ test('HTTP cancellation remains admitted when work and slow bodies saturate the 
     const cancel=await post('cancel',input);assert.equal(cancel.status,200);
     assert.deepEqual(await cancel.json(),{accepted:true});await aborted.promise;
   } finally {for(const req of requests)req.destroy();release.resolve();const response=await work;assert.equal(response.status,200);await response.json();}
+});
+
+test('three captured Agents can each start a batch of ten before any tool completes',{skip:!root,timeout:30000},async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-tool-batches-'));
+  const {load}=await cohortModules(root);
+  const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
+  for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
+  await ctx.plugin(tools.default);
+  const sessions=applicationSessions(()=>{throw Error('unexpected native request');});
+  const release=Promise.withResolvers(),all=Promise.withResolvers(),entered=new Map();
+  ctx.tools.register(tools.defineTool({name:'hold',description:'hold until all batches enter',parameters:{},
+    isConcurrencySafe:()=>true,output:{schema:{type:'string'},render:(_,value)=>[{type:'text',text:value}]},
+    async execute(_,exec){
+      const id=exec.agent.id;entered.set(id,(entered.get(id)??0)+1);
+      if(entered.size===3&&[...entered.values()].every(count=>count===10))all.resolve();
+      await release.promise;return 'done';
+    }}));
+  const key=randomUUID(),listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+  t.after(async()=>{release.resolve();await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
+  async function post(path,input) {
+    const response=await fetch('http://127.0.0.1:'+listener.port+'/v1/'+path,
+      {method:'POST',headers:{authorization:key},body:JSON.stringify(input)});
+    const value=await response.text();assert.equal(response.status,200,value);return JSON.parse(value);
+  }
+  const views=await Promise.all(['a','b','c'].map(async id=>[id,await post('capture',{
+    view:randomUUID(),header:{id,cwd:directory},reserved:[],modelSelection:nativeSelection})]));
+  const work=Promise.all(views.flatMap(([session,view])=>Array.from({length:10},()=>{
+    const effect=randomUUID();
+    return post('start',{view:view.view,session,effect,registration:view.tools[0].registration,name:'hold',args:{},
+      identity:{owner_id:'owner',invocation_id:effect,call_id:effect,request_sha256:'a'.repeat(64)}});
+  })));
+  try{await Promise.race([all.promise,work.then(()=>assert.fail('tools settled before release')),
+    new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Batches stalled: '+JSON.stringify([...entered]))),8000);timer.unref();})]);}
+  finally{release.resolve();}
+  for(const result of await work)assert.equal(result.state,'settled');
 });
 
 test('capture preserves actual optional deadlines and the original timeout wrapper owns its expiry result',

@@ -97,7 +97,6 @@ export async function toolLedger(directory,writeAtomic){
           return;
         }
         if(!run){outcome={state:'unknown'};return;}
-        if(active.size>=8)throw Error('Application tool executions are at capacity');
         const bound={...receipt,signature:sig};
         await reserve(key,0);
         if(retired){outcome={state:'unknown'};return;}

@@ -8,6 +8,25 @@ import {toolLedger} from '../../src/tools/application-tool-ledger.mjs';
 const input={session:'session',effect:'effect',registration:'registration',name:'tool',args:{},
   identity:{invocation_id:'effect',call_id:'call',owner_id:'owner',request_sha256:'a'.repeat(64)}};
 
+test('two native batches each start ten calls before either Session finishes',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-ledger-batches-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const ledger=await toolLedger(directory,writeFile);
+  const gate=Promise.withResolvers(),started=[],calls=[];
+  try {
+    for(const session of ['alpha','beta'])for(let i=0;i<10;i++){
+      const effect='effect-'+i;
+      const entered=Promise.withResolvers();
+      const work=ledger.start({...input,session,effect,identity:{...input.identity,invocation_id:effect}},
+        async()=>{started.push(session);entered.resolve();await gate.promise;return effect;});
+      await Promise.race([entered.promise,work]);
+      calls.push(work);
+    }
+    assert.deepEqual(started,[...Array(10).fill('alpha'),...Array(10).fill('beta')]);
+  }finally{gate.resolve();await ledger.close();}
+  assert.ok((await Promise.all(calls)).every(result=>result.state==='settled'));
+});
+
 test('pending calls are cancellable without a second durable admission record',async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-ledger-admit-'));
   t.after(()=>rm(directory,{recursive:true,force:true}));

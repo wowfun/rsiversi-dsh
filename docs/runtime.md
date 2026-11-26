@@ -657,7 +657,9 @@ admission before deciding whether the body is running. Lost HTTP responses are f
 only by outcome reads on the current or replacement process. A new execution requires
 the original live captured view and registration; duplicate start may read an existing
 matching receipt without that view. Missing receipts in a replacement process remain
-unknown. At most eight calls run at once. Pending and unknown live bindings share the
+unknown. The Agent loop schedules parallel-safe calls per Session batch. Two
+Sessions with a parallel limit of ten can each execute ten calls concurrently.
+Pending and unknown live bindings share the
 128-record retention limit with settled files; only settled files count toward the
 64 MiB disk budget. Identity fields follow the native 256-byte identifier bound.
 Once an authorized native history read observes the matching committed
