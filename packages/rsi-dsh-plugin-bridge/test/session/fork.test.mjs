@@ -151,6 +151,30 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   Object.assign(compacted.events[summary+1],{surfaceOp:{op:'replace',startSeq:4,endSeq:4},sourceEventSeqs:[begin,summary,4]});
   await bridge.load(compacted);
   assert.throws(()=>fork('private-compaction',5),/compaction input points outside the window/);
+  // The Host binds a plugin-authored checkpoint to its whole observed view.
+  compacted.events[summary].data.rsi={plugin:'template-checkpoint'};
+  compacted.events[summary].data.summary=[{type:'text',text:'PRIVATE_TEMPLATE_OUTPUT'}];
+  compacted.events[summary+1].data.content=compacted.events[summary].data.summary;
+  for (const position of [4,selected]) {
+    Object.assign(compacted.events[summary].data,{shadowedSeqs:[position],shadowedRange:{start:position,end:position}});
+    Object.assign(compacted.events[summary+1],{surfaceOp:{op:'replace',startSeq:position,endSeq:position},sourceEventSeqs:[begin,summary,position]});
+    await bridge.load(compacted);
+    const full=fork('template-full',0);
+    assert.ok(JSON.stringify(full.events).includes('PRIVATE_TEMPLATE_OUTPUT'));
+    const last=fork('template-last',5);
+    assert.ok(!JSON.stringify(last).includes('PRIVATE_TEMPLATE_OUTPUT'));
+    assert.ok(!last.events.some(e=>e.type.startsWith('compaction/')));
+    assert.ok(last.events.some(e=>e.data?.id==='visible'));
+    await restarted.load(last);
+    assert.deepEqual(restarted.canonical('template-last').events,last.events);
+  }
+  const headless=structuredClone(original);
+  headless.events=headless.events.filter(event=>event.type!=='system/message').map((event,seq)=>({...event,seq}));
+  await bridge.load(headless);
+  const headlessLast=fork('headless',5);
+  assert.ok(!JSON.stringify(headlessLast).includes('EXCLUDED_PRIVATE_CONVERSATION'));
+  assert.ok(headlessLast.events.some(event=>event.data?.id==='visible'));
+  assert.equal(headlessLast.lineage.seedEventCount,1,'only the earlier request header is carried over');
   const custom = structuredClone(original);
   const end = custom.events.pop();
   const {Session,appendPluginRecord,pluginRecordOf} = await (await loadCohort(cohortRoot)).import('@deepseek-ai/dsh-session');

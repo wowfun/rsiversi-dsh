@@ -63,9 +63,9 @@ export function forkSnapshot(canonical, { header, afterFact, throughFact, includ
     seed.turnBoundary.val.lastStepBoundary = null;
     events = []; const remap = new Map();
     const push = (event, sourceSeq) => { event.seq = events.length; events.push(event); if (sourceSeq !== undefined) remap.set(sourceSeq, event.seq); };
-    const headSeq = surface.foldSurface(prefix).nodes[0];
-    const head = headSeq === undefined ? undefined : prefix[headSeq];
-    if (head && head.type !== 'system/message') throw new Error('fork prefix lacks system head');
+    const prefixNodes = surface.foldSurface(prefix).nodes;
+    const first = prefix[prefixNodes[0]];
+    const head = first?.type === 'system/message' ? first : undefined;
     if (head) {
       const copy = structuredClone(head); copy.surfaceOp = 'append'; delete copy.sourceEventSeqs;
       push(copy, head.seq);
@@ -74,7 +74,19 @@ export function forkSnapshot(canonical, { header, afterFact, throughFact, includ
     if (request) { const copy = structuredClone(request); copy.data.reason = 'resume'; push(copy, request.seq); }
     seedEventCount = events.length;
     for (const row of Object.values(seed)) row.seq = seedEventCount - 1;
-    for (const original of all.slice(start)) {
+    const selected = all.slice(start);
+    const omittedCheckpoints = new Set();
+    // Only the system head is carried across the cut.
+    if (prefixNodes.length > (head ? 1 : 0)) {
+      for (const event of selected) {
+        if (event.type === 'compaction/summary' && event.data.rsi?.plugin)
+          omittedCheckpoints.add(event.data.compactionId);
+      }
+    }
+    for (const original of selected) {
+      if (original.type.startsWith('compaction/') && omittedCheckpoints.has(original.data.compactionId)) continue;
+      if (original.type === 'user/message' && original.data.source?.kind === 'compact-checkpoint'
+          && omittedCheckpoints.has(original.data.source.compactionId)) continue;
       const event = structuredClone(original);
       if (event.surfaceOp && event.surfaceOp !== 'append') {
         const { startSeq, endSeq } = event.surfaceOp;

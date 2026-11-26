@@ -950,7 +950,10 @@ only selected turns; its seed is the original Todo/Plan projection state immedia
 before that window. The active system head and request header may be materialized
 as at most two metadata events. Seed rows skip that metadata, avoiding a fabricated
 Plan narration transition. Replacements and source references are rewritten only
-for declared event schemas; excluded tool-result rewrites stay excluded. Full
+for declared event schemas; excluded tool-result rewrites stay excluded. If a
+Last window omits part of the model conversation, it retains the raw selected
+messages and omits plugin checkpoints bound to the full parent view, including
+their summary text and lifecycle records. Full
 forks preserve the existing seed and event identities, including nested lineage.
 Each in-process child owns its event array. Loading or forking a mirror reuses
 events already admitted as immutable and counts their original encoded bytes
