@@ -27,7 +27,7 @@ test('the released SDK writes opaque plugin records into the owning workbench Se
   f.ctx.on('session/event',(observed,event)=>{
     if(observed===session&&event.type===type){
       notifications++;
-      assert.throws(()=>sdk.appendPluginRecord(session,type,{}),/during publication/);
+      assert.throws(()=>sdk.appendPluginRecord(session,type,{}),/cannot reenter/);
     }
   });
   await f.scope.runOwned(()=>{
@@ -47,6 +47,37 @@ test('the released SDK writes opaque plugin records into the owning workbench Se
   const cold=new SessionProjectionJournal(f.ctx,api,{header:session.header},{restore:state,native:[]});
   assert.deepEqual(cold.session.eventAt(start),event);
   assert.equal(cold.seq,start+1);
+});
+
+test('a Session observer cannot publish a later log entry ahead of the event being observed',{
+  skip:!process.env.RSI_DSH_MARKET_COHORT||!process.env.RSI_DSH_INBOX_SOURCE,
+},async t=>{
+  const require=createRequire(join(process.env.RSI_DSH_MARKET_COHORT,'package.json'));
+  const {Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')));
+  const ctx=new Context(),seen=[],errors=[];
+  t.after(()=>ctx.fiber.dispose());
+  ctx.on('session/created',session=>{
+    try{session.append('feedback/record',{text:'during creation'});}
+    catch(error){errors.push(error.message);}
+  });
+  const f=await nativeInboxFixture(t,{context:ctx}),session=f.agent.session;
+  assert.equal(session.lastEvent('feedback/record'),undefined);
+  assert.match(errors[0],/before session\/created completes/);
+  f.ctx.on('session/event',(_session,event)=>{
+    if(event.type==='feedback/record'&&event.data.text==='first'){
+      try{session.append('feedback/record',{text:'nested'});}
+      catch(error){errors.push(error.message);}
+    }
+  });
+  f.ctx.on('session/event',(_session,event)=>{if(event.type==='feedback/record')seen.push(event.data.text);});
+  await f.scope.runOwned(()=>{
+    session.append('feedback/record',{text:'first'});
+    session.append('feedback/record',{text:'second'});
+  });
+  await f.agents.flush(session);
+  assert.deepEqual(seen,['first','second']);
+  assert.match(errors[1],/cannot reenter/);
+  assert.deepEqual(readJournalDocument(f.documents.get('one')).events.map(event=>event.data.text),seen);
 });
 
 test('live log acknowledgements precede disk and shutdown drains the last batch', {

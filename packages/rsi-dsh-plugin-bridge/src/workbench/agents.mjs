@@ -169,6 +169,10 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
     return pending;
   }
   function mirror(record,newSession) {
+    function requireAppendableSession(){
+      if(!record.sessionAnnounced)throw Error(`session "${record.id}" cannot append before session/created completes`);
+      if(record.publishingEvent)throw Error('session append cannot reenter while another append is being published');
+    }
     function appendOwned(write,setup=false) {
       if(record.closed||(record.closing&&!record.maintenance))throw Error('Agent has retired');
       if(!record.owner)throw Error('This Session event requires its owning native command');
@@ -193,6 +197,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       eventAt:seq=>record.view.session.eventAt(seq),lastEvent:type=>record.view.session.lastEvent(type),
       isOwnSeq:seq=>record.view.session.isOwnSeq(seq),
       append(type,data,opts={}) {
+        requireAppendableSession();
         if(!record.owner)throw Error('This Session event requires its owning native command');
         const checkpoint=captureCheckpointAppend(session,type,data,opts);
         if(checkpoint)return checkpoint;
@@ -214,7 +219,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       },
     };
     bindPluginRecords(session,(type,data)=>{
-      if(!record.sessionAnnounced||record.publishingEvent)throw Error('Session cannot append a plugin record during publication');
+      requireAppendableSession();
       return appendOwned(journal=>journal.appendPluginRecord(type,data)).seq;
     });
     const input=()=>{if(!record.owner)throw Error('Agent inbox requires its shared Session owner');return record.owner.input;};

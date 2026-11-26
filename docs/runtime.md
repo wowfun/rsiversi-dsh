@@ -522,6 +522,9 @@ events. Each scoped listener to `session/event` and `session/disposed` observes
 the notification independently. A synchronous failure in `session/created`
 stops publication and triggers disposal. Returned promises from all three
 notifications run independently of publication and report rejection to the logger.
+Plugins can append to an attached Session after its creation announcement returns.
+While its event listeners are being notified, another append to that Session
+is rejected so all observers see the same sequence in order.
 Published Sessions wait on native Fact/control cursors; unpublished drafts
 wait for native revision changes until publication. Disposal cancels and drains this observer.
 Tool capture ensures an attached Agent and its exact scoped context, including
