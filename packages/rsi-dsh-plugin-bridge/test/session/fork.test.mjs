@@ -47,6 +47,7 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
     { surfaceOp: { op: 'replace', startSeq: head, endSeq: head }, sourceEventSeqs: [head] });
   add('request/header', { header: { config: { provider: 'provider', model: 'model' } }, reason: 'series' });
   add('todo/write', { todos: [{ content: 'Selected state', status: 'pending' }] });
+  add('workspace/changes',{turn:2});
   add('turn/end', { ...boundary(2, 10), reason: { kind: 'completed' } });
   const mapping = restoreMapping(); mapping.factCursor = 10; mapping.turn = 2;
   const header = { version: 4, id: 'parent', createdAt: 1, isSeeded: false };
@@ -62,6 +63,7 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   assert.deepEqual(full.events[full.inheritedEventCount],{seq:original.events.length,time:20,
     type:'session/end-seed',data:{inherited:true}});
   const last = fork('last', 5);
+  assert.deepEqual(last.events.find(event=>event.type==='workspace/changes').data,{turn:2});
   assert.equal(last.lineage.seedEventCount, 2);
   if(clocks) { assert.ok([2,3].includes(last.seed.timeContext.ver));assert.equal(last.seed.timeContext.seq,1); }
   assert.equal(last.seed.plan.seq, 1);

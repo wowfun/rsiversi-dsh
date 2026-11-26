@@ -6,7 +6,7 @@ const identity = value => typeof value === 'string' && value.length > 0 && value
 const schemas = new Set(['todo/write', 'plan/mode', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
   'tool/call', 'tool/result', 'session/end-seed', 'command/run', 'command/done', 'model/selection', 'agent/inbox/spliced',
-  'compaction/start','compaction/summary','compaction/end']);
+  'compaction/start','compaction/summary','compaction/end','workspace/changes']);
 
 export function validateLineage(value, count) {
   if (value == null) return null;

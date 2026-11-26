@@ -28,9 +28,13 @@ test('preset plugins receive the released question, web fetch and TypeScript wor
     await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
   }});
   const services=new Set(['dsh-user-questions','dsh-web','dsh-web-fetch-http','dsh-ptc-runtime-node',
-    'dsh-sandbox-local','dsh-subprocess-local','dsh-sandbox-policy','dsh-fs-sandbox'].map(name=>'@deepseek-ai/'+name));
+    'dsh-sandbox-local','dsh-subprocess-local','dsh-sandbox-policy','dsh-fs-sandbox','dsh-workspace-changes'].map(name=>'@deepseek-ai/'+name));
   await app.reconcile([{insert:rows.filter(row=>services.has(row.name))}]);
   const {ctx}=app;
+  const changes=ctx.get('workspaceChanges');
+  assert.ok(changes,'the workbench must mount the original workspace change recorder');
+  assert.equal(changes.summary('unrecorded',0),undefined);
+  assert.equal(await changes.diff('unrecorded',0,0,new AbortController().signal),undefined);
   ctx.on('user-questions/request',async request=>({answers:[{id:request.questions[0].id,selected:['Continue']}]}));
   const question={id:'choice',question:'Continue?',options:[{label:'Continue'}]};
   assert.deepEqual(await ctx.userQuestions.ask({questions:[question]}),{answers:[{id:'choice',selected:['Continue']}]});

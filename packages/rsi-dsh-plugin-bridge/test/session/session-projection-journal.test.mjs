@@ -396,6 +396,20 @@ test('log-only Session events survive cold reload without allocating native muta
   assert.throws(()=>restore(JSON.stringify(corrupt)),/unowned event/);
 });
 
+test('a workspace change announcement survives cold replay without a file snapshot', {skip:!root},async t=>{
+  const {ctx,api,journal}=await fixture(t);
+  const start={seq:0,time:1,type:'turn/start',data:{turn:1}};
+  journal.merge([start],new Map(),0);
+  const announcement=journal.append('workspace/changes',{turn:1});
+  assert.equal(announcement.seq,1);
+  for(const data of [{turn:0},{turn:'1'},{turn:1,files:['review.txt']}])
+    assert.throws(()=>journal.append('workspace/changes',data),/Invalid workspace change/);
+  assert.throws(()=>journal.append('workspace/changes',{turn:1},{surfaceOp:'append'}),/Log-only/);
+  const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(journal.encode()),native:[start]});
+  assert.deepEqual(cold.session.lastEvent('workspace/changes'),announcement);
+  assert.deepEqual(cold.session.deriveMessages(),[]);
+});
+
 test('log-only hook invocation and result stay in their turn across cold replay', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t);
   const start={seq:0,time:1,type:'turn/start',data:{turn:1}};

@@ -81,6 +81,10 @@ counts to the chat footer, including after a paginated history load.
 The turn navigator uses DSH's whole-session outline. A reader can preview an
 unloaded turn and jump directly to it. The outline is excluded from Session
 list summaries.
+The Web profile mounts the recorder from the released DSH workspace changes
+entry. It observes top-level turns and filesystem tool intents, and serves
+before/after comparisons on demand for the lifetime of the Session.
+
 Enabled bundles may register providers with the original DSH skill registry.
 The Web profile loads the Office skill provider from the release's Web bundle
 with its configured Python environment. The provider owns its packaged instructions.

@@ -7,7 +7,7 @@ const admitted = new WeakMap();
 const journalEvents = new Set(['session/title', 'session/title-llm-request', 'approval/asked', 'approval/decided',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
   'feedback/message-put', 'feedback/message-delete', 'feedback/record', 'agent-preset/selected',
-  'action-cards/decision','subagent/catalog','subagent/descriptor']);
+  'action-cards/decision','workspace/changes','subagent/catalog','subagent/descriptor']);
 export const isJournalEvent = type => journalEvents.has(type);
 export const isPermissionEvent = type => type==='sandbox/mode'||type==='permission/preset'||type==='approval/policy';
 export const isChildSetupEvent = type => isPermissionEvent(type)||type==='workspace-root/change';
@@ -51,6 +51,8 @@ function envelope(event, seq, api) {
           ||!Array.isArray(data.summary)||!integer(data.shadowedTokenCount)
           ||typeof data.provider!=='string'||typeof data.model!=='string')throw Error('Invalid compaction summary');
     }else if(data.turn!==null&&!integer(data.turn))throw Error('Invalid compaction owner');
+  } else if(event.type==='workspace/changes') {
+    if(!shape(data,['turn'])||!Number.isSafeInteger(data.turn)||data.turn<1)throw Error('Invalid workspace change announcement');
   } else if(event.type==='workspace-root/change') {
     if(!shape(data,['cwd'])||typeof data.cwd!=='string'||!isAbsolute(data.cwd))throw Error('Invalid working directory');
   } else if(isPermissionEvent(event.type)) {

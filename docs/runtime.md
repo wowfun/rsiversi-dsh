@@ -863,6 +863,12 @@ the Typert registry during its own lifecycle. Outside a native request that
 lookup uses the application caller for the addressed Agent. Within a request
 it retains the request's authority and lifetime. The Gateway checks a remote
 caller's action and resources before resolving its typed parameters.
+A completed turn's `workspace/changes` announcement records the positive turn
+number in the Session journal. The originating DSH recorder owns the current
+summary and before/after comparisons until the Session is disposed. Cold
+readers can recover the announcement without retaining a second copy of the
+files in the journal.
+
 Browser command lifecycle events are log-only
 entries in the application Session journal and survive reopening the workbench.
 
