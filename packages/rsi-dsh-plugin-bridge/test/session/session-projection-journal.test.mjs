@@ -151,12 +151,16 @@ test('native branches keep an isolated suffix and publish it to the existing rel
     finally{session.end();}
   }
   const first=append(native,'first'),batch=native.branch(),second=append(batch,'second');
+  assert.equal(batch.firstSurfaceEvent(),first);
   assert.equal(batch.eventAt(0),first);assert.deepEqual(batch.snapshotEvents(1),[second]);
   const commit=native.prepareBranch(batch);
   assert.deepEqual(surface.nodes,[0]);assert.equal(native.seq,1);
   commit();assert.equal(native.surface,surface);assert.deepEqual(surface.nodes,[0,1]);
   const bad=native.branch();
   const replaceFirst={surfaceOp:{op:'replace',startSeq:0,endSeq:0},sourceEventSeqs:[0]};
+  const isolated=native.branch(),replaced=append(isolated,'new first',replaceFirst);
+  assert.equal(isolated.firstSurfaceEvent(),replaced);
+  assert.equal(native.firstSurfaceEvent(),first);
   append(bad,'replacement',replaceFirst);append(bad,'already-shadowed',replaceFirst);
   assert.throws(()=>native.prepareBranch(bad));
   assert.deepEqual(surface.nodes,[0,1]);assert.equal(native.seq,2);

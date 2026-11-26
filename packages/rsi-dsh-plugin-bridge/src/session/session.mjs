@@ -183,6 +183,15 @@ export class SessionFacade {
     this.#materializePrefix();
     return this.#surface ??= new this.#api.SurfaceManager(this.#events);
   }
+  firstSurfaceEvent() {
+    const branch = this.#branch;
+    if (this.#base && !branch.replaced && branch.parent.seq === this.#base) {
+      const head = branch.parent.surface.nodes[0];
+      if (head !== undefined) return branch.parent.eventAt(head);
+    }
+    const head = this.surface.nodes[0];
+    return head === undefined ? undefined : this.eventAt(head);
+  }
   deriveEventMessage(event) { return this.surface.deriveEventMessage(event); }
   deriveMessages() {
     const surface = this.surface, nodes = surface.nodes;
@@ -290,6 +299,7 @@ export class SessionFacade {
     if (!this.#branch || this.#surface) this.surface.validateNext(event);
     if(event.type==='request/header')this.#requestHeader=Object.freeze(this.#api.canonicalHeader(event.data.header));
     if(event.type==='session/title')this.#titleEvent=event;
+    if(this.#branch && typeof event.surfaceOp === 'object') this.#branch.replaced = true;
     this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;
     if (notify && this.#announced) this.#ctx.emit('session/event', this, event);
     return event;

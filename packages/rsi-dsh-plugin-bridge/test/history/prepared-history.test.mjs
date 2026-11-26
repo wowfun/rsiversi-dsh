@@ -12,6 +12,7 @@ const root = process.env.RSI_DSH_MARKET_COHORT;
 async function fixture(t, original) {
   const events = [];
   let session = { id: 'prepared', get seq(){return events.length;}, surface: { nodes: [] }, eventAt: seq => events[seq],
+    firstSurfaceEvent(){return events[this.surface.nodes[0]];},
     snapshotEvents: () => events,
     adoptObserved(event) {
       assert.equal(event.seq,events.length);

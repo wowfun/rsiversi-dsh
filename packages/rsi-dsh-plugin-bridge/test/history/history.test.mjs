@@ -541,7 +541,10 @@ integration('original surface folds preserve roles, system replacements, raw cal
   candidate.end();
   assert.deepEqual(restored.deriveMessages(), before);
   assert.equal(restored.snapshotEvents(), eventsBefore);
-  restored.adoptBranch(candidate);
+  const publish = restored.prepareBranch(candidate);
+  assert.equal(restored.firstSurfaceEvent(), first);
+  assert.deepEqual(candidate.firstSurfaceEvent().data, changed);
+  publish();
   original.append('system/message', changed, replace);
   assert.deepEqual(restored.deriveMessages(), original.deriveMessages());
   assert.deepEqual(before[0].content, [{ type: 'text', text: 'Actual instructions' }]);

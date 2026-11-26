@@ -170,7 +170,9 @@ append-only deltas retain the log and its incremental surface state.
 The private native projection stages its new events against an immutable
 prefix. It prepares the suffix using the original surface before publishing
 either history. Reading the staged surface itself can require folding that
-private view. Ordinary appends reuse the committed surface and its prefix.
+private view. When projecting a new input or model request in an append-only
+batch, the system prompt at the head comes directly from the committed surface.
+A staged replacement or a change to the parent requires the batch's own view.
 The native projector transfers deeply frozen event values under an explicit
 `shared-frozen` ownership contract. An event whose coordinates and references
 remain unchanged retains its native object identity through live merge and cold

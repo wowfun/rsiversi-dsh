@@ -4,13 +4,12 @@ import { dshFile, dshImage } from '../agent/file-input.mjs';
 
 /** Session surface operations are validated by the original DSH SurfaceManager. */
 export function systemHead(session, mapping, time, content) {
-  const headSeq = session.surface.nodes[0];
-  const previous = headSeq === undefined ? undefined : session.eventAt(headSeq);
+  const previous = session.firstSurfaceEvent();
   if (previous && previous.type !== 'system/message') throw new Error('conversation lacks its system head');
   if (previous && (content === undefined || isDeepStrictEqual(previous.data.message.content, content))) return;
   session.adoptObserved({type:'system/message',seq:session.seq,time,data:{turn:mapping.turn,step:mapping.step,
     message:{id:`rsi:${session.id}:system`,role:'system',source:{kind:'system-prompt'},content:content??[]}},
-    ...(previous?{surfaceOp:{op:'replace',startSeq:headSeq,endSeq:headSeq},sourceEventSeqs:[headSeq]}:{surfaceOp:'append'})});
+    ...(previous?{surfaceOp:{op:'replace',startSeq:previous.seq,endSeq:previous.seq},sourceEventSeqs:[previous.seq]}:{surfaceOp:'append'})});
 }
 
 export function contentBlocks(content, seq, offset = 0) {
