@@ -167,6 +167,10 @@ failure leaves all three logs unchanged. The journal validates new events agains
 the existing release surface. Its batch preparation includes earlier events in
 the same batch, then commits the complete suffix before observers run. Ordinary
 append-only deltas retain the log and its incremental surface state.
+The private native projection stages its new events against an immutable
+prefix. It prepares the suffix using the original surface before publishing
+either history. Reading the staged surface itself can require folding that
+private view. Ordinary appends reuse the committed surface and its prefix.
 The native projector transfers deeply frozen event values under an explicit
 `shared-frozen` ownership contract. An event whose coordinates and references
 remain unchanged retains its native object identity through live merge and cold

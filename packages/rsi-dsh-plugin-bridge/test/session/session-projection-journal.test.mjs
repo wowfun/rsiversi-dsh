@@ -140,6 +140,34 @@ test('incremental journal publication retains the surface across valid and rejec
   assert.deepEqual(journal.session.deriveMessages().map(item=>item.id),['first','replacement']);
 });
 
+test('native branches keep an isolated suffix and publish it to the existing release surface', {skip:!root},async t=>{
+  const {ctx,api}=await fixture(t);
+  const native=new SessionFacade(ctx,api,{header},false),surface=native.surface;
+  native.prepareBranch(native.branch())();
+  assert.deepEqual(surface.nodes,[]);
+  function append(session,id,options={surfaceOp:'append'}) {
+    session.begin();
+    try{return session.appendObserved('user/message',message(id,'user',id),1,options);}
+    finally{session.end();}
+  }
+  const first=append(native,'first'),batch=native.branch(),second=append(batch,'second');
+  assert.equal(batch.eventAt(0),first);assert.deepEqual(batch.snapshotEvents(1),[second]);
+  const commit=native.prepareBranch(batch);
+  assert.deepEqual(surface.nodes,[0]);assert.equal(native.seq,1);
+  commit();assert.equal(native.surface,surface);assert.deepEqual(surface.nodes,[0,1]);
+  const bad=native.branch();
+  const replaceFirst={surfaceOp:{op:'replace',startSeq:0,endSeq:0},sourceEventSeqs:[0]};
+  append(bad,'replacement',replaceFirst);append(bad,'already-shadowed',replaceFirst);
+  assert.throws(()=>native.prepareBranch(bad));
+  assert.deepEqual(surface.nodes,[0,1]);assert.equal(native.seq,2);
+  const stale=native.branch(),third=append(stale,'third');
+  assert.deepEqual(stale.surface.nodes,[0,1,2]);
+  const fourth=append(stale,'fourth');assert.deepEqual(stale.snapshotEvents(-2),[third,fourth]);
+  const publish=native.prepareBranch(stale);
+  append(native,'other');assert.throws(publish,/lost its original prefix/);
+  assert.equal(native.eventAt(2).data.id,'other');
+});
+
 test('preceding records and a full native merge publish or fail as one restorable batch', {skip:!root},async t=>{
   const notices=[],{ctx,api,journal}=await fixture(t,{notify:(_session,event)=>notices.push(event)});
   const first={seq:0,time:1,type:'turn/start',data:{turn:1}};
@@ -834,7 +862,7 @@ test('live deltas preserve source cursors and a failed batch or stale branch can
     assert.deepEqual(journal.advance(2,[]),[]);
     const branch=journal.session.branch();
     journal.accept('second','model/selection',{...selection,model:'second'},{},4);
-    assert.throws(()=>journal.session.adoptBranch(branch),/lost its original prefix/);
+    assert.throws(()=>journal.session.prepareBranch(branch),/lost its original prefix/);
     assert.equal(journal.seq,3);
   });
 

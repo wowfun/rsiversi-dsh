@@ -92,9 +92,10 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
         next.controlThrough=page.through;
       }
       await project(through);
+      const commitEvents=session.prepareBranch(next.session);
       return {value:next,commit() {
         if(current!==original)throw Error('Native projection batch lost its original source');
-        session.adoptBranch(next.session);next.session=session;next.origins.clear();current=next;
+        commitEvents();next.session=session;next.origins.clear();current=next;
         if(observed&&settlement)observed.outcome=settlement;
         if(next.mapping.model?.effectId!==originalEffect)observed=undefined;
       }};

@@ -156,25 +156,37 @@ export function remap(input,seq,sourceAt) {
 /** No upstream constructor: it appends seed/resume markers before attachment. */
 export class SessionFacade {
   #events = []; #ctx; #api; #surface; #active = false; #bytes = 0; #retired = false; #announced = false;
-  #branch; #requestHeader; #titleEvent;
+  #branch; #base = 0; #requestHeader; #titleEvent;
   #eventsSnapshot; #derived;
   constructor(ctx, api, { header, events = [], inheritedEventCount = 0, eventState }, announce = true) {
     this.header = validateHeader(header); this.id = header.id;
     if (!integer(inheritedEventCount) || inheritedEventCount > events.length) throw new Error('invalid inherited prefix');
     this.inheritedEventCount = inheritedEventCount;
-    this.#ctx = ctx; this.#api = api; this.#surface = new api.SurfaceManager(this.#events);
+    this.#ctx = ctx; this.#api = api;
     for (const event of events) this.#admit(event, false, eventState === 'shared-frozen' || admitted.has(event));
     this.firstLiveSeq = this.seq;
     if (announce) this.attach();
   }
   attach() { if (!this.#announced && !this.#retired) { this.#announced = true; this.#ctx.emit('session/created', this); } }
-  get seq() { return this.#events.length; }
+  get seq() { return this.#base + this.#events.length; }
   get encodedBytes() { return this.#bytes; }
-  get surface() { return this.#surface; }
-  deriveEventMessage(event) { return this.#surface.deriveEventMessage(event); }
+  #materializePrefix() {
+    if (!this.#base) return;
+    const parent = this.#branch.parent;
+    parent.#materializePrefix();
+    const events = parent.#events.slice(0, this.#base);
+    for (const event of this.#events) events.push(event);
+    this.#events = events;
+    this.#base = 0;
+  }
+  get surface() {
+    this.#materializePrefix();
+    return this.#surface ??= new this.#api.SurfaceManager(this.#events);
+  }
+  deriveEventMessage(event) { return this.surface.deriveEventMessage(event); }
   deriveMessages() {
-    const nodes = this.#surface.nodes;
-    const generation = this.#surface.contentGeneration;
+    const surface = this.surface, nodes = surface.nodes;
+    const generation = surface.contentGeneration;
     if (this.#derived?.generation !== generation) {
       this.#derived = {generation, count: 0, messages: []};
     }
@@ -186,9 +198,20 @@ export class SessionFacade {
     return cached.messages.slice();
   }
   requestHeader() { return this.#requestHeader; }
-  eventAt(seq) { return this.#events[seq]; }
-  lastEvent(type) { return type==='session/title'?this.#titleEvent:this.#events.findLast(event => event.type === type); }
+  eventAt(seq) {
+    return this.#base && seq < this.#base ? this.#branch.parent.eventAt(seq) : this.#events[seq - this.#base];
+  }
+  lastEvent(type) {
+    if (type === 'session/title') return this.#titleEvent;
+    for (let i = this.seq - 1; i >= 0; i--) {
+      const event = this.eventAt(i);
+      if (event.type === type) return event;
+    }
+  }
   snapshotEvents(start = 0, end = this.seq) {
+    if (this.#base && start >= this.#base && end >= 0)
+      return Object.freeze(this.#events.slice(start - this.#base, Math.max(0, end - this.#base)));
+    this.#materializePrefix();
     if (start === 0 && end === this.seq) return this.#eventsSnapshot ??= Object.freeze(this.#events.slice());
     return Object.freeze(this.#events.slice(start, end));
   }
@@ -196,24 +219,32 @@ export class SessionFacade {
   branch() {
     if(this.#active||this.#retired||this.#announced)throw new Error('Only an idle unpublished mirror can stage a batch');
     const candidate=new SessionFacade(this.#ctx,this.#api,{header:this.header},false);
-    candidate.#events=this.#events.slice();candidate.#bytes=this.#bytes;
+    candidate.#base=this.seq;candidate.#bytes=this.#bytes;
     candidate.#requestHeader=this.#requestHeader;
     candidate.#titleEvent=this.#titleEvent;
     candidate.inheritedEventCount=this.inheritedEventCount;
-    candidate.#surface=new this.#api.SurfaceManager(candidate.#events);
     candidate.#branch={parent:this,seq:this.seq};return candidate;
   }
-  /** Commit an entire validated branch; its owner publishes notifications afterwards. */
-  adoptBranch(candidate) {
+  /** Validate the entire suffix before either the native mirror or its journal publishes it. */
+  prepareBranch(candidate) {
     if(!(candidate instanceof SessionFacade)||candidate.#branch?.parent!==this||candidate.#branch.seq!==this.seq
       ||this.#active||candidate.#active||this.#retired||candidate.#retired||this.#announced)
       throw new Error('Session batch lost its original prefix');
-    if (candidate.seq !== this.seq) this.#eventsSnapshot = undefined;
-    this.#events=candidate.#events;this.#bytes=candidate.#bytes;this.#surface=candidate.#surface;
-    this.#requestHeader=candidate.#requestHeader;
-    this.#titleEvent=candidate.#titleEvent;
-    this.inheritedEventCount=candidate.inheritedEventCount;
-    candidate.#branch=undefined;candidate.#retired=true;
+    const start = this.seq;
+    const suffix = candidate.#base === start ? candidate.#events : candidate.#events.slice(start);
+    const commitSurface = suffix.length ? this.surface.prepareBatch(suffix) : undefined;
+    candidate.#retired = true;
+    return () => {
+      if (this.seq !== start || this.#active || this.#retired || this.#announced)
+        throw Error('Session batch lost its original prefix');
+      if (suffix.length) this.#eventsSnapshot = undefined;
+      for (const event of suffix) this.#events.push(event);
+      commitSurface?.();
+      this.#bytes = candidate.#bytes;
+      this.#requestHeader = candidate.#requestHeader;
+      this.#titleEvent = candidate.#titleEvent;
+      this.inheritedEventCount = candidate.inheritedEventCount;
+    };
   }
   isOwnSeq(seq) { return integer(seq) && seq >= this.inheritedEventCount && seq < this.seq; }
   begin() { if (this.#retired || this.#active) throw new Error('Session mutation unavailable'); this.#active = true; }
@@ -247,7 +278,7 @@ export class SessionFacade {
       if(event.type==='request/header')header=Object.freeze(this.#api.canonicalHeader(event.data.header));
       if(event.type==='session/title')title=event;
     }
-    const commitSurface=this.#surface.prepareBatch(events);
+    const commitSurface=this.surface.prepareBatch(events);
     for(const event of events)this.#events.push(event);
     commitSurface();
     this.#bytes=bytes;this.#requestHeader=header;this.#titleEvent=title;this.#eventsSnapshot=undefined;
@@ -256,7 +287,7 @@ export class SessionFacade {
     const event = adopt ? input : this.#api.snapshotJsonValue(input);
     if (!event) throw new Error('event must be lossless JSON');
     const bytes=this.#prepare(event,this.seq,this.#bytes,adopt);
-    this.#surface.validateNext(event);
+    if (!this.#branch || this.#surface) this.surface.validateNext(event);
     if(event.type==='request/header')this.#requestHeader=Object.freeze(this.#api.canonicalHeader(event.data.header));
     if(event.type==='session/title')this.#titleEvent=event;
     this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;
