@@ -10,13 +10,14 @@ import { toolContextOutput } from '../../history/step-messages.mjs';
 import { prepareRows, runtimeContextProjection } from '../request-input.mjs';
 import { claimedRows } from '../../history/input-history.mjs';
 import { factObserver } from '../../history/history.mjs';
+import {compactionLanguage} from '../../history/compaction-history.mjs';
 import { readHistory } from '../../history/pages.mjs';
 
 /** Original Cordis + original Todo/Plan, with RSI-owned receipt and Session seams. */
 export async function createBridge({ cohortRoot, cohortLoader, configuration, request, ask = async () => { throw new Error('question channel unavailable'); }, section = 'Plan the work before making changes.' }) {
   const loadCohort = cohortLoader ?? (await import('rsi-dsh-cordis/cohort')).loadCohort;
   const cohort = await loadCohort(cohortRoot);
-  const [cordis, projections, tools, prompt, agents, session, surface, values, todo, plan, questions, llm, commands] = await Promise.all([
+  const [cordis, projections, tools, prompt, agents, session, surface, values, todo, plan, questions, language, commands] = await Promise.all([
     cohort.import('@deepseek-ai/cordis'), cohort.import('@deepseek-ai/dsh-session-projection'),
     cohort.import('@deepseek-ai/dsh-tools'), cohort.import('@deepseek-ai/dsh-system-prompt'),
     cohort.import('@deepseek-ai/dsh-agent'), cohort.import('@deepseek-ai/dsh-session'),
@@ -25,6 +26,7 @@ export async function createBridge({ cohortRoot, cohortLoader, configuration, re
     cohort.import('@deepseek-ai/dsh-user-questions'),
     cohort.import('@deepseek-ai/dsh-llm'), cohort.import('@deepseek-ai/dsh-commands'),
   ]);
+  const llm = compactionLanguage(language,(name,path)=>cohort.subpath(name,path));
   const ctx = new cordis.Context();
   const records = new Map(); const catalogScope = Object.freeze({}); let closing;
   const lifetime = new AbortController();

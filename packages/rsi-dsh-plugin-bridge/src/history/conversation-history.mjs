@@ -89,12 +89,13 @@ function observeCall(session, call, block, time) {
   call.callEvent = session.adoptObserved({type:'tool/call',seq:session.seq,time,
     data:{turn:call.turn,step:call.step,callId:call.id,name:block.name,arguments:block.arguments}}).seq;
 }
-function result(session, mapping, call, time, content, isError, error, meta) {
+function result(session, mapping, call, time, content, isError, error, meta, synthetic = false) {
   if (call.callEvent === null) observeCall(session, call, callBlock(session, call), time);
   const message = { id: `rsi:${session.id}:result:${call.model}:${call.id}`, role: 'tool', toolCallId: call.id,
     source: { kind: 'tool', callId: call.id }, content, isError };
   session.adoptObserved({type:'tool/result',seq:session.seq,time,
-    data:{turn:call.turn,step:call.step,message,...(error?{error}:{}),...(meta!==undefined?{meta}:{})},
+    data:{turn:call.turn,step:call.step,message,...(error?{error}:{}),...(meta!==undefined?{meta}:{}),
+      ...(synthetic?{rsi:{syntheticToolResult:true}}:{})},
     surfaceOp:'append',sourceEventSeqs:[call.callEvent]});
   mapping.calls.splice(mapping.calls.indexOf(call), 1);
 }
@@ -132,7 +133,7 @@ export function observeTool(session, mapping, fact) {
       const text = started ? 'The canonical Turn ended without a recorded Tool result. Its external outcome is unknown.'
         : fact.type === 'tool_calls_superseded' ? 'New input superseded this Tool call before execution.' : 'The canonical Turn ended before this Tool call was admitted.';
       result(session, mapping, call, fact.timestamp_ms, [{ type: 'text', text }], true,
-        { name: started ? 'ToolOutcomeUnknownError' : 'ToolNotStartedError', code: started ? 'TOOL_OUTCOME_UNKNOWN' : 'TOOL_NOT_STARTED', reason: text });
+        { name: started ? 'ToolOutcomeUnknownError' : 'ToolNotStartedError', code: started ? 'TOOL_OUTCOME_UNKNOWN' : 'TOOL_NOT_STARTED', reason: text }, undefined, true);
     }
   }
 }

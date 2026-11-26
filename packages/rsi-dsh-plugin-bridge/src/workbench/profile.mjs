@@ -10,18 +10,25 @@ const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-edit
   'dsh-subagent','dsh-subagent-spawn-in-process','dsh-tool-subagent/model-selection-settings'].map(name=>'@deepseek-ai/'+name));
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
 
-/** The existing packaged skill directories supplement the native composition. */
+/** Preserve scoped presentation services declared by the packaged native counterpart. */
 export async function packagedPresetPlugins(ctx,rows,load) {
   const definitions=rows.filter(row=>row.name==='@deepseek-ai/dsh-agent-preset');
-  const name='@deepseek-ai/dsh-skill-filesystem';
   const {interpolate}=await load('@deepseek-ai/cordis-plugin-loader');
-  return preset=>{
-    const definition=definitions.find(row=>row.config.id===preset);
-    const provider=definition?.config.plugins.find(row=>row.name===name&&row.disabled!==true);
-    if(!provider)return [];
-    const config=interpolate({ctx,baseUrl:ctx.baseUrl},provider.config);
-    return [{...provider,config:{...config,includeDefaultRoots:false,watch:false}}];
-  };
+  function contributions(entries) {
+    return entries.flatMap(entry=>{
+      if(entry.disabled===true)return [];
+      if(entry.name==='cordis:group'&&Array.isArray(entry.config)){
+        const config=contributions(entry.config);
+        return config.length?[{...entry,config}]:[];
+      }
+      if(entry.name==='@deepseek-ai/dsh-skill-filesystem'){
+        const config=interpolate({ctx,baseUrl:ctx.baseUrl},entry.config);
+        return [{...entry,config:{...config,includeDefaultRoots:false,watch:false}}];
+      }
+      return ['@deepseek-ai/dsh-compaction-basic','@deepseek-ai/dsh-command-compact'].includes(entry.name)?[entry]:[];
+    });
+  }
+  return preset=>contributions(definitions.find(row=>row.config.id===preset)?.config.plugins??[]);
 }
 
 /** Use the released app's ordered client entries and published dsh.client

@@ -2,6 +2,8 @@ import {readFile,stat} from 'node:fs/promises';
 import {basename,dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {workerData} from 'node:worker_threads';
+import {workbenchCompaction} from '../workbench/compaction.mjs';
+import {compactionLanguage} from '../history/compaction-history.mjs';
 import {commitControl} from './session-control.mjs';
 import {Peer} from '../../../rsi-dsh-cordis/src/runtime/transport.mjs';
 import {installReleaseResolver} from '../../../rsi-dsh-cordis/src/release/resolver.mjs';
@@ -84,7 +86,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const call=(method,args,signal)=>peer.request(method,args,{signal});
     let persistence,agents,history;
     const storage=sessionJournalStore(join(profileState(profile),'sessions'),await load('@deepseek-ai/dsh-atomic-write'),()=>ctx.emit('rsi/catalog-projection'));
-    const llm=await load('@deepseek-ai/dsh-llm');
+    const llm=compactionLanguage(await load('@deepseek-ai/dsh-llm'),(name,path)=>load(name+'/'+path));
     sessionScope=applicationSessions(call,{ctx,owner,commitControl,createUserMessage:llm.createUserMessage,agent:id=>agents?.get(id),registered:id=>ctx.get('agents')?.get(id),
       attached:()=>agents?.sessions(),decorate:storage.decorate,directoryOf:session=>agents?.directoryOf(session)??history?.owner(session)?.cwd,
       select:(request,signal)=>history.selectModel(request,signal),
@@ -120,6 +122,9 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const presets='@deepseek-ai/dsh-agent-preset-registry';
     const presetModule=await load(presets);
     const defaults=await workbenchHostSettings(hostModules,load,sessionScope);
+    const basic='@deepseek-ai/dsh-compaction-basic';
+    hostModules.set(basic,workbenchCompaction((await load(basic)).default,
+      (await load('@deepseek-ai/dsh-compaction')).ManualCompactionError,sessionScope,(id,signal)=>agents.refresh(id,signal)));
     hostModules.set(presets,workbenchPresetRegistry(presetModule.default,RemoteError,sessionScope,
       (id,signal)=>agents.refresh(id,signal),await load('@deepseek-ai/dsh-scope'),await packagedPresetPlugins(ctx,rows,load),defaults));
     const {Deque}=await load('@deepseek-ai/dsh-deque');

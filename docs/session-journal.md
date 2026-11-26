@@ -58,6 +58,16 @@ checkpoint user message carries the surface replacement. When native and
 application sequence numbers differ, the summary's range endpoints and every
 shadowed sequence refer to the same messages as that replacement. A selective
 fork must contain those inputs to retain the summary.
+The native installation Fact authorizes the replacement. A provider settlement
+alone supplies its text but cannot remove history. Native selections can leave
+protected instructions between two selected intervals. The projection keeps
+those messages with their original identity and content. When the release's
+contiguous replacement needs a copy of a protected message, the copy points
+back to its source and stays out of the human transcript.
+The original preset-scoped `/compact` command delegates idle compaction to
+the Host with its command ID. Its completion links to the projected installed
+summary. A busy Session or an empty selection returns the original command
+outcome. An already-running model Turn keeps its execution owner.
 It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
 surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot

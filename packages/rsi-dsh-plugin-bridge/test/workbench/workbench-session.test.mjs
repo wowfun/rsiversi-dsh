@@ -15,6 +15,7 @@ import {sessionController} from '../../src/workbench/session-controller.mjs';
 import {catalogObserver} from '../../src/workbench/catalog.mjs';
 import {packagedPresetPlugins,workbenchProfile} from '../../src/workbench/profile.mjs';
 import {workbenchPresetRegistry} from '../../src/workbench/presets.mjs';
+import {workbenchCompaction} from '../../src/workbench/compaction.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('chat prompts record the Typert caller and canonical time zone before attachment admission',{skip:!root},async t=>{
@@ -122,10 +123,14 @@ test('the workbench skill registry discovers and withdraws an original bundle pr
   const scopes=await load('@deepseek-ai/dsh-scope');
   ctx.baseUrl=pathToFileURL(join(root,'package.json')).href;
   await ctx.plugin((await load('@deepseek-ai/cordis-plugin-loader')).default);
-  ctx.loader.internal={import:load,resolveSync:name=>({url:pathToFileURL(require.resolve(name)).href})};
+  const basic='@deepseek-ai/dsh-compaction-basic';
+  const Compact=workbenchCompaction((await load(basic)).default,
+    (await load('@deepseek-ai/dsh-compaction')).ManualCompactionError,{},()=>{});
+  ctx.loader.internal={import:name=>name===basic?Compact:load(name),resolveSync:name=>({url:pathToFileURL(require.resolve(name)).href})};
   ctx.loader.builtins.group=(await load('@deepseek-ai/cordis-plugin-group')).default;
   await ctx.plugin((await load('@deepseek-ai/dsh-session')).default);
   await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
+  await ctx.plugin((await load('@deepseek-ai/dsh-commands')).default);
   await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
   const native={withCaller:fn=>fn(),readPresets:async()=>({presets:['standard','minimal','ptc'].map(id=>({id,is_default:id==='standard'}))}),
     resolvePreset:async(id='standard')=>['standard','minimal','ptc'].includes(id)?{id}:null,
@@ -146,6 +151,7 @@ test('the workbench skill registry discovers and withdraws an original bundle pr
   t.after(()=>cold[Symbol.asyncDispose]());
   assert.equal((await ctx.skills.get('dsh-doc',{scope:cold.key})).provider,'filesystem');
   await ctx.agentPresets.bindSession(agent,'standard');
+  assert(ctx.commands.list(agent).some(command=>command.name==='compact'));
   assert.equal(scopes.scopeParentOf(agent),cold.key);
   const read=()=>ctx.skills.get('dsh-doc',{scope:agent});
   assert.equal((await read()).provider,'filesystem');

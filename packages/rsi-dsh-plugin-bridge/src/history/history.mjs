@@ -1,5 +1,6 @@
 import { requestObserver } from './request-history.mjs';
 import { observeAttempt } from './model-history.mjs';
+import {compactionInstalled, compactionPrepared, compactionStart} from './compaction-history.mjs';
 import { observeInput, observeTool } from './conversation-history.mjs';
 import { stepMessageText } from './step-messages.mjs';
 import { claimInput, clearClaims, preparedMessages } from './input-history.mjs';
@@ -8,7 +9,9 @@ const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is
 const keys = ['version', 'factCursor', 'turn', 'step', 'turnId', 'stepId', 'stepOpen', 'model', 'calls', 'pendingMessages', 'claims'];
 export function restoreMapping(value) {
   if (value == null) return { version: 4, factCursor: 0, turn: 0, step: 0, turnId: null, stepId: null, stepOpen: false, model: null, calls: [], pendingMessages: [], claims: [] };
-  if (Object.keys(value).length !== keys.length || Object.keys(value).some(key => !keys.includes(key))
+  if (keys.some(key => !Object.hasOwn(value,key)) || Object.keys(value).some(key => !keys.includes(key) && key !== 'compaction' && key !== 'compactionSettlement')
+      || 'compaction' in value && (!integer(value.compaction) || !value.compaction || value.compaction > value.factCursor)
+      || 'compactionSettlement' in value && (!integer(value.compactionSettlement) || !(value.compaction < value.compactionSettlement) || value.compactionSettlement > value.factCursor)
       || value.version !== 4 || ![value.factCursor, value.turn, value.step].every(integer)
       || ![value.turnId, value.stepId].every(id => id === null || typeof id === 'string' && id.length > 0 && id.length <= 256)
       || typeof value.stepOpen !== 'boolean' || value.stepOpen && (value.turnId === null || value.stepId === null)) {
@@ -49,6 +52,32 @@ export function factObserver(session, mapping, readFact, llm, projectMessage) {
 /** Only lifecycle Facts affect these counters; provider attempts do not fabricate acceptance. */
 async function observeFact(session, mapping, fact, readFact, llm, observeRequest, projectMessage) {
   if (!integer(fact.timestamp_ms) || fact.timestamp_ms === 0) throw new Error('invalid canonical Fact time');
+  const manual = fact.type === 'manual_compaction' && fact.event.stage;
+  if (manual === 'installed' || fact.type === 'context_compaction_installed') {
+    await compactionInstalled(session, mapping, fact, readFact, llm);
+    delete mapping.compactionSettlement;
+    return;
+  }
+  const pending = mapping.compaction && session.lastEvent('compaction/start');
+  const closeFailed = () => {
+    session.adoptObserved({type:'compaction/end', seq:session.seq, time:fact.timestamp_ms,
+      data:{...pending.data, error:'The native attempt ended without installing a checkpoint.'}});
+    delete mapping.compaction;
+    delete mapping.compactionSettlement;
+  };
+  if (mapping.compactionSettlement && (pending.data.turn === null || fact.type === 'model_intent' || fact.type === 'turn_terminal')) closeFailed();
+  if (compactionPrepared(fact)) {
+    compactionStart(session, mapping, fact);
+    return;
+  }
+  if (manual === 'settled' || fact.type === 'model_attempt_settled' && fact.purpose === 'context_compaction') {
+    if (pending?.data.compactionId !== fact.effect_id) throw Error('Compaction settled without its native intent');
+    const attempt = (manual ? fact.event : fact).attempt;
+    const terminal = attempt.events.at(-1)?.[1];
+    if (terminal?.type === 'finished' && terminal.reason === 'stop') mapping.compactionSettlement = fact.seq;
+    else closeFailed();
+    return;
+  }
   if (fact.type === 'model_intent') {
     await observeRequest(session, fact, mapping);
     if (fact.purpose?.kind === 'conversation') mapping.model = { effectId: fact.effect_id, provider: fact.snapshot.deployment_id, model: fact.snapshot.model, startedAt: null };
