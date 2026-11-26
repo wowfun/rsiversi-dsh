@@ -96,6 +96,9 @@ test('one control page reconstructs a full native inbox without per-message read
   const source=await workbenchSource({ctx,api,header:{version:4,id:'full-inbox',createdAt:1,isSeeded:false},
     meta:{model_baseline:baseline,selection_cursor:{kind:'durable',fact_seq:0,control_seq:64}},call});
   const stage=await source.stage(call,async()=>{},undefined,0,64);
+  assert.equal(stage.value.mapping,source.current.mapping);
+  assert.equal(stage.value.spawning,source.current.spawning);
+  assert.equal(stage.value.spawned,source.current.spawned);
   assert.equal(calls.length,1);
   assert.equal(source.current.session.seq,0);
   assert.deepEqual(source.current.inbox.snapshot()['next-step'],[]);
@@ -150,6 +153,8 @@ test('native controls split observation without splitting the captured Fact page
     assert.equal(source.current.session.seq,0);
   } finally {gate.resolve();await staging;}
   const staged=await staging;
+  assert.notEqual(staged.value.mapping,source.current.mapping);
+  assert.notEqual(staged.value.spawned,source.current.spawned);
   assert.equal(source.current.session.seq,0,'staging must not expose even a fully decoded page');
   assert.deepEqual(staged.value.session.snapshotEvents().map(event=>event.type),[
     'turn/start','model/selection','model/selection','step/start','system/message','user/message','step/end','model/selection','turn/end',

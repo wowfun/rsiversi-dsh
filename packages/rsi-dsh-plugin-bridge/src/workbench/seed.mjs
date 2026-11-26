@@ -11,6 +11,8 @@ async function projectFacts(session,mapping,fetch,through,signal,llm,observed){
 
 export function factProjector(session,mapping,fetch,horizon,signal,llm,observed,projectMessage){
   const advance=factPageReader(fetch,mapping.factCursor,horizon,signal);
+  // With a fixed cursor the reader still checks every control anchor and cancellation.
+  if(mapping.factCursor===horizon)return advance;
   let page;
   const readFact=async seq=>{
     const retained=page[seq-page[0]?.seq];

@@ -23,10 +23,12 @@ export async function workbenchSource({ctx,api,llm,header,meta,call,release,sign
       const original=current;
       const originalEffect=original.mapping.model?.effectId;
       let settlement;
-      const next={...original,session:session.branch(),mapping:cloneMapping(original.mapping),
-        model:original.model.branch(),
-        spawning:new Set(original.spawning),spawned:new Map(original.spawned),
-        origins:new Map()};
+      const next={...original,session:session.branch(),model:original.model.branch(),origins:new Map()};
+      if(through!==original.mapping.factCursor){
+        next.mapping=cloneMapping(original.mapping);
+        next.spawning=new Set(original.spawning);
+        next.spawned=new Map(original.spawned);
+      }
       const loadFacts=nativeFactPages(call,release,signal);
       let firstControl=first?.after.control_seq===next.controlThrough&&first.cut.control_seq===controlThrough?first.controls:undefined;
       let firstFact=first?.after.fact_seq===next.mapping.factCursor&&first.cut.fact_seq===through?first.facts:undefined;

@@ -609,7 +609,9 @@ follow the native inspection's acceptance order; claims, promotion and discard
 update that same projection. A new
 child replays only its own inbox controls, so inherited pending work is not copied.
 Queue-only changes advance the real projected event log and notify ordinary
-Session observers. Draft intents remain outside that durable event log.
+Session observers. When only controls advance, the staged batch shares the
+committed Fact cursor, input claims and child catalog. A batch with new Facts
+isolates those changes until commit. Draft intents remain outside that durable event log.
 The inbox fold associates each Agent notification with its application event
 position. Publishing a batch consumes those positions in order, including a
 native claim of an input that was already withdrawn locally.
