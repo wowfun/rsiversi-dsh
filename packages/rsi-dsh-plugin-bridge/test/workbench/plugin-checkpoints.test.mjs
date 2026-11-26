@@ -19,7 +19,10 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
     const {Context} = await load('cordis');
     const ctx = new Context();
     t.after(()=>ctx.fiber.dispose());
-    Object.defineProperty(ctx.fiber,'entry',{configurable:true,value:{options:{name:'dsh-template-checkpoint'}}});
+    ctx.baseUrl=import.meta.url;
+    await ctx.plugin((await load('cordis-plugin-loader')).default);
+    await ctx.plugin((await load('dsh-session')).default);
+    await ctx.plugin((await load('dsh-llm')).default);
     new (await load('dsh-session-projection')).default(ctx);
     new (await load('dsh-token-meter')).default(ctx);
     const sdk = await load('dsh-compaction-basic');
@@ -27,17 +30,27 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
     assert.equal(require('@deepseek-ai/dsh-compaction-basic').default,sdk.default);
     const llm = compactionLanguage(await load('dsh-llm'),(name,path)=>load(name.slice('@deepseek-ai/'.length)+'/'+path));
     const {Session} = await load('dsh-session');
-    let runs=0, rejectSummary=true;
+    let runs=0, rejectSummary=true, pending;
     class Template extends sdk.BasicCompactionEngine {
       async summarize(input) {
         assert.match(JSON.stringify(input.messages), /old text/);
         assert.equal(session.lastEvent('compaction/start').seq,session.seq-1);
         if(rejectSummary)throw Error('template unavailable');
+        if(pending){pending.entered.resolve();await pending.release.promise;}
         runs++;
         return {provider:'template',model:'offline',summary:[{type:'text',text:'ORCHID'}]};
       }
     }
-    const engine = new Template(ctx,{auto:false});
+    let engine;
+    const consumer={inject:['compaction'],apply(ctx){engine=ctx.get('compaction');}};
+    ctx.loader.internal={import(name) {
+      if(name==='dsh-template-checkpoint')return Template;
+      assert.equal(name,'dsh-checkpoint-consumer');return consumer;
+    }};
+    const entry=await ctx.loader.create({name:'dsh-template-checkpoint',config:{auto:false}});
+    await ctx.loader.create({name:'dsh-checkpoint-consumer'});
+    await ctx.loader.await();
+    assert.ok(engine);
     const raw = Session.create('template-session');
     raw.append('turn/start',{turn:1});
     const source = raw.append('user/message',llm.createUserMessage({content:[{type:'text',text:'old text '.repeat(1000)}],
@@ -89,17 +102,34 @@ test('an unmodified basic-engine subclass installs its own framed checkpoint wit
     assert.equal(session.lastEvent('compaction/end').data.error,'conversation changed');
     assert.equal(fact,undefined);
     rejectCommit=false;
+    pending={entered:Promise.withResolvers(),release:Promise.withResolvers()};
+    const inflight=engine.compactRegion(source.seq,source.seq,agent);
+    await pending.entered.promise;
+    await ctx.loader.update(entry,{disabled:true});
+    await ctx.loader.await();
+    pending.release.resolve();pending=undefined;
+    await assert.rejects(inflight);
+    assert.ok(session.lastEvent('compaction/end').data.error);
+    assert.equal(fact,undefined,'unloaded provider cannot submit a late summary');
+    await ctx.loader.update(entry,{disabled:false});
+    await ctx.loader.await();
     const result=await engine.compactRegion(source.seq,source.seq,agent);
-    assert.equal(runs,2);
+    assert.equal(runs,3);
     assert.deepEqual(result.summary,[{type:'text',text:'ORCHID'}]);
     assert.deepEqual(result.shadowedSeqs,[source.seq]);
     assert.equal(session.eventAt(result.summarySeq).data.rsi.plugin,'dsh-template-checkpoint');
     assert.equal(session.eventAt(result.summarySeq).data.model,'offline');
     assert.match(session.eventAt(source.seq).data.content[0].text,/old text/);
     assert.deepEqual(session.eventAt(session.surface.nodes[0]).data.content,fact.checkpoint.message.content);
-    assert.equal(session.snapshotEvents().filter(e=>e.type==='compaction/start').length,3);
+    assert.equal(session.snapshotEvents().filter(e=>e.type==='compaction/start').length,4);
     const cold=new SessionProjectionJournal(ctx,api,seed,{restore:readJournalDocument(journal.encode()),native:raw.snapshotEvents()});
     assert.deepEqual(cold.session.snapshotEvents(),session.snapshotEvents());
     assert.equal(fact.checkpoint.message.role,'user');
     assert.deepEqual(fact.checkpoint.message.content.map(b=>b.text).slice(1,-1),['ORCHID']);
+    const beforeRemoval=session.seq;
+    ctx.loader.remove(entry);
+    await ctx.loader.await();
+    assert.equal(ctx.get('compaction'),undefined);
+    await assert.rejects(engine.compactRegion(session.surface.nodes[0],session.surface.nodes[0],agent));
+    assert.equal(session.seq,beforeRemoval,'a retired engine cannot start another compaction');
   });

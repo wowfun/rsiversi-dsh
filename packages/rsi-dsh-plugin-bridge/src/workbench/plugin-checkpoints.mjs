@@ -6,6 +6,7 @@ import {installedResult,runRegion} from './compaction.mjs';
 
 const mounted = new WeakMap();
 const transactions = new AsyncLocalStorage();
+const engineContext = Symbol('checkpoint engine context');
 
 export function bindCheckpointSession(session, binding) {
   mounted.set(session, binding);
@@ -34,20 +35,27 @@ export function captureCheckpointAppend(session, type, data, options) {
 
 export function checkpointEngine(Basic) {
   return class extends Basic {
+    constructor(ctx,...args) {
+      super(ctx,...args);
+      // Cordis traces this.ctx to the consumer when it calls a service method.
+      this[engineContext]=ctx;
+    }
     async compactRegion(start, end, agent, signal) {
       const session = agent.session;
       const binding = mounted.get(session);
       if (!binding) return super.compactRegion(start, end, agent, signal);
-      const entry = loaderEntry(this.ctx);
+      const provider = this[engineContext];
+      const entry = loaderEntry(provider);
       if (!entry) throw Error('A plugin checkpoint requires its active Loader entry');
       const region = binding.region(start, end);
       return runRegion(session, () => binding.scope.withCaller(async stop => {
         await binding.scope.checkpointOwner(agent.id, stop);
+        provider.fiber.assertActive();
         const transaction = {session, binding, next: session.seq};
         await transactions.run(transaction, () => super.compactRegion(start, end, agent, stop));
         const {summary, message, opening} = transaction;
         try {
-          this.ctx.fiber.assertActive();
+          provider.fiber.assertActive();
           stop?.throwIfAborted();
         } catch(error) {
           binding.lifecycle('compaction/end',{...opening,error:error.message});

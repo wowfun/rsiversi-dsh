@@ -74,7 +74,9 @@ at the observed Fact prefix. The system head and partial tool interactions
 cannot be selected. The result names the installed checkpoint, its summary
 event and the application sequences it replaced. A plugin extending the
 released basic engine can supply its own summary without configuring a
-conversation model. The Host stores the Loader plugin identity and exact
+conversation model. The Host records the Loader entry that supplied the engine,
+including when another plugin calls it. Unloading that engine closes its ability
+to submit new checkpoints. The Host stores the exact
 user-role text blocks. The released engine owns token pricing, error recovery
 and checkpoint framing for this operation. Its opening event is visible while
 the summarizer runs. The journal correlates that opening with the Host's
