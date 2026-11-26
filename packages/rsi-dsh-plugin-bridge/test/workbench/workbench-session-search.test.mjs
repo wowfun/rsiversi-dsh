@@ -26,13 +26,18 @@ test('published session-search bundle preserves all five tools through the nativ
       assert.equal(expected.isError,false,JSON.stringify(expected));
       assert.deepEqual(actual,expected);return text(actual);
     }
-    await t.test('cold full-text indexing, workspace filter and strongest event per Session',async()=>{
+    await t.test('cold full-text indexing, workspace filter and strongest event per Session',async t=>{
       const output=await compare(toolNames[0],{query:'archive needle',max_results:100});
       assert.match(output,/search-0\b/);assert.doesNotMatch(output,/search-11\b/);
-      const reads=bridge.counters.capture;
+      const handles=[original,bridge].map(runtime=>t.mock.method(runtime.app.ctx.sessionPersistence,'open'));
       await compare(toolNames[0],{query:'archive needle',max_results:100});
-      assert.equal(bridge.counters.capture,reads,'unchanged index must not reopen event logs');
+      const titles=corpus.filter(row=>row.header.cwd===corpus[0].header.cwd).map(row=>row.header.id).sort();
+      for(const handle of handles){
+        assert.deepEqual(handle.mock.calls.map(call=>call.arguments[0]).sort(),titles);
+        handle.mock.resetCalls();
+      }
       await compare(toolNames[0],{query:'nonexistenttoken'});
+      for(const handle of handles)assert.equal(handle.mock.callCount(),0,'unchanged index with no title hits needs no logs');
     });
     await t.test('exact reads, event search and both lineage tools',async()=>{
       await compare(toolNames[1],{session_id:'search-0',query:'event3'});

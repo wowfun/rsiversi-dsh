@@ -1,13 +1,11 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import {appendFile} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {join} from 'node:path';
-import {pathToFileURL} from 'node:url';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 import {fixtureTools} from './tool-host.mjs';
 
 const [directory,key]=process.argv.slice(2);
-const require=createRequire(join(process.env.RSI_DSH_MARKET_COHORT,'package.json'));
-const load=name=>import(pathToFileURL(require.resolve(name)));
+const {load}=await cohortModules(process.env.RSI_DSH_MARKET_COHORT);
 const {Context}=await load('@deepseek-ai/cordis');
 const tools=await load('@deepseek-ai/dsh-tools');
 const ctx=new Context();

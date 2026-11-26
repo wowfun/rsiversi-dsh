@@ -164,8 +164,10 @@ export function installReleaseResolver(layout, roots, profile) {
     const owner=findOwner(parentURL);
     return owner?(name===owner.name?owner:destinationFor(owner,name)):profileBinding(name,parentURL);
   }
-  let resolvingFromLease = false;
+  let resolvingFromLease = false, entryParent;
   const hook = registerHooks({resolve(specifier,context,next) {
+    if (entryParent && context.parentURL===import.meta.url)
+      return next(specifier,{...context,parentURL:entryParent});
     if (resolvingFromLease)return next(specifier,context);
     const name=barePackageName(specifier);
     if(!name)return next(specifier,context);
@@ -196,7 +198,11 @@ export function installReleaseResolver(layout, roots, profile) {
     const name = barePackageName(specifier);
     const target = release.get(installation?.dependencies[name]) ?? rootsByName.get(name) ?? hoistedProfilePackage(name);
     if (!target) throw new Error('Not a profile package: '+name);
-    return createRequire(target.parent).resolve(specifier);
+    // Node's single-argument import.meta.resolve uses this module as issuer.
+    // Rebase only this synchronous lookup to the selected package's lease.
+    entryParent=target.parent;
+    try {return fileURLToPath(import.meta.resolve(specifier));}
+    finally {entryParent=undefined;}
   }
   return {entry,directory,installationDependency,bindingFor,packageAt,setProfileLink,prepare,add,close:()=>hook.deregister()};
 }

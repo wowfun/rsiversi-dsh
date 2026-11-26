@@ -1,10 +1,9 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createRequire} from 'node:module';
-import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {fixtureTools} from '../fixtures/tool-host.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
@@ -12,7 +11,7 @@ import {applicationSessions} from '../../src/application/sessions.mjs';
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('original pipeline snapshots plugin values before the receipt write and HTTP reply',{skip:!root},async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-result-snapshot-'));
-  const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+  const {load}=await cohortModules(root);
   const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
   const sessions=applicationSessions(()=>{throw Error('unexpected native Session request');});
   t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});

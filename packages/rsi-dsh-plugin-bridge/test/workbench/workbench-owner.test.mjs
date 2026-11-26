@@ -1,3 +1,4 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import {nativeSubmission} from '../fixtures/native-submission.mjs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
@@ -139,8 +140,8 @@ test('an existing chat follows committed directory changes through a cold workbe
   const f=await fixture(t),project=await mkdtemp(join(tmpdir(),'rsi-directory-change-'));
   const prompt=await f.load('dsh-system-prompt');
   await f.ctx.plugin(prompt.default);
-  const require=createRequire(join(root,'package.json'));
-  await registerWorkbenchContext(f.ctx,require.resolve('@deepseek-ai/dsh-working-directory'));
+  const {load}=await cohortModules(root);
+  await registerWorkbenchContext(f.ctx,(await load('zod')).z);
   f.ctx.systemPrompt.section({name:'fixture:persona',order:10,text:'Selected: {{provider}} / {{model}}'});
   const selection={provider:'fixture',model:'this-step'};
   const assembled=await f.ctx.systemPrompt.assemble({modelSelection:selection});

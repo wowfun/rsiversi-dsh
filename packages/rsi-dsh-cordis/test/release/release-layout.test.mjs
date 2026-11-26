@@ -212,10 +212,12 @@ test('leased runtime peers share identity while nested private dependencies keep
     {shared:'node_modules/shared','private-lib':'node_modules/ext/node_modules/private-lib'});
   const resolver=installReleaseResolver({format:1,locations},roots);
   t.after(()=>resolver.close());
-  const cjs=createRequire(import.meta.url), ext=cjs(resolver.entry('ext'));
-  assert.equal(ext.shared,cjs(resolver.entry('shared')));
+  const cjs=createRequire(join(roots.get('extension'),'package.json'));
+  const ext=cjs('ext');
+  assert.equal(resolver.entry('ext'),join(roots.get('extension'),'node_modules/ext/main.mjs'));
+  assert.equal(ext.shared,(await import(pathToFileURL(resolver.entry('shared')))).default);
   assert.equal(ext.version,'private');
-  assert.equal((await import(pathToFileURL(join(roots.get('extension'),'node_modules/ext/main.mjs')))).default.shared,ext.shared);
+  assert.equal((await import(pathToFileURL(resolver.entry('ext')))).default.shared,ext.shared);
   const extraPath=join(roots.get('extension'),'node_modules/market-probe');
   await mkdir(extraPath,{recursive:true});
   await writeFile(join(extraPath,'probe.mjs'),"export const shared=(await import('shared')).default");

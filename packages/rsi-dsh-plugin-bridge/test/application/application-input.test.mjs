@@ -1,3 +1,4 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -17,7 +18,8 @@ const selection = { provider: 'native', model: 'actual', reasoningEffort: 'high'
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-pre-step-'));
   const require = createRequire(join(root, 'package.json'));
-  const load = name => import(pathToFileURL(require.resolve('@deepseek-ai/' + name)));
+  const modules = await cohortModules(root);
+  const load = name => modules.load('@deepseek-ai/' + name);
   const ctx = new (await load('cordis')).Context(), agentApi = await load('dsh-agent');
   for (const name of ['dsh-session-projection', 'dsh-system-prompt']) await ctx.plugin((await load(name)).default);
   const tools = await load('dsh-tools'); await ctx.plugin(tools.default);
@@ -28,7 +30,7 @@ async function fixture(t) {
   const agent = { id: session.id, session }, world = (await load('dsh-scope')).createScope(ctx, agent); agent.ctx = world.ctx;
   const sessions = applicationSessions(() => { throw Error('unexpected native command'); });
   const key = randomUUID();
-  const listener = await applicationTools(ctx, { load: name => import(pathToFileURL(require.resolve(name))), key,
+  const listener = await applicationTools(ctx, { load: modules.load, key,
     generation: randomUUID(), directory, sessions, resolveAgent: async id => { assert.equal(id, agent.id); return agent; } });
   t.after(async () => { await ctx.fiber.dispose(); await sessions.close(); await rm(directory, { recursive: true, force: true }); });
   const post = async (path, body) => {

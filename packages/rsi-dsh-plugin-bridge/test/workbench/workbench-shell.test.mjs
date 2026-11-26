@@ -1,9 +1,9 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {mkdir,mkdtemp,readFile,rm,stat,writeFile} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {homedir,tmpdir} from 'node:os';
-import {dirname,join} from 'node:path';
+import {join} from 'node:path';
 import {test} from 'node:test';
 import {pathToFileURL} from 'node:url';
 import {createApplication} from '../../src/application/application.mjs';
@@ -18,8 +18,7 @@ test('preset plugins receive the released question, web fetch and TypeScript wor
   const profile=await mkdtemp(join(tmpdir(),'rsi-preset-services-'));
   let app;
   t.after(async()=>{await app?.close();await rm(profile,{recursive:true,force:true});});
-  const require=createRequire(join(root,'package.json'));
-  const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
+  const modules=await cohortModules(root);
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   const {rows}=await workbenchProfile(modules,boot,profile);
   const namesById=new Map(rows.map(row=>[row.id,row.name]));
@@ -46,8 +45,7 @@ test('the market filesystem enforces the release policy for the Session workspac
   let app;
   t.after(async()=>{await app?.close();await rm(profile,{recursive:true,force:true});});
   await mkdir(workspace);
-  const require=createRequire(join(root,'package.json'));
-  const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
+  const modules=await cohortModules(root);
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   const {rows}=await workbenchProfile(modules,boot,profile);
   app=await createApplication({profile,modules,provide:async(ctx,load)=>{
@@ -72,25 +70,24 @@ test('the market profile runs the release shell service and platform model tools
   // bwrap gives the child a private /tmp. Keep the fixture on the host filesystem.
   const profile=await mkdtemp(join(homedir(),'.rsi-dsh-shell-'));
   const workspace=join(profile,'session');
-  let app;
+  let app,sessions;
   const agents=[];
-  const sessions=applicationSessions(()=>{throw Error('Unexpected Session RPC');});
   t.after(async()=>{
     for(const {world,detach} of agents){
       await world.dispose();
       detach();
     }
     await app?.close();
-    await sessions.close();
+    await sessions?.close();
     await rm(profile,{recursive:true,force:true});
   });
   await mkdir(join(workspace,'nested dir'),{recursive:true});
-  const require=createRequire(join(root,'package.json'));
-  const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
+  const modules=await cohortModules(root);
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   const selected=await workbenchProfile(modules,boot,profile);
   const services=selected.rows.filter(row=>['subprocess','sandbox','sandbox-policy','pwsh-sandbox','bash-sandbox','shell-env','jobs'].includes(row.id));
   app=await createApplication({profile,modules,provide:async(ctx,load)=>{
+    sessions=applicationSessions(()=>{throw Error('Unexpected Session RPC');},{ctx});
     ctx.provide('workingDirectory',sessions.workingDirectory);
     for(const name of ['dsh-session-projection','dsh-system-prompt','dsh-tools'])
       await ctx.plugin((await load('@deepseek-ai/'+name)).default);

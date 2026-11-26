@@ -1,8 +1,8 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createRequire} from 'node:module';
 import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
 import {fixtureTools} from '../fixtures/tool-host.mjs';
@@ -17,9 +17,9 @@ async function fixture(t,options={}) {
   t.after(()=>rm(directory,{recursive:true,force:true}));
   const profile=join(directory,'profile');await mkdir(profile);
   const selected=new Map(),events=[];
-  const require=createRequire(join(root,'package.json'));
+  const {entry}=await cohortModules(root);
   const app=await createApplication({profile,...options,
-    modules:{entry:name=>selected.get(name)??require.resolve(name)},
+    modules:{entry:name=>selected.get(name)??entry(name)},
     provide:async (ctx,load)=>{ctx.provide('testEvents',events);await options.provide?.(ctx,load,directory);}});
   t.after(()=>app.close());
   async function code(name,version,body) {
@@ -67,7 +67,7 @@ test('a still configured entry keeps its active fiber when its binding disappear
   await f.code('probe','v1',implementation('v1'));
   await f.app.reconcile(f.rows);
   f.selected.delete('probe');
-  await assert.rejects(f.app.reconcile(f.rows),{code:'MODULE_NOT_FOUND'});
+  await assert.rejects(f.app.reconcile(f.rows),{code:'ERR_MODULE_NOT_FOUND'});
   assert.deepEqual(f.app.ctx.replacementProbe,{version:'v1',value:'original'});
   assert.deepEqual(f.events,[]);
 });

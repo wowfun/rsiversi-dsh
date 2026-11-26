@@ -23,8 +23,13 @@ test('real local module replacement drains old callbacks, resolves same-version 
     const base=await mkdtemp(join(tmpdir(),'rsi-replacement-')),profile=join(base,'profile'),source=join(base,'source');
     t.after(()=>rm(base,{recursive:true,force:true}));
     await mkdir(profile);await mkdir(source);
+    // This application supplies the manager and installs one local bundle.
+    // Its installation manifest contains only the services it actually ships.
+    const installAnchor=join(base,'package.json');
+    await writeFile(installAnchor,JSON.stringify({dependencies:{'@deepseek-ai/dsh-plugin-manager':'*'}}));
     const name='fixture-runtime-replacement',selection='rsi-dsh-selection-replacement',shard='fixture-module';
-    await writeFile(join(source,'package.json'),JSON.stringify({name,version:'1.0.0',type:'module',main:'index.mjs',
+    await writeFile(join(source,'package.json'),JSON.stringify({name,version:'1.0.0',type:'module',
+      exports:{'.':{import:'./index.mjs'},'./package.json':'./package.json'},
       dsh:{bundle:{patch:'cordis.patch.yml'}}}));
     await writeFile(join(source,'cordis.patch.yml'),JSON.stringify([{insert:[{id:'replacement-probe',name}]}]));
     const writeVersion=version=>writeFile(join(source,'index.mjs'),version==='bad'
@@ -84,7 +89,7 @@ test('real local module replacement drains old callbacks, resolves same-version 
         const command=await packageCommand(profile,market.packageRunner);
         ctx.effect(()=>()=>command.close());
         ctx.provide('profileContext',{name:basename(profile),dir:profile,patchPath:join(profile,'cordis.patch.yml'),
-          installAnchor:join(modules.directory('@deepseek-ai/dsh'),'package.json'),cwd:profile,home:dirname(profile),
+          installAnchor,cwd:profile,home:dirname(profile),
           startedBundles:[],overlayPaths:[],telemetryDisabledEnv:'1',packageManager:command.invocation});
         ctx.provide('hmr',market.hmr);
         await ctx.plugin(boot.PluginPackages,{});

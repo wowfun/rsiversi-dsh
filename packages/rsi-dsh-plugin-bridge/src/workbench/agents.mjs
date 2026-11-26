@@ -1,5 +1,4 @@
 import {setTimeout as delay} from 'node:timers/promises';
-import {createRequire} from 'node:module';
 import {isAbsolute} from 'node:path';
 import {captureAgentView} from './agent-view.mjs';
 import {nativeForkSeed} from './fork-seed.mjs';
@@ -9,8 +8,7 @@ import {isChildSetupEvent,isPermissionEvent} from '../session/session.mjs';
 import {appendPermission,seedNativePermission} from './permission.mjs';
 
 /** Context registrations owned upstream by the working-directory service and Agent loop. */
-export async function registerWorkbenchContext(ctx,workingDirectoryModule) {
-  const {z}=createRequire(workingDirectoryModule)('zod');
+export async function registerWorkbenchContext(ctx,z) {
   const directory=z.string().min(1).refine(isAbsolute).nullable();
   await ctx.sessionProjections.register({
     key:'workingDirectory',stateVersion:3,stateSchema:directory,

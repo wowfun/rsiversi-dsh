@@ -1,13 +1,10 @@
+import {cohortModules} from '../market/cohort-modules.mjs';
 import {readFile} from 'node:fs/promises';
-import {createRequire} from 'node:module';
-import {dirname,join} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {join} from 'node:path';
 
 /** Resolve the installed cohort and its published search patch, without pinning source hashes. */
 export async function searchDistribution(cohort) {
-  const require=createRequire(join(cohort,'package.json'));
-  const modules={entry:name=>require.resolve(name),directory:name=>dirname(require.resolve(name+'/package.json'))};
-  const load=name=>import(pathToFileURL(modules.entry(name)));
+  const modules=await cohortModules(cohort),{load}=modules;
   const directory=modules.directory('@deepseek-ai/dsh-experimental-session-search');
   const manifest=JSON.parse(await readFile(join(directory,'package.json'),'utf8'));
   const boot=await load('@deepseek-ai/dsh-app-boot');

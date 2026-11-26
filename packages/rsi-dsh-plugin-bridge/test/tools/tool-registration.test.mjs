@@ -1,3 +1,4 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import {toolPipeline} from '../../src/tools/tool-pipeline.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
@@ -6,8 +7,6 @@ import {randomUUID} from 'node:crypto';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createRequire} from 'node:module';
-import {pathToFileURL} from 'node:url';
 import {fixtureTools} from '../fixtures/tool-host.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 
@@ -51,7 +50,7 @@ test('a released registry cannot dispatch a withdrawn registration after an asyn
 
 test('an admitted application call retains the original structured withdrawal result', {skip:!root},async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-tool-withdrawal-'));
-  const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+  const {load}=await cohortModules(root);
   const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
   const sessions=applicationSessions(()=>{throw Error('unexpected native Session access');});
   t.after(async()=>{await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});

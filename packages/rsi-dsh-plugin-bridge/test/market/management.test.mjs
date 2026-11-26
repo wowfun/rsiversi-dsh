@@ -1,3 +1,4 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {mkdtemp,rm,writeFile,stat} from 'node:fs/promises';
@@ -62,10 +63,10 @@ test('managed package results require live activation and contain unavailable ma
 test('real manager defers its Tool mutation, preserves siblings and reports its completed receipt',{skip:!root},async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-management-'));
   t.after(()=>rm(profile,{recursive:true,force:true}));
-  const require=createRequire(join(root,'package.json')),probe=join(profile,'probe.mjs');
+  const {entry}=await cohortModules(root),probe=join(profile,'probe.mjs');
   await writeFile(probe,`export const inject=['tools'];export function apply(ctx){ctx.tools.register({name:'probe',description:'old code',parameters:{},
     output:{schema:{type:'string'},render:(_,value)=>[{type:'text',text:value}]},execute(){return 'old code';}});}`);
-  const modules={entry:name=>name==='probe'?probe:require.resolve(name),directory:name=>join(root,'node_modules',name)};
+  const modules={entry:name=>name==='probe'?probe:entry(name),directory:name=>join(root,'node_modules',name)};
   const boot=await import(pathToFileURL(modules.entry('@deepseek-ai/dsh-app-boot')));
   const boundary=requestBoundary(),key=randomUUID(),hostModules=new Map();let listener;
   const managerName='@deepseek-ai/dsh-plugin-manager';

@@ -1,3 +1,4 @@
+import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import assert from 'node:assert/strict';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomUUID} from 'node:crypto';
@@ -6,8 +7,6 @@ import {mkdir,mkdtemp,rm,readdir,rename} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
-import {createRequire} from 'node:module';
-import {pathToFileURL} from 'node:url';
 import {fixtureTools} from '../fixtures/tool-host.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
 
@@ -16,7 +15,7 @@ const nativeSelection={provider:'native',model:'selected',reasoningEffort:'low'}
 
 test('HTTP cancellation remains admitted when work and slow bodies saturate the work lane',{skip:!root,timeout:15000},async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-tool-cancel-lane-'));
-  const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+  const {load}=await cohortModules(root);
   const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
   for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
   await ctx.plugin(tools.default);
@@ -53,7 +52,7 @@ test('HTTP cancellation remains admitted when work and slow bodies saturate the 
 test('capture preserves actual optional deadlines and the original timeout wrapper owns its expiry result',
   {skip:!root,timeout:30000},async t=>{
     const directory=await mkdtemp(join(tmpdir(),'rsi-tool-deadlines-'));
-    const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+    const {load}=await cohortModules(root);
     const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
     for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
     await ctx.plugin(tools.default);
@@ -100,7 +99,7 @@ test('capture preserves actual optional deadlines and the original timeout wrapp
 test('replacement processes only query old effects and cannot restart them through a new captured view', {skip:!root},async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-tool-replacement-'));
   t.after(()=>rm(directory,{recursive:true,force:true}));
-  const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+  const {load}=await cohortModules(root);
   const tools=await load('@deepseek-ai/dsh-tools');let calls=0,failWrite=true;
   async function host(){
     const ctx=new (await load('@deepseek-ai/cordis')).Context();
@@ -158,7 +157,7 @@ test('replacement processes only query old effects and cannot restart them throu
 test('original application policy allows by default, asks once when requested and preserves denial and guards',
   {skip:!root,timeout:30000},async t=>{
     const directory=await mkdtemp(join(tmpdir(),'rsi-tool-policy-'));
-    const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+    const {load}=await cohortModules(root);
     const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
     for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
     await ctx.plugin(tools.default);
@@ -210,8 +209,7 @@ test('original application policy allows by default, asks once when requested an
 test('original model-dependent activation uses the native request choice instead of the live Agent choice',
   {skip:!root},async t=>{
     const directory=await mkdtemp(join(tmpdir(),'rsi-model-tools-'));
-    const require=createRequire(join(root,'package.json'));
-    const load=name=>import(pathToFileURL(require.resolve(name)));
+    const {load}=await cohortModules(root);
     const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
     for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
     await ctx.plugin(tools.default);
@@ -246,7 +244,7 @@ test('original model-dependent activation uses the native request choice instead
 
 test('native tool capture uses the owned Agent scope and waits for its native writes',{skip:!root},async t=>{
   const directory=await mkdtemp(join(tmpdir(),'rsi-owned-tools-'));
-  const require=createRequire(join(root,'package.json')),load=name=>import(pathToFileURL(require.resolve(name)));
+  const {load}=await cohortModules(root);
   const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
   for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
   await ctx.plugin(tools.default);
@@ -308,8 +306,7 @@ test('a captured Cordis registration settles once in its own Session and survive
   {skip:!root,timeout:30000},async t=>{
     const directory=await mkdtemp(join(tmpdir(),'rsi-tools-'));
     for(const id of ['one','two'])await mkdir(join(directory,id));
-    const require=createRequire(join(root,'package.json'));
-    const load=name=>import(pathToFileURL(require.resolve(name)));
+    const {load}=await cohortModules(root);
     const {Context}=await load('@deepseek-ai/cordis');
     const tools=await load('@deepseek-ai/dsh-tools');
     const key=randomUUID();

@@ -154,7 +154,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
     }
     finally{lane.active--;}
   });
-  const {WebSocketServer}= (await load('ws')).default;
+  const {WebSocketServer}=await load('ws');
   const closeNative=serveNativeTools(server,WebSocketServer,authenticated,views,sessions,execute);
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
   ctx.effect(()=>async()=>{

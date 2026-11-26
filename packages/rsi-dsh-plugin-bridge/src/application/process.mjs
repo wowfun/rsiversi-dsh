@@ -199,7 +199,9 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const loopServices=['agents','sessions','sessionProjections','tools','systemPrompt'];
     if(hasLanguage)loopServices.push('llm');
     await ctx.inject(loopServices,async loop=>{
-      await registerWorkbenchContext(loop,modules.entry('@deepseek-ai/dsh-working-directory'));
+      const issuer=pathToFileURL(modules.entry('@deepseek-ai/dsh-working-directory')).href;
+      const {z}=await import(pathToFileURL(boot.resolvePluginResource('zod',issuer)));
+      await registerWorkbenchContext(loop,z);
       agents=await workbenchAgents(loop,sessionScope,history,await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue,subagents,goals);
       watchWorkbenchCatalog(loop,sessionScope,agents.sharedBlankChanged);
     }).await();

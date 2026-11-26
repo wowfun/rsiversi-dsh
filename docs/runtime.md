@@ -145,6 +145,9 @@ publishing a selection. Only explicitly approved, resolved
 private package instances are rebuilt in staging. This executes code with the
 local operator's permissions, including on Windows. The installer gives the
 child a private npm home and no Service credentials.
+Cordis loads selected plugin entries and exported subpaths with Node's ESM
+import conditions. CommonJS calls inside a plugin use Node's require conditions.
+The workbench uses the same ESM schema and WebSocket exports as the DSH host.
 Bare imports prefer the importing package's declared dependency and nearest
 profile package. A missing profile package can resolve from the initial host
 graph through its public Node exports. The published market uses this for its
