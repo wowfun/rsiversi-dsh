@@ -721,7 +721,10 @@ does not authorize replay of a callback.
 The standalone Agent importer packs the shared peers actually installed in its
 leased host cohort: `@deepseek-ai/*`, React, React DOM and Zod. It does not use a
 source-revision package inventory, and resource-only packages need no JavaScript
-entry point. Other dependencies are resolved by npm from those packages' current
+entry point. The standalone Agent imports executable entries and subpaths using
+the cohort's Node ESM conditions, including packages that expose only an import
+entry. Shared peers are compared under those same conditions. Other dependencies
+are resolved by npm from those packages' current
 manifests. Shared peers, including
 Cordis and UserQuestionError, resolve to one exact physical cohort. Private
 ordinary libraries may have multiple versions. Import uses a pinned npm CLI,
