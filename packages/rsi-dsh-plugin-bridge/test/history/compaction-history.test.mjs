@@ -3,9 +3,42 @@ import {test} from 'node:test';
 import {loadCohort} from '../../../rsi-dsh-cordis/src/runtime/cohort.mjs';
 import {SessionFacade} from '../../src/session/session.mjs';
 import {factObserver, restoreMapping} from '../../src/history/history.mjs';
-import {compactionLanguage} from '../../src/history/compaction-history.mjs';
+import {compactionLanguage,pluginCheckpoint} from '../../src/history/compaction-history.mjs';
 
 const root = process.env.RSI_DSH_COHORT;
+test('plugin replay resolves native coordinates without reading the unselected tail', {skip:!root}, async () => {
+  const cohort = await loadCohort(root);
+  const api = {...await cohort.import('@deepseek-ai/dsh-session'), ...await cohort.subpath('@deepseek-ai/dsh-session','surface'),
+    ...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const llm = compactionLanguage(await cohort.import('@deepseek-ai/dsh-llm'), (name,path) => cohort.subpath(name,path));
+  const session = new SessionFacade({},api,{header:{version:4,id:'region-tail',createdAt:1,isSeeded:false}},false);
+  session.begin();
+  const add = (type,data) => session.adoptObserved({seq:session.seq,time:1,type,data,surfaceOp:'append'});
+  const content = [{type:'text',text:'message'}];
+  add('system/message',{turn:0,step:0,message:{id:'system',role:'system',source:{kind:'system-prompt'},content}});
+  add('user/message',{id:'kept',role:'user',source:{kind:'user'},content});
+  add('tool/result',{turn:1,step:1,rsi:{syntheticToolResult:true},message:{
+    id:'synthetic',role:'tool',toolCallId:'call',source:{kind:'tool',callId:'call'},content,isError:true}});
+  const selected = add('user/message',{id:'selected',role:'user',source:{kind:'user'},content});
+  for(let i=0;i<128;i++)add('user/message',{id:'tail-'+i,role:'user',source:{kind:'user'},content});
+  const before = [...session.surface.nodes];
+  let tailReads = 0;
+  const observed = new Proxy(session,{get(target,key){
+    if(key==='eventAt')return seq=>{
+      if(seq>selected.seq && seq<before.length)tailReads++;
+      return target.eventAt(seq);
+    };
+    const value=Reflect.get(target,key,target);
+    return typeof value==='function'?value.bind(target):value;
+  }});
+  await pluginCheckpoint(observed,{turn:1},{effect_id:'region',timestamp_ms:2,checkpoint:{
+    start:1,end:1,plugin:'template',message:{role:'user',content},presentation:{shadowedTokenCount:9}
+  }},llm);
+  session.end();
+  assert.deepEqual(session.lastEvent('compaction/summary').data.shadowedSeqs,[selected.seq]);
+  assert.deepEqual(session.surface.nodes.slice(4),before.slice(4));
+  assert.equal(tailReads,0);
+});
 test('native install retains protected gaps, completed command links and cold projection', {skip:!root}, async () => {
   const cohort = await loadCohort(root);
   const api = {...await cohort.import('@deepseek-ai/dsh-session'), ...await cohort.subpath('@deepseek-ai/dsh-session','surface'),

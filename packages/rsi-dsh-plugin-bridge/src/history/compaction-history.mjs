@@ -108,11 +108,15 @@ export function compactionStart(session, mapping, fact) {
 /** One native application Fact supplies the checkpoint and its attribution on replay. */
 export async function pluginCheckpoint(session, mapping, fact, llm) {
   const {start, end, message, presentation, plugin, summary_blocks} = fact.checkpoint;
-  const nodes = session.surface.nodes.filter(seq => {
+  const selected = [];
+  let position = 0;
+  for (const seq of session.surface.nodes) {
     const event = session.eventAt(seq);
-    return event.type !== 'system/message' && !event.data?.rsi?.syntheticToolResult;
-  });
-  const selected = nodes.slice(start, end + 1);
+    if (event.type === 'system/message' || event.data?.rsi?.syntheticToolResult) continue;
+    if (position >= start) selected.push(seq);
+    if (position === end) break;
+    position++;
+  }
   if (!selected.length || selected.length !== end - start + 1) throw Error('Plugin checkpoint source is absent');
   const [{estimateMessage},{compactCheckpointSource}] = await llm.compactionContracts();
   const id = fact.effect_id, time = fact.timestamp_ms;

@@ -82,6 +82,9 @@ and checkpoint framing for this operation. Its opening event is visible while
 the summarizer runs. The journal correlates that opening with the Host's
 installed checkpoint. A summarizer failure closes the same opening with the
 original DSH error. Only a confirmed installation supplies a replacement message.
+Replay resolves its inclusive native coordinates in surface order, skipping
+system messages and synthetic tool results. Nodes after the selected span
+remain available without replay reading their message bodies.
 It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
 surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot
