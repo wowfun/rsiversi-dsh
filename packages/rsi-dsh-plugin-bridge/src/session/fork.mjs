@@ -1,10 +1,12 @@
 import { restoreMapping } from '../history/history.mjs';
+import { remapCompactionSummary } from './session.mjs';
 
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 const identity = value => typeof value === 'string' && value.length > 0 && value.length <= 256;
 const schemas = new Set(['todo/write', 'plan/mode', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
-  'tool/call', 'tool/result', 'session/end-seed', 'command/run', 'command/done', 'model/selection', 'agent/inbox/spliced']);
+  'tool/call', 'tool/result', 'session/end-seed', 'command/run', 'command/done', 'model/selection', 'agent/inbox/spliced',
+  'compaction/start','compaction/summary','compaction/end']);
 
 export function validateLineage(value, count) {
   if (value == null) return null;
@@ -94,6 +96,10 @@ export function forkSnapshot(canonical, { header, afterFact, throughFact, includ
         if (!remap.has(event.data.sourceEventSeq)) throw new Error('fork command result points outside the window');
         event.data.sourceEventSeq = remap.get(event.data.sourceEventSeq);
       }
+      if(event.type==='compaction/summary')event.data=remapCompactionSummary(event.data,seq=>{
+        if(!remap.has(seq))throw Error('fork compaction input points outside the window');
+        return remap.get(seq);
+      });
       push(event, original.seq);
     }
   }

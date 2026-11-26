@@ -53,6 +53,11 @@ folds committed selections in log order. A resumed Agent uses that same
 projection to discover its preset's packaged skills.
 
 Plugins read the model-visible messages with `session.deriveMessages()`.
+Observed DSH compaction starts, summaries and ends are log events. The
+checkpoint user message carries the surface replacement. When native and
+application sequence numbers differ, the summary's range endpoints and every
+shadowed sequence refer to the same messages as that replacement. A selective
+fork must contain those inputs to retain the summary.
 It returns a fresh list in the release surface's order, with its replacements
 and empty-message rules applied. `deriveEventMessage(event)` uses the same
 surface interpreter. A full `snapshotEvents()` read shares a frozen snapshot

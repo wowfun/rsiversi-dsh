@@ -127,6 +127,30 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   commandLog.events.at(-2).data.sourceEventSeq = 4;
   await bridge.load(commandLog);
   assert.throws(() => fork('omitted-command-source',5), /command result points outside the window/);
+  const compacted=structuredClone(original),compactedTerminal=compacted.events.pop();
+  const selected=compacted.events.find(event=>event.data?.id==='visible').seq;
+  const lifecycle={turn:2,compactionId:'projection'};
+  const addCompact=(type,data,options={})=>{
+    const seq=compacted.events.length;
+    compacted.events.push({type,data,time:100,seq,...options});
+    return seq;
+  };
+  const begin=addCompact('compaction/start',lifecycle);
+  const summary=addCompact('compaction/summary',{compactionId:'projection',summary:[{type:'text',text:'short'}],
+    shadowedRange:{start:selected,end:selected},shadowedSeqs:[selected],shadowedTokenCount:15,provider:'p',model:'m'});
+  addCompact('user/message',{id:'checkpoint',role:'user',source:{kind:'compact-checkpoint',compactionId:'projection'},content:[{type:'text',text:'short'}]},
+    {surfaceOp:{op:'replace',startSeq:selected,endSeq:selected},sourceEventSeqs:[begin,summary,selected]});
+  addCompact('compaction/end',lifecycle);
+  compacted.events.push({...compactedTerminal,seq:compacted.events.length});
+  await bridge.load(compacted);
+  const compactChild=fork('compacted-child',5);
+  const remapped=compactChild.events.find(event=>event.type==='compaction/summary').data;
+  assert.equal(compactChild.events[remapped.shadowedRange.start].data.id,'visible');
+  assert.deepEqual(remapped.shadowedSeqs,[remapped.shadowedRange.end]);
+  Object.assign(compacted.events[summary].data,{shadowedSeqs:[4],shadowedRange:{start:4,end:4}});
+  Object.assign(compacted.events[summary+1],{surfaceOp:{op:'replace',startSeq:4,endSeq:4},sourceEventSeqs:[begin,summary,4]});
+  await bridge.load(compacted);
+  assert.throws(()=>fork('private-compaction',5),/compaction input points outside the window/);
   const custom = structuredClone(original);
   const end = custom.events.pop();
   const {Session,appendPluginRecord,pluginRecordOf} = await (await loadCohort(cohortRoot)).import('@deepseek-ai/dsh-session');

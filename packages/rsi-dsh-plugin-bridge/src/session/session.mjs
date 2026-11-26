@@ -24,6 +24,7 @@ export function validatePermissionEvent(type,data,options={}) {
 const allowed = new Set([...journalEvents, 'todo/write', 'plan/mode', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'request/header', 'user/message', 'developer/message', 'system/message', 'assistant/attempt', 'assistant/message',
   'tool/call', 'tool/result', 'session/end-seed', 'model/selection', 'goal/change', 'agent/inbox/spliced']);
+const compactionEvents = new Set(['compaction/start','compaction/summary','compaction/end']);
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 export const presetId = value => typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
 const shape = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
@@ -33,14 +34,24 @@ function envelope(event, seq, api) {
       || event.seq !== seq || !integer(event.seq) || !Number.isSafeInteger(event.time)
       || typeof event.type !== 'string' || !Object.hasOwn(event, 'data')
       || (event.ignorable !== undefined && event.ignorable !== true)) throw new Error('unsupported or invalid event envelope');
-  if (!allowed.has(event.type) && !isForkAnnotation(event.type) && !isChildSetupEvent(event.type)
+  if (!allowed.has(event.type) && !compactionEvents.has(event.type) && !isForkAnnotation(event.type) && !isChildSetupEvent(event.type)
       && (!api.pluginRecordOf?.(event) || event.surfaceOp !== undefined || event.sourceEventSeqs !== undefined))
     throw new Error('unsupported or invalid event envelope');
   const data = event.data;
   if (isForkAnnotation(event.type)) assertForkAnnotation(event);
-  if (event.surfaceOp !== undefined && (isJournalEvent(event.type)||isChildSetupEvent(event.type)||event.type==='goal/change'))
+  if (event.surfaceOp !== undefined && (isJournalEvent(event.type)||compactionEvents.has(event.type)||isChildSetupEvent(event.type)||event.type==='goal/change'))
     throw new Error('Log-only Session event cannot edit the message surface');
-  if(event.type==='workspace-root/change') {
+  if(compactionEvents.has(event.type)) {
+    if(!data || typeof data.compactionId!=='string' || !data.compactionId
+        || data.sourceCommandId!==undefined && typeof data.sourceCommandId!=='string')throw Error('Invalid compaction identity');
+    if(event.type==='compaction/summary'){
+      const seqs=data.shadowedSeqs;
+      if(!Array.isArray(seqs)||!seqs.length||seqs.some(value=>!integer(value)||value>=seq)
+          ||seqs[0]!==data.shadowedRange?.start||seqs.at(-1)!==data.shadowedRange?.end
+          ||!Array.isArray(data.summary)||!integer(data.shadowedTokenCount)
+          ||typeof data.provider!=='string'||typeof data.model!=='string')throw Error('Invalid compaction summary');
+    }else if(data.turn!==null&&!integer(data.turn))throw Error('Invalid compaction owner');
+  } else if(event.type==='workspace-root/change') {
     if(!shape(data,['cwd'])||typeof data.cwd!=='string'||!isAbsolute(data.cwd))throw Error('Invalid working directory');
   } else if(isPermissionEvent(event.type)) {
     validatePermissionEvent(event.type,data,event);
@@ -100,6 +111,15 @@ export function digest(value) {
   return hash;
 }
 
+/** Summary coordinates are in surface order; a replacement can place a newer seq before an older one. */
+export function remapCompactionSummary(data,reference) {
+  const shadowedSeqs=data.shadowedSeqs.map(reference);
+  const start=reference(data.shadowedRange.start),end=reference(data.shadowedRange.end);
+  if(start===data.shadowedRange.start && end===data.shadowedRange.end &&
+      shadowedSeqs.every((value,index)=>value===data.shadowedSeqs[index]))return data;
+  return {...data,shadowedSeqs,shadowedRange:{start,end}};
+}
+
 /** Internal transfer only: frozen children have already crossed the deep-freeze boundary. */
 function freezeTransferred(value) {
   const pending=[value];
@@ -146,6 +166,7 @@ export function remap(input,seq,sourceAt) {
     const sourceEventSeq=reference(input.data.sourceEventSeq);
     if(sourceEventSeq!==input.data.sourceEventSeq)set('data',{...input.data,sourceEventSeq});
   }
+  if(input.type==='compaction/summary')set('data',remapCompactionSummary(input.data,reference));
   if(event!==input&&bytes!==undefined){
     freezeTransferred(event);
     admitted.set(event,{bytes});
@@ -263,6 +284,7 @@ export class SessionFacade {
     if (!this.#active || this.#retired) throw new Error('append outside owning transaction');
     if(type==='model/selection')throw new Error('Model selection requires the native Session command');
     if(type==='goal/change')throw new Error('Goal changes require the native Session command');
+    if(compactionEvents.has(type))throw Error('Compaction history requires its owning native operation');
     if (!shape(opts, ['surfaceOp', 'sourceEventSeqs'])) throw new Error('invalid append metadata');
     return this.#admit({ type, seq: this.seq, time: Date.now(), data, ...opts }, true);
   }

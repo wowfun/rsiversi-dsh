@@ -30,6 +30,15 @@ test('coordinate remaps retain exact UTF-8 size across integer widths without en
   source.appendObserved('command/done',{commandId:'cmd',kind:'success',sourceEventSeq:11},1);
   source.appendObserved('system/message',{turn:0,step:0,message:message('new','system')},1,
     {surfaceOp:{op:'replace',startSeq:9,endSeq:9},sourceEventSeqs:[9]});
+  const lifecycle={turn:null,compactionId:'manual',sourceCommandId:'cmd'};
+  const start=source.appendObserved('compaction/start',lifecycle,2);
+  const summary=source.appendObserved('compaction/summary',{compactionId:'manual',sourceCommandId:'cmd',
+    summary:[{type:'text',text:'checkpoint'}],shadowedRange:{start:11,end:12},shadowedSeqs:[11,12],
+    shadowedTokenCount:48,provider:'native',model:'chosen'},3);
+  source.appendObserved('user/message',{...message('checkpoint','user'),source:{kind:'compact-checkpoint',compactionId:'manual',sourceCommandId:'cmd'}},3,
+    {surfaceOp:{op:'replace',startSeq:11,endSeq:12},sourceEventSeqs:[start.seq,summary.seq,11,12]});
+  source.appendObserved('compaction/end',lifecycle,3);
+  assert.throws(()=>source.append('compaction/start',lifecycle),/owning native operation/);
   source.end();
   const events=source.snapshotEvents(),mapped=events.map(event=>remap(event,event.seq+90,seq=>({seq:seq+90})));
   for(const event of mapped){assert.ok(Object.isFrozen(event));assert.ok(Object.isFrozen(event.data));}
@@ -46,6 +55,9 @@ test('coordinate remaps retain exact UTF-8 size across integer widths without en
     assert.equal(encodings,mapped.length,'each requested remapped digest is computed once');
   }finally{JSON.stringify=stringify;target.end();}
   assert.equal(target.encodedBytes,target.snapshotEvents().reduce((sum,event)=>sum+Buffer.byteLength(stringify(event)),0));
+  assert.deepEqual(target.lastEvent('compaction/summary').data.shadowedRange,{start:101,end:102});
+  assert.deepEqual(target.lastEvent('compaction/summary').data.shadowedSeqs,[101,102]);
+  assert.equal(target.deriveMessages().at(-1).id,'checkpoint');
   for(const event of mapped){
     const restored=remap(event,event.seq-90,seq=>({seq:seq-90}));
     assert.deepEqual(restored,events[event.seq-90]);
@@ -53,7 +65,8 @@ test('coordinate remaps retain exact UTF-8 size across integer widths without en
   const restored=new SessionFacade(ctx,api,{header,events:mapped.map(event=>remap(event,event.seq-90,seq=>({seq:seq-90}))),eventState:'shared-frozen'},false);
   assert.equal(restored.encodedBytes,source.encodedBytes,'shrinking coordinates preserves exact byte accounting');
   const empty=new SessionFacade(ctx,api,{header},false);empty.begin();
-  assert.throws(()=>empty.adoptObserved(remap(events.at(-1),0,()=>({seq:0}))),/surface|replace|reference/i);
+  const replacement=events.findLast(event=>event.surfaceOp?.op==='replace');
+  assert.throws(()=>empty.adoptObserved(remap(replacement,0,()=>({seq:0}))),/surface|replace|reference/i);
   empty.end();assert.equal(empty.seq,0,'derived size evidence cannot bypass receiving surface validation');
 });
 test('unchanged admitted events retain identity through native merge and cold reconstruction', {skip:!root}, async t=>{
