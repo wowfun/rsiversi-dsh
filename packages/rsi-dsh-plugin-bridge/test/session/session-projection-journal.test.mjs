@@ -24,6 +24,38 @@ async function fixture(t,options={}) {
   return {ctx,api,load,journal:new SessionProjectionJournal(ctx,api,{header},options)};
 }
 
+test('plugin-only journals acquire their first source checkpoint with the first native event',{skip:!root},async t=>{
+  const {ctx,api}=await fixture(t);
+  const tag='rsi.dsh.native-source-prefix.v2\0',emptyDigest=createHash('sha256').update(tag).digest('hex');
+  const update=Hash.prototype.update;let prefixes=0;
+  t.mock.method(Hash.prototype,'update',function(input,...args){
+    if(input===tag)prefixes++;
+    return update.call(this,input,...args);
+  });
+  let document,tail;
+  const save=value=>{document=value;},nativeTail=value=>{tail=value;};
+  const journal=new SessionProjectionJournal(ctx,api,{header},{save,nativeTail});
+  journal.append('feedback/record',{text:'plugin only'});await journal.flush();
+  const raw=JSON.parse(document);
+  assert.equal(Object.hasOwn(raw,'sourceDigest'),false);
+  assert.equal(Object.hasOwn(raw,'sources'),false);
+  assert.equal(prefixes,0);
+  const old=JSON.stringify({...raw,version:10,sources:[],sourceDigest:emptyDigest});
+  const native=[{seq:0,time:1,type:'turn/start',data:{turn:1}}];
+  for(const initial of [document,old]){
+    const before=prefixes;
+    const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(initial),native:[],save,nativeTail});
+    assert.equal(cold.session.eventAt(0).data.text,'plugin only');
+    assert.equal(prefixes,before);
+    cold.advance(0,native);await cold.flush({observed:true});
+    const closed=checkpointNativeTail(initial,tail),state=readJournalDocument(closed);
+    assert.deepEqual(state.sources,[{seq:1}]);assert.match(state.sourceDigest,/^[a-f0-9]{64}$/);
+    assert.equal(closed,cold.encode());assert.equal(checkpointNativeTail(closed,tail),undefined);
+    assert.equal(prefixes,before+1);
+    assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},{restore:state,native:[{...native[0],time:2}]}),/prefix changed/);
+  }
+});
+
 test('native progress checkpoints at the next plugin record or shutdown and replays after abrupt exit',{skip:!root},async t=>{
   const writes=[];let pending;
   const {ctx,api,journal}=await fixture(t,{save:value=>writes.push(value),nativeTail:tail=>{pending=tail;}});
@@ -300,7 +332,7 @@ test('one durable source digest detects cold changes and advances only after a v
   const native=[0,1].map(seq=>({type:'model/selection',seq,time:seq,data:{...selection,model:'model-'+seq}}));
   journal.merge(native);
   const before=journal.encode(),saved=JSON.parse(before);
-  assert.equal(saved.version,10);assert.match(saved.sourceDigest,/^[a-f0-9]{64}$/);
+  assert.equal(saved.version,11);assert.match(saved.sourceDigest,/^[a-f0-9]{64}$/);
   assert.deepEqual(saved.sources,[[0,2]]);
   const restore=(state,events=native)=>new SessionProjectionJournal(ctx,api,{header},
     {restore:readJournalDocument(JSON.stringify(state)),native:events});
@@ -615,7 +647,7 @@ test('durable journals omit native bodies while preserving local acknowledgement
     {seq:1,time:3,type:'model/selection',data:selection}];
   const correlations=new Map([[1,'choice']]);journal.merge(native,correlations);
   const document=journal.encode(),state=JSON.parse(document);
-  assert.equal(state.version,10);assert.equal(state.ownedEventCount,2);
+  assert.equal(state.version,11);assert.equal(state.ownedEventCount,2);
   assert.equal(Object.hasOwn(state,'eventCount'),false);
   assert.equal(readJournalDocument(document).eventCount,3);
   assert.deepEqual(state.events.map(event=>event.seq),[0,1]);

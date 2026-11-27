@@ -81,7 +81,7 @@ for(const method of ['inject','followup'])test(`${method} validates and rewrites
   assert.deepEqual(session.eventAt(operation.seq),legacy.events.find(event=>event.seq===operation.seq));
   await f.scope.runOwned(()=>owner.input.ready());
   const stored=JSON.parse(f.documents.get('one'));
-  assert.equal(stored.version,10);assert.equal(JSON.stringify(stored.operations).includes('previous-input'),false);
+  assert.equal(stored.version,11);assert.equal(JSON.stringify(stored.operations).includes('previous-input'),false);
   assert.equal((method==='inject'?commands(f):submitted(f)).length,1);
   const changed=structuredClone(stored);
   if(method==='inject')changed.operations[0].invocation.sha256='b'.repeat(64);

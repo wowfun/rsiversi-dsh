@@ -32,9 +32,10 @@ export class SessionProjectionJournal {
         return Object.freeze({event:this.#nativeInput(event),seq,...(operation===undefined?{}:{operation})});
       });
       this.#sources=sources;
-      if(restore.version<9)verifyPreviousPrefix(restore,native);
-      else if(this.#prefixDigest()!==restore.sourceDigest)
-        throw Error('Native event prefix changed');
+      if(sources.length){
+        if(restore.version<9)verifyPreviousPrefix(restore,native);
+        else if(this.#prefixDigest()!==restore.sourceDigest)throw Error('Native event prefix changed');
+      }
       seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native)),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
       this.#restore(sources,restore.operations);
@@ -263,6 +264,7 @@ export class SessionProjectionJournal {
     const appended=this.#session.snapshotEvents(start);this.#publish(appended);return Object.freeze(appended);
   }
   #prefixDigest() {
+    if(!this.#sources.length)return;
     this.#sourceDigest??=createSourceDigest();
     for(;this.#hashedCount<this.#sources.length;this.#hashedCount++)
       this.#sourceDigest.update(JSON.stringify(this.#sources[this.#hashedCount].event));

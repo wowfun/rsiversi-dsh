@@ -542,12 +542,14 @@ A missing history returns `session/not-found` for an ordinary address or
 `subagent/not-found` with both IDs for a direct child address. Provider and
 storage failures propagate separately.
 
-Version 10 snapshots contain the Session header, owned event count,
-local-owned events at their original positions, the native source map, its
-`sourceDigest` and any mutation records in one JSON document. A seeded Session
+Version 11 snapshots contain the Session header, owned event count and
+application-owned events at their original positions. The first native event
+adds the source map and its `sourceDigest` to the same document. A log of
+plugin events alone can be closed and reopened without hashing an empty
+prefix. A seeded Session
 stores its inherited length, including zero. An ordinary Session starts at zero.
 Only a positive predecessor-based inbox boundary or a nonempty mutation list
-occupies space in a new snapshot. Existing version 9 documents remain readable
+occupies space in a new snapshot. Existing version 9 and 10 documents remain readable
 without republishing them. In native event order,
 each source-map run stores the first application position and the number of
 consecutive positions. Runs may occur in any order and cannot overlap. A

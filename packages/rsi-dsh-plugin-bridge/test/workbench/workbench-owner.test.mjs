@@ -264,7 +264,7 @@ test('native draft preset changes preserve the Session and replay the observed c
   assert.deepEqual(restored.header,header);assert.deepEqual(restored.snapshotEvents(),session.snapshotEvents());
   assert.equal(projection.stateOf(restored),'custom');
   const stored=JSON.parse(await f.options.storage.read('one'));
-  assert.deepEqual(stored.events,[selected]);assert.deepEqual(stored.sources,[]);
+  assert.deepEqual(stored.events,[selected]);assert.equal(Object.hasOwn(stored,'sources'),false);
   // A Cordis-only selection is layered on the current native composition.
   // Reopening must preserve it unless the Host changed its own preset while offline.
   let document=JSON.stringify(stored);
@@ -339,7 +339,7 @@ test('a log-only approval with no native mutation receipt persists across owners
   assert.notEqual(snapshot.revision,beforeRevision,'application-owned events invalidate the stored observation');
   const stored=JSON.parse(await f.options.storage.read('one'));
   for(const field of ['operations','inboxSlotFrom','inheritedEventCount'])assert.equal(Object.hasOwn(stored,field),false,field);
-  assert.equal(stored.version,10);
+  assert.equal(stored.version,11);
   assert.deepEqual(stored.events.map(row=>row.type),['approval/asked','approval/decided']);
   const before=f.reads;
   const cold=workbenchHistory(f.options);t.after(()=>cold.close());
@@ -384,7 +384,7 @@ test('an existing full journal is rewritten after canonical reconciliation witho
   assert.equal(f.reads-before,1);
   assert.deepEqual(reopened.snapshotEvents(),session.snapshotEvents());
   const stored=JSON.parse(await f.options.storage.read('one'));
-  assert.equal(stored.version,10);assert.deepEqual(stored.events,[]);assert.equal(stored.ownedEventCount,0);
+  assert.equal(stored.version,11);assert.deepEqual(stored.events,[]);assert.equal(stored.ownedEventCount,0);
   assert.equal(Object.hasOwn(stored,'eventCount'),false);
   const again=workbenchHistory(f.options);t.after(()=>again.close());
   assert.deepEqual((await again.capture('one',await again.metadata('one'))).snapshotEvents(),session.snapshotEvents());
