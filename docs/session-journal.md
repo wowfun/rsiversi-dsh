@@ -536,6 +536,12 @@ additional readers wait locally before issuing native RPCs. No queued reader
 holds a native request slot. The Host checks the page's request, Session and
 coordinates and bounds its retained storage; no persistent history copy is added.
 
+History requests validate the caller's page window before opening the Session.
+Invalid windows and cuts beyond the observed end return `gateway/bad-request`.
+A missing history returns `session/not-found` for an ordinary address or
+`subagent/not-found` with both IDs for a direct child address. Provider and
+storage failures propagate separately.
+
 Version 10 snapshots contain the Session header, owned event count,
 local-owned events at their original positions, the native source map, its
 `sourceDigest` and any mutation records in one JSON document. A seeded Session

@@ -13,6 +13,31 @@ import {nativeInboxFixture} from '../fixtures/native-inbox-fixture.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 
+test('history rejects invalid windows before opening and distinguishes absent addresses from read failures',{skip:!root},async()=>{
+  const require=createRequire(join(root,'package.json'));
+  const {RemoteError}=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-typert-protocol')));
+  const calls=[],storeFailure=new Error('reader unavailable');
+  const history=workbenchHistory({RemoteError,read(id,op,_signal,parent){
+    calls.push([id,op.type,parent]);
+    if(id==='failed')throw storeFailure;
+    return null;
+  }});
+  const signal=new AbortController().signal,address={kind:'session',sessionId:'gone'};
+  try{
+    for(const query of [{throughSeq:-2},{beforeSeq:-1},{beforeSeq:-0},{maxMessages:0},
+      {turnWindow:{minMessages:51,minTurns:1}},{turnWindow:{minMessages:1,minTurns:0}}])
+      await assert.rejects(history.page({address,...query},signal),{code:'gateway/bad-request'});
+    await assert.rejects(history.follow({address,maxMessages:0},signal).next(),{code:'gateway/bad-request'});
+    assert.deepEqual(calls,[]);
+    await assert.rejects(history.page({address},signal),{code:'session/not-found',details:{sessionId:'gone'}});
+    const child={kind:'subagent',parentSessionId:'parent',childSessionId:'child',mode:'unknown'};
+    await assert.rejects(history.follow({address:child},signal).next(),{code:'subagent/not-found',
+      details:{parentSessionId:'parent',childSessionId:'child'}});
+    await assert.rejects(history.page({address:{kind:'session',sessionId:'failed'}},signal),e=>e===storeFailure);
+    assert.deepEqual(calls,[['gone','open',undefined],['child','open','parent'],['failed','open',undefined]]);
+  }finally{await history.close();}
+});
+
 test('released Goal service reads completion from the live native mirror without scheduling a turn',
   {skip:!root||!process.env.RSI_DSH_INBOX_SOURCE},async t=>{
     const require=createRequire(join(root,'package.json'));
@@ -412,7 +437,7 @@ test('released Session surface projects paged snapshots and follows only events 
     {type:'turn_terminal',turn_id:'one',outcome:{status:'completed'}},
   ].map((fact,index)=>({...fact,seq:index+1,timestamp_ms:1000+index}));
   let through=4;
-  const controller=workbenchHistory({ctx,api,llm:await load('dsh-llm'),async read(id,op){
+  const controller=workbenchHistory({ctx,api,llm:await load('dsh-llm'),RemoteError:(await load('dsh-typert-protocol')).RemoteError,async read(id,op){
     assert.equal(id,'native-session');
     if(op.type==='open')return {id,created_at:900,through,inherited:false,
       model_selection:{model:{deployment:'native',model:'configured'}}};
@@ -444,6 +469,8 @@ test('released Session surface projects paged snapshots and follows only events 
   assert.equal(latest.cursor,snapshot.cursor);
   assert.deepEqual(latest.records,snapshot.records);
   assert.deepEqual(await controller.page({...request,throughSeq:-1},signal.signal),{cursor:-1,records:[],hasMore:false});
+  await assert.rejects(controller.page({...request,throughSeq:snapshot.cursor+1},signal.signal),
+    {code:'gateway/bad-request',message:`session history cut ${snapshot.cursor+1} exceeds ${snapshot.cursor}`});
   assert.ok(page.records.some(row=>row.event.type==='turn/start'));
   assert.equal((await stream.next()).value.event.seq,snapshot.cursor+1);
   assert.equal((await stream.next()).value.event.type,'turn/end');

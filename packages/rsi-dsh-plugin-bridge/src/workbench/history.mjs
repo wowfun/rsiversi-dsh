@@ -22,14 +22,6 @@ function childCatalog(projected,native) {
   return [...projected,...native.filter(child=>!known.has(child.id))];
 }
 
-function windowOf(request) {
-  const max=request.maxMessages??50,window=request.turnWindow;
-  if(!Number.isSafeInteger(max)||max<=0 || window && (!Number.isSafeInteger(window.minMessages)||
-    window.minMessages<=0||window.minMessages>max||!Number.isSafeInteger(window.minTurns)||window.minTurns<=0))
-    throw new Error('Invalid Session history window');
-  return {max,window};
-}
-
 /** Page boundaries follow the release controller's message and turn coordinates. */
 function pageOf(session,api,end,{max,window}) {
   let start=0,messages=0,turns=0;
@@ -49,6 +41,21 @@ function pageOf(session,api,end,{max,window}) {
 export function workbenchHistory({ctx,api,llm,RemoteError,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta}) {
   const owners=workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta});
   const live=workbenchControl(authorize);
+  function badRequest(reason) {return new RemoteError('gateway/bad-request',reason,{});}
+  function windowOf({throughSeq,beforeSeq,maxMessages:max=50,turnWindow:window}) {
+    if(throughSeq!==undefined&&(!Number.isSafeInteger(throughSeq)||throughSeq< -1||Object.is(throughSeq,-0)))
+      throw badRequest('throughSeq must be an integer greater than or equal to -1');
+    if(beforeSeq!==undefined&&(!Number.isSafeInteger(beforeSeq)||beforeSeq<0||Object.is(beforeSeq,-0)))
+      throw badRequest('beforeSeq must be a non-negative safe integer');
+    if(!Number.isSafeInteger(max)||max<=0)throw badRequest('maxMessages must be a positive safe integer');
+    if(window!==undefined) {
+      if(!Number.isSafeInteger(window.minMessages)||window.minMessages<=0||window.minMessages>max)
+        throw badRequest('turnWindow.minMessages must be a positive safe integer no greater than maxMessages');
+      if(!Number.isSafeInteger(window.minTurns)||window.minTurns<=0)
+        throw badRequest('turnWindow.minTurns must be a positive safe integer');
+    }
+    return {max,window};
+  }
   async function open(request,signal,captured,first) {
     const {address}=request;
     const child=address.kind==='subagent';
@@ -58,7 +65,12 @@ export function workbenchHistory({ctx,api,llm,RemoteError,read,release:releaseRe
     const call=(operation,override=signal)=>read(id,operation,override,child?address.parentSessionId:undefined);
     const release=operation=>releaseRead(id,operation,undefined,child?address.parentSessionId:undefined);
     const meta=captured??await call({type:'open'});
-    if(!meta||meta.id!==id)throw new Error('Session history unavailable for this identity');
+    if(!meta) {
+      if(child)throw new RemoteError('subagent/not-found','subagent is unavailable',
+        {parentSessionId:address.parentSessionId,childSessionId:id});
+      throw new RemoteError('session/not-found',`session "${id}" not found`,{sessionId:id});
+    }
+    if(meta.id!==id)throw new Error('Session history unavailable for this identity');
     const owner=await owners.open(historyHeader(meta),meta,call,release,signal,first);
     const session=owner.journal.session;
     async function projections(){
@@ -233,10 +245,8 @@ export function workbenchHistory({ctx,api,llm,RemoteError,read,release:releaseRe
       const window=windowOf(request);
       const {session}=await open(request,signal);
       validateHistoryAddress(request.address,session);
-      const through=request.throughSeq??session.seq-1,before=request.beforeSeq??through+1;
-      if(!Number.isSafeInteger(through)||through< -1||through>=session.seq||Object.is(through,-0)
-        ||!Number.isSafeInteger(before)||before<0||Object.is(before,-0))
-        throw new Error('Invalid Session history cursor');
+      const latest=session.seq-1,through=request.throughSeq??latest,before=request.beforeSeq??through+1;
+      if(through>latest)throw badRequest(`session history cut ${through} exceeds ${latest}`);
       return {cursor:through,...pageOf(session,api,Math.min(before,through+1),window)};
     },
     async *follow(request,signal) {
