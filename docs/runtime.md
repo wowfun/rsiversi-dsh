@@ -348,7 +348,10 @@ The workbench defaults DeepSeek Session log upload to off. When enabled,
 the released request contributor includes outstanding Session events in the
 next eligible request, including events produced while disabled. Native
 Responses and Chat Completions retain the selected deployment and protocol.
-Contributors observe the provider's actual base JSON body. An HTTP 2xx
+Contributors share the provider's actual base JSON body. The workbench
+decodes it on first access, including when a contributor first reads it in
+its acceptance callback. Metadata-only contributions need no decoded copy.
+An HTTP 2xx
 accepts the prepared fields even if streaming later fails. Session recovery
 uses the accepted sequence in the journal. The Host does not store another
 copy of the transmitted log.

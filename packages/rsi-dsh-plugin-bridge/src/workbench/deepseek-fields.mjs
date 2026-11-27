@@ -59,11 +59,16 @@ export function modelFieldRoute(ctx,WebSocketServer,scope,refresh,auth) {
       }
       if(phase==='body'&&binary){
         phase='preparing';
-        const body=JSON.parse(data);
+        let decoded;
         const prepared=await scope.runOwned(async()=>{
           session=origin.sessionId && await refresh(origin.sessionId,origin.activeSession,stop.signal);
           if(session)scope.exposeSessionView(session);
-          return ctx.get('deepseekLlmApiExtensions')?.prepare({body,signal:stop.signal,
+          return ctx.get('deepseekLlmApiExtensions')?.prepare({
+            get body(){
+              if(data!==undefined){decoded=JSON.parse(data);data=undefined;}
+              return decoded;
+            },
+            signal:stop.signal,
             ...(origin.sessionId==null?{}:{sessionId:origin.sessionId}),
             ...(origin.purpose==null?{}:{purpose:origin.purpose})});
         },stop.signal);

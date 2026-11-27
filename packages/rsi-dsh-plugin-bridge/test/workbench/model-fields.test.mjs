@@ -21,7 +21,11 @@ test('a private field transaction retains only its own 2xx acceptance and carrie
   const app=await createApplication({profile,modules:{entry},provide:async(ctx,load)=>{
     await ctx.plugin((await load('@deepseek-ai/dsh-deepseek-llm-api-extensions')).default);
     ctx.provide('sessions',scope.sessions);
-    ctx.deepseekLlmApiExtensions.register('new_field',{prepare({body,sessionId,purpose}){
+    ctx.deepseekLlmApiExtensions.register('new_field',{prepare(request){
+      const {sessionId,purpose}=request;
+      if(purpose==='receipt-only')return {value:purpose,accept:()=>accepted.push([request.body.model,request.body.input])};
+      const {body}=request;
+      assert.equal(request.body,body);
       prepared.push({body,sessionId,purpose,active:!!ctx.sessions.get(sessionId)});
       return {value:body.model,accept:()=>accepted.push([body.model,ctx.sessions.get(sessionId)?.id])};
     }});
@@ -33,14 +37,14 @@ test('a private field transaction retains only its own 2xx acceptance and carrie
   for(const wrong of [{},{...headers,origin:'http://localhost'},{...headers,'x-rsi-upstream-key':key}]){
     await assert.rejects(once(new WebSocket(url,{headers:wrong}),'open'),/403/);
   }
-  async function open(model){
+  async function open(model,purpose='test'){
     const ws=new WebSocket(url,{headers});
     await once(ws,'open');
     const response=once(ws,'message');
-    ws.send(JSON.stringify({sessionId:'test-session',purpose:'test',activeSession:model==='accepted'}));
+    ws.send(JSON.stringify({sessionId:'test-session',purpose,activeSession:model==='accepted'}));
     ws.send(Buffer.from(JSON.stringify({model,input:[{text:'input'}]})));
     const [value,binary]=await response;
-    assert.equal(binary,true);assert.deepEqual(JSON.parse(value),{new_field:model});
+    assert.equal(binary,true);assert.deepEqual(JSON.parse(value),{new_field:purpose==='receipt-only'?purpose:model});
     return ws;
   }
   const first=await open('uncertain'),second=await open('accepted');
@@ -50,4 +54,8 @@ test('a private field transaction retains only its own 2xx acceptance and carrie
   assert.deepEqual(accepted,[['accepted','test-session']]);assert.deepEqual(refreshes,[['test-session',false],['test-session',true]]);
   assert.equal(prepared[0].active,false);
   assert.deepEqual(prepared[1],{body:{model:'accepted',input:[{text:'input'}]},sessionId:'test-session',purpose:'test',active:true});
+  const late=await open('deferred','receipt-only');
+  const ack=once(late,'message');late.send('accept');
+  assert.equal((await ack)[0].toString(),'ok');
+  assert.deepEqual(accepted.at(-1),['deferred',[{text:'input'}]]);
 });
