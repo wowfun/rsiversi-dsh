@@ -125,7 +125,7 @@ test('unknown live outcomes remain bounded and bind their exact call identity',a
   const fail=()=>{runs++;throw Error('lost result');};
   await assert.rejects(ledger.start({...input,identity:{...input.identity,owner_id:'x'.repeat(257)}},fail),/receipt identity/);
   assert.deepEqual(await ledger.start(input,fail),{state:'unknown'});
-  await assert.rejects(ledger.start({...input,args:{changed:true}},fail),/another call/);
+  await assert.rejects(ledger.start({...input,identity:{...input.identity,request_sha256:'b'.repeat(64)}},fail),/another call/);
   assert.deepEqual(await ledger.start(input,fail),{state:'unknown'});assert.equal(runs,1);
   for(let index=0;index<128;index++) {
     const effect='effect-'+index;
@@ -152,7 +152,7 @@ test('canonical publication retires only the matching receipt and keeps the live
   assert.deepEqual(await readdir(directory),[]);
   assert.deepEqual(await ledger.outcome(input),{state:'unknown'});
   assert.deepEqual(await ledger.start(input,()=>assert.fail('published body repeated')),{state:'unknown'});
-  await assert.rejects(ledger.start({...input,args:{changed:true}},()=>assert.fail('rebound body')),/another call/);
+  await assert.rejects(ledger.start({...input,identity:{...input.identity,request_sha256:'b'.repeat(64)}},()=>assert.fail('rebound body')),/another call/);
   await ledger.retire(input.session,input.effect,input.identity);
 });
 
@@ -167,4 +167,19 @@ test('cold native observation can retire a settled receipt without retaining its
   await cold.retire(input.session,input.effect,input.identity);
   assert.deepEqual(await readdir(directory),[]);
   assert.deepEqual(await cold.start(input,()=>assert.fail('cold published body repeated')),{state:'unknown'});
+});
+
+test('replaying a native call after restart accepts reordered JSON object members',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-ledger-replay-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const first=await toolLedger(directory,writeFile);
+  const settled=await first.start({...input,args:{a:0,nested:{x:1,y:2}}},()=>42);
+  await first.close();
+  const cold=await toolLedger(directory,writeFile);
+  t.after(()=>cold.close());
+  const replay={...input,args:{nested:{y:2,x:1},a:0}};
+  const duplicate=()=>assert.fail('settled body repeated');
+  assert.deepEqual(await cold.start(replay,duplicate),settled);
+  await assert.rejects(cold.start({...replay,registration:'other'},duplicate),/another call/);
+  await assert.rejects(cold.start({...replay,identity:{...input.identity,request_sha256:'b'.repeat(64)}},duplicate),/another call/);
 });

@@ -3,9 +3,7 @@ import {mkdir,readFile,readdir,stat,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 
 const limit=32*1024*1024,capacity=128,budget=64*1024*1024;
-const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const keyOf=({session,effect})=>digest([session,effect]);
-const signature=({identity,name,registration,args})=>digest([identity.call_id,name,registration,args]);
+const keyOf=({session,effect})=>createHash('sha256').update(JSON.stringify([session,effect])).digest('hex');
 const identifier=value=>typeof value==='string'&&value.length>0&&Buffer.byteLength(value)<=256;
 
 function receiptOf(input){
@@ -87,27 +85,26 @@ export async function toolLedger(directory,writeAtomic){
     },
     async start(input,run){
       if(retired)throw Error('Application tool source is closed');
-      const receipt=receiptOf(input),key=keyOf(receipt),sig=signature(input);
+      const receipt=receiptOf(input),key=keyOf(receipt);
       let outcome;
       await serialize(async()=>{
         const prior=await read(key);
         if(prior){
-          if(!matches(prior,receipt)||prior.signature!==sig)throw Error('Tool effect was already bound to another call');
+          if(!matches(prior,receipt))throw Error('Tool effect was already bound to another call');
           outcome=outcomeOf(prior,key);
           return;
         }
         if(!run){outcome={state:'unknown'};return;}
-        const bound={...receipt,signature:sig};
         await reserve(key,0);
         if(retired){outcome={state:'unknown'};return;}
-        records.set(key,{bound});
+        records.set(key,{bound:receipt});
         const abort=new AbortController();
         const settled=Promise.resolve().then(async()=>{
           // Native owns durable admission; a retired view can only be queried.
           // The bounded live binding fences duplicates before any plugin code.
           if(retired)return {state:'unknown'};
           let outcome;
-          try {outcome={...bound,state:'settled',result:await run(abort.signal)};}
+          try {outcome={...receipt,state:'settled',result:await run(abort.signal)};}
           catch {return {state:'unknown'};}
           await serialize(()=>save(key,outcome));
           return outcomeOf(outcome,key);

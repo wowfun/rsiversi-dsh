@@ -693,7 +693,9 @@ admission before deciding whether the body is running. Lost HTTP responses are f
 only by outcome reads on the current or replacement process. A new execution requires
 the original live captured view and registration; duplicate start may read an existing
 matching receipt without that view. Missing receipts in a replacement process remain
-unknown. The Agent loop schedules parallel-safe calls per Session batch. Two
+unknown. The registration and the Host-issued invocation identity bind the
+receipt. Equivalent JSON argument objects can arrive in a different key
+order and still refer to the same call. The Agent loop schedules parallel-safe calls per Session batch. Two
 Sessions with a parallel limit of ten can each execute ten calls concurrently.
 Pending and unknown live bindings share the
 128-record retention limit with settled files; only settled files count toward the
