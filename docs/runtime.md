@@ -1134,6 +1134,15 @@ directory for the target OS and CPU. Files directly under `prebuilds` and
 source-built bindings under `build/Release` remain available. Private copies
 of the terminal package installed by guest plugins retain their own files.
 
+The targeted Host runtime follows DSH Desktop's package file policy. It omits
+JavaScript, TypeScript and CSS source maps, TypeScript declarations and build
+caches, and package-manager metadata. Package-specific omissions cover Domino's
+test and Yarn directories, fs-ext compiler outputs, node-pty prebuild debug
+symbols, ConPTY sources on non-Windows targets, and Koffi's Windows import
+library. Source modules, runtime assets, licenses and other packages' native
+libraries remain available. Guest-owned plugins and their private dependencies
+retain their published files, including declarations and source maps.
+
 The packer records the execute bit of regular files from a POSIX npm tree.
 The native package store materializes executable files with owner read and
 execute permissions and ordinary files with owner read permission. Windows

@@ -42,6 +42,29 @@ function selectOfficeEngine(kit, {platform, arch}) {
   }
 }
 
+// walkFiles visits directories before their contents, with the package lock
+// already identifying the owner even for nested and scoped dependencies.
+function omitBundledEntry(name, path, entry, target) {
+  if (['.bin', '.pnpm', '.modules.yaml', '.pnpm-workspace-state-v1.json'].includes(entry.name)) return true;
+  if (/\.(?:[cm]?[jt]s|css)\.map$|\.d\.[cm]?ts$|\.tsbuildinfo$/u.test(entry.name)) return true;
+  switch (name) {
+    case '@mixmark-io/domino':
+      return path === 'test' || path === '.yarn';
+    case 'fs-ext':
+      return /^build\/(?:Release|Debug)\/(?:obj|fs_ext\.(?:exp|lib|pdb|iobj|ipdb))$/u.test(path) ||
+        /^build\/(?:binding\.sln|config\.gypi|fs_ext\.vcxproj(?:\.filters)?)$/u.test(path);
+    case 'node-pty':
+      if (path === 'third_party/conpty') return target.platform !== 'win32';
+      if (!path.startsWith('prebuilds/')) return false;
+      return entry.name.endsWith('.pdb') || (entry.isDirectory() &&
+        path === 'prebuilds/'+entry.name && entry.name !== target.platform+'-'+target.arch);
+    case '@koromix/koffi-win32-x64':
+      return path === 'win32_x64/koffi.lib';
+    default:
+      return false;
+  }
+}
+
 export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {hostPeers,build,runtimeTarget}={}) {
   root = await realpath(root);
   const lockPath = join(root,'package-lock.json');
@@ -100,12 +123,10 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {ho
     if (!record.owners.size) continue;
     const owner = record.owners.has('runtime') ? 'runtime' : [...record.owners].sort().join('+');
     const files = [];
-    const terminalTarget = runtimeTarget && owner === 'runtime' && record.location === 'node_modules/node-pty'
-      ? `${runtimeTarget.platform}-${runtimeTarget.arch}` : undefined;
+    const bundled = runtimeTarget && owner === 'runtime';
     if (!hostPeers || owner !== 'runtime') await walkFiles(record.directory, async (path,bytes,executable) => {
       files.push({path:record.location+'/'+path, source:resolve(record.directory,path), bytes, executable});
-    }, {signal, exclude:(path,entry)=>path==='node_modules' ||
-      (terminalTarget && entry.isDirectory() && path==='prebuilds/'+entry.name && entry.name!==terminalTarget)});
+    }, {signal, exclude:(path,entry)=>path==='node_modules' || (bundled && omitBundledEntry(record.name,path,entry,runtimeTarget))});
     const group = groups.get(owner) ?? [];
     group.push({location:record.location, dependencies:record.dependencies, version:record.version, files});
     groups.set(owner,group);

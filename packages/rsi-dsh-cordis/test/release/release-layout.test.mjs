@@ -61,13 +61,49 @@ test('Office uses the target engine while separately requested engines remain in
   await assert.rejects(build('win32'),/Missing dependency @deepseek-ai\/libreoffice-kit-win32-x64/);
 });
 
+test('Desktop omissions apply to the bundled packages and preserve guest-owned files',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'rsi-bundled-files-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const packages={};
+  const assets=['source.ts','style.css','lib/index.cjs','data.map','LICENSE','package.json'];
+  const buildFiles=['index.d.ts','types.d.mts','entry.d.cts','index.mjs.map','style.css.map','index.d.ts.map',
+    'cache.tsbuildinfo','resources/.bin/tool','.pnpm/metadata','.modules.yaml','.pnpm-workspace-state-v1.json'];
+  const cases={
+    '@mixmark-io/domino':{keep:['.yarn-data.json','lib/HTMLParser.js'],omit:['.yarn/plugins/plugin.cjs','test/entities.html']},
+    'fs-ext':{keep:['build/Release/fs_ext.node','build/Release/runtime.dll'],omit:['build/Debug/obj/native.obj','build/Release/fs_ext.pdb','build/fs_ext.vcxproj.filters']},
+    '@koromix/koffi-win32-x64':{keep:['win32_x64/koffi.node'],omit:['win32_x64/koffi.lib']},
+    example:{keep:['test/entities.html','.yarn/entry.cjs','symbols.pdb','lib/native.lib'],omit:[]},
+  };
+  for(const [name,{keep,omit}] of Object.entries(cases)){
+    const location='node_modules/'+name;
+    packages[location]={version:'1'};
+    for(const file of [...assets,...buildFiles,...keep,...omit]){
+      const path=join(root,location,file);
+      await mkdir(dirname(path),{recursive:true});
+      await writeFile(path,file==='package.json'?JSON.stringify({name,version:'1'}):file);
+    }
+  }
+  await writeFile(join(root,'package-lock.json'),JSON.stringify({lockfileVersion:3,packages}));
+  const target={runtimeTarget:{platform:'win32',arch:'x64'}};
+  const files=row=>row.files.map(file=>file.path.slice(row.location.length+1)).sort();
+  const names=Object.keys(cases);
+  const groups=await releaseLayout(root,names,[],undefined,target);
+  const guests=await releaseLayout(root,[],names,undefined,target);
+  for(const row of groups.get('runtime')){
+    const name=packageLocation(row.location),{keep,omit}=cases[name];
+    assert.deepEqual(files(row),[...assets,...keep].sort());
+    assert.deepEqual(files(guests.get(name)[0]),[...assets,...keep,...omit,...buildFiles].sort());
+  }
+});
+
 test('only the host terminal ships target-specific prebuilds',async t=>{
   const root=await mkdtemp(join(tmpdir(),'rsi-terminal-prebuilds-'));
   t.after(()=>rm(root,{recursive:true,force:true}));
   const host='node_modules/node-pty',guest='node_modules/extension',privatePty=guest+'/'+host;
   const common=['build/Release/pty.node','package.json','prebuilds/README'];
   const linux='prebuilds/linux-x64/pty.node',windows='prebuilds/win32-x64/conpty/pty.node';
-  const all=[...common,linux,windows].sort();
+  const conpty='third_party/conpty/win10-x64/OpenConsole.exe',symbols='prebuilds/win32-x64/conpty.pdb';
+  const all=[...common,linux,windows,conpty,symbols].sort();
   const packages={[host]:{version:'1'},[guest]:{version:'1',dependencies:{'node-pty':'2'}},[privatePty]:{version:'2'}};
   for(const [location,manifest] of Object.entries(packages)){
     for(const file of location===guest?['package.json']:all){
@@ -77,7 +113,7 @@ test('only the host terminal ships target-specific prebuilds',async t=>{
     }
   }
   await writeFile(join(root,'package-lock.json'),JSON.stringify({lockfileVersion:3,packages}));
-  for(const [platform,expected] of [['win32',[...common,windows]],['linux',[...common,linux]],[undefined,all]]){
+  for(const [platform,expected] of [['win32',[...common,windows,conpty]],['linux',[...common,linux]],[undefined,all]]){
     const runtimeTarget=platform && {platform,arch:'x64'};
     const groups=await releaseLayout(root,['node-pty'],['extension'],undefined,{runtimeTarget});
     const paths=row=>row.files.map(file=>file.path.slice(row.location.length+1)).sort();
