@@ -66,11 +66,13 @@ export function prepareRequestInputs({ ctx, agent, input, modelSelection, assemb
       } } : { kind: 'claimed', claim }, message, nativeContent: fact.content });
     }
   }
-  return prepareRows({ ctx, agent, rows, modelSelection, assembly, signal }, api);
+  return prepareRows({ ctx, agent, rows, startsRequestSeries:input.previous?.starts_request_series,
+    modelSelection, assembly, signal }, api);
 }
 
 /** Native guidance stays in its slots; the waterfall owns the ordered user list. */
-export async function prepareRows({ ctx, agent, rows, previous, modelSelection, assembly, signal }, api) {
+export async function prepareRows({ ctx, agent, rows, previous, startsRequestSeries=previous?.starts_request_series,
+  modelSelection, assembly, signal }, api) {
   rows = previousRows(rows, previous);
   const users = rows.filter(row => row.message.role === 'user');
   const messages = [], copies = new Map(), byObject = new WeakMap(), byId = new Map(), references = new WeakMap();
@@ -91,27 +93,29 @@ export async function prepareRows({ ctx, agent, rows, previous, modelSelection, 
     messages, turn, step, signal, modelSelection,
   }, async () => {
     const context = api.runtimeContext(agent.session, assembly);
-    return { kind: 'enter', messages: context === undefined ? messages : [...messages, context] };
+    return { kind: 'enter', messages: context === undefined ? messages : [...messages, context],
+      ...(startsRequestSeries && {startsRequestSeries:true}) };
   });
   signal.throwIfAborted();
   if (decision.kind === 'reject') return { kind: 'reject' };
   if (decision.kind !== 'enter' || !Array.isArray(decision.messages)) throw Error('Invalid pre-step decision');
   // Removing every waking/user input must not turn native guidance into a new
   // request. Guidance-only later rounds remain outside the user waterfall.
-  if (users.length && decision.messages.length === 0) return { kind: 'enter', messages: [] };
+  const entered = {kind:'enter', messages:[], ...(decision.startsRequestSeries === true && {starts_request_series:true})};
+  if (users.length && decision.messages.length === 0) return entered;
   const prepared = decision.messages.map(message => {
     const original = byObject.get(message) ?? byId.get(message.id);
     if (original && isDeepStrictEqual(original.message, message)) return original.entry;
     const authored = nativeMessage(message, original, references);
     return original?.entry.claim ? { kind: 'replacement', claim: original.entry.claim, message: authored } : { kind: 'added', message: authored };
   });
-  const final = []; let next = 0;
+  const final = entered.messages; let next = 0;
   for (const row of rows) {
     if (row.message.role === 'developer') final.push(row.entry);
     else if (next < prepared.length) final.push(prepared[next++]);
   }
   for (; next < prepared.length; next++) final.push(prepared[next]);
-  return { kind: 'enter', messages: final };
+  return entered;
 }
 
 /** DSH's committed runtime-context baseline, read incrementally without another event subscriber. */

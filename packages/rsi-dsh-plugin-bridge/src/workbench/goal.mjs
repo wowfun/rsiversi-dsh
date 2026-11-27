@@ -47,5 +47,6 @@ export function goalMessage(state,message,source) {
   if(source.domain.id!=='rsi.goal'||!current||current.goal.id!==source.owner||current.goal.phase!=='active')return message;
   const round=current.roundsStarted+1;
   state.goal={...current,roundsStarted:round};
+  state.mapping.startsRequestSeries=true;
   return {...message,source:{kind:'goal',goalId:source.owner,revision:current.goal.revision,round}};
 }

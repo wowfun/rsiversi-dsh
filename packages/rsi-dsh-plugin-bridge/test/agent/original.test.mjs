@@ -86,7 +86,8 @@ integration('canonical request headers restore Plan narration and resolve exact 
   assert.equal(stage.kind, 'staged', stage.diagnostic);
   assert.deepEqual(stage.decision.messages.map(row=>row.message?.content[0]?.text), ['The user switched this session back to the default mode.']);
   assert.equal(stage.checkpoint.pendingIntent, null);
-  assert.equal(stage.events.find(event => event.type === 'request/header').data.reason, 'series');
+  assert.equal(stage.events.some(event => event.type === 'request/header'), false,
+    'reading the next ordinary Step from a restored history retains the captured header');
 });
 
 integration('captured RSI lifecycle resets Todo only after receipt and survives restart without cursor drift', async t => {

@@ -373,6 +373,17 @@ test('mutating a hook message cannot edit the captured source, image or text', a
   assert.equal(edited.message.content[1].media.id, 'b'.repeat(64));
 });
 
+test('the entered waterfall decision owns the first request series declaration', async () => {
+  const prepare = (previous, waterfall) => prepareRequestInputs({
+    agent:{id:'series',session:{}}, input:{claims:[],previous}, signal:new AbortController().signal,
+  }, {agentEvents:()=>({waterfall}),runtimeContext:()=>undefined});
+  const run = async (_name, _event, next) => ({...await next(),startsRequestSeries:true});
+  const start = await prepare(undefined,run);
+  assert.deepEqual(start,{kind:'enter',messages:[],starts_request_series:true});
+  assert.deepEqual(await prepare(start, (_name,_event,next)=>next()),start);
+  assert.deepEqual(await prepare(start, ()=>({kind:'reject'})),{kind:'reject'});
+});
+
 test('runtime context follows only committed surface state and agrees with original DSH projection',
   { skip: !root || !process.env.RSI_DSH_RUNTIME_CONTEXT_SOURCE }, async t => {
     const f = await fixture(t), outfile = join(f.directory, 'original-context.mjs');

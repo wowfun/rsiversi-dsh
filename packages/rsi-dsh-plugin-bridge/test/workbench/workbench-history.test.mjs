@@ -65,6 +65,7 @@ test('released Goal fold reads native completion and counts only admitted round 
     await source.stage(call,async()=>{},undefined,facts.length,2);
     assert.equal(foldGoal(source.current.session.snapshotEvents()).goal.phase,'active');
     const end=await source.stage(call,async()=>{},undefined,facts.length,2);end.commit();
+    assert.equal(source.current.mapping.startsRequestSeries,withRound?true:undefined);
     const events=source.current.session.snapshotEvents();
     assert.deepEqual(events.filter(e=>e.type==='goal/change').map(e=>e.data.operation),['create','complete']);
     assert.equal(events.filter(e=>e.type==='model/selection').length,1);

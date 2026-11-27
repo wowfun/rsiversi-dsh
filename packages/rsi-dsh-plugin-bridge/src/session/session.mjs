@@ -249,6 +249,11 @@ export class SessionFacade {
     return cached.messages.slice();
   }
   requestHeader() { return this.#requestHeader; }
+  matchesRequestHeader(header) {
+    const previous = this.#requestHeader;
+    return previous !== undefined && (previous.config === header.config && previous.tools === header.tools
+      && previous.adapterDefaults === header.adapterDefaults || this.#api.headerEquals(previous, header));
+  }
   eventAt(seq) {
     return this.#base && seq < this.#base ? this.#branch.parent.eventAt(seq) : this.#events[seq - this.#base];
   }

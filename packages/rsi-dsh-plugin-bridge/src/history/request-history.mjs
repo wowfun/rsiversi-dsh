@@ -61,6 +61,17 @@ function systemOf(system) {
   return system.filter(message => message.role === 'system').flatMap(message => message.content.map(modelTextBlock));
 }
 
+// Staged mirrors share their prefix. Inspect only events since the last observation
+// without materializing a second surface. A restored observer stops at its header.
+function replacedSinceRequest(session, through) {
+  for (let seq = session.seq - 1; seq >= through; seq--) {
+    const event = session.eventAt(seq);
+    if (event.type === 'request/header' || event.type === 'session/end-seed') break;
+    if (event.surfaceOp?.op === 'replace') return true;
+  }
+  return false;
+}
+
 /** Retain only projected sections at this native cut. The original Fact pages can be released. */
 export function requestObserver(readFact) {
   return async (session, fact, mapping) => {
@@ -82,13 +93,22 @@ export function requestObserver(readFact) {
     const system = mapping && await section(fact, 'system', originalAt, prior?.system, systemOf);
     if (system) systemHead(session, mapping, fact.timestamp_ms, system.value);
     const header = tools.value ? {...base, tools:tools.value} : base;
-    const previous = session.lastEvent('request/header');
-    const step = session.lastEvent('step/start');
-    const changed = previous && !isDeepStrictEqual(previous.data.header, header);
-    if (!previous || changed || step && step.seq > previous.seq) {
+    const previous = session.requestHeader();
+    const startsSeries = mapping?.startsRequestSeries === true || replacedSinceRequest(session, prior?.through ?? 0);
+    const generation = mapping?.preparedGeneration;
+    const resumed = generation || (!prior && session.inheritedEventCount > 0
+      && session.lastEvent('request/header')?.seq < session.inheritedEventCount);
+    const changed = previous && !session.matchesRequestHeader(header);
+    if (!previous || resumed || changed || startsSeries) {
+      const reason = !previous ? 'initial' : resumed ? 'resume' : changed ? 'change' : 'series';
       session.adoptObserved({type:'request/header', seq:session.seq, time:fact.timestamp_ms,
-        data:{header,reason:!previous?'initial':changed?'change':'series'}});
+        data:{header,reason,...(startsSeries && reason !== 'series' && {startsSeries:true})}});
     }
-    verified.set(owner, {configuration, tools, system});
+    if (generation) {
+      mapping.requestGeneration = generation;
+      delete mapping.preparedGeneration;
+    }
+    if (mapping) delete mapping.startsRequestSeries;
+    verified.set(owner, {configuration, tools, system, through:session.seq});
   };
 }

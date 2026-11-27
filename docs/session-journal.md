@@ -274,11 +274,19 @@ route. Other references to the same earlier Fact share one read within that
 request. Inline bytes are verified on every admission. No original evidence
 text or page is retained across cuts. A restored or independent projection
 resolves references from its own history.
-Request-header changes compare JSON structure, not its serialized spelling:
-object key order is irrelevant, while tool order, array order and values remain
-significant. Comparison can stop at shared immutable schema subtrees. A new
-Step with the same header still records a `series` boundary; a changed header
-records `change`. Prepared route settings use the same structural semantics.
+Request headers use the release's canonical equality, including declaration
+order and the JSON spelling of tool schemas. A request that reuses its frozen
+configuration and tool list can reuse its header without serializing schemas. Ordinary
+Steps with unchanged headers reuse the previous declaration. An explicit
+pre-step series start or an intervening surface replacement starts a series.
+A confirmed native Goal round carries its released driver's series declaration
+when its continuation message enters the Step.
+A coincident header change records `change` with `startsSeries: true`. The
+first conversation request from a different captured application process
+records `resume` when a header already exists. Preparation without a model
+request leaves the last used generation in force. Reading history again adds
+no execution boundary. Prepared route settings
+use the same structural semantics.
 This transfer retains event, surface and size validation and freezes the whole
 owned graph. Externally supplied mutable inputs still cross the snapshot boundary.
 Restored local records cross

@@ -7,9 +7,13 @@ import { claimInput, clearClaims, preparedMessages } from './input-history.mjs';
 
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 const keys = ['version', 'factCursor', 'turn', 'step', 'turnId', 'stepId', 'stepOpen', 'model', 'calls', 'pendingMessages', 'claims'];
+const optional = ['compaction','compactionSettlement','startsRequestSeries','requestGeneration','preparedGeneration'];
 export function restoreMapping(value) {
   if (value == null) return { version: 4, factCursor: 0, turn: 0, step: 0, turnId: null, stepId: null, stepOpen: false, model: null, calls: [], pendingMessages: [], claims: [] };
-  if (keys.some(key => !Object.hasOwn(value,key)) || Object.keys(value).some(key => !keys.includes(key) && key !== 'compaction' && key !== 'compactionSettlement')
+  if (keys.some(key => !Object.hasOwn(value,key)) || Object.keys(value).some(key => !keys.includes(key) && !optional.includes(key))
+      || 'startsRequestSeries' in value && (value.startsRequestSeries !== true || !value.stepOpen)
+      || ['requestGeneration','preparedGeneration'].some(key => key in value &&
+        (typeof value[key] !== 'string' || !value[key].length || value[key].length > 256))
       || 'compaction' in value && (!integer(value.compaction) || !value.compaction || value.compaction > value.factCursor)
       || 'compactionSettlement' in value && (!integer(value.compactionSettlement) || !(value.compaction < value.compactionSettlement) || value.compactionSettlement > value.factCursor)
       || value.version !== 4 || ![value.factCursor, value.turn, value.step].every(integer)
@@ -102,11 +106,17 @@ async function observeFact(session, mapping, fact, readFact, llm, observeRequest
     if (fact.type === 'turn_accepted') claimInput(mapping, fact);
   } else if (['input_message_claimed', 'tool_contexts_claimed'].includes(fact.type)) {
     claimInput(mapping, fact);
+  } else if (fact.type === 'step_prepared') {
+    const generation = fact.application?.generation;
+    if (generation && generation !== mapping.requestGeneration) mapping.preparedGeneration = generation;
+    else delete mapping.preparedGeneration;
   } else if (fact.type === 'step_inputs_prepared') {
     if (mapping.turnId !== fact.turn_id || mapping.stepId !== fact.step_id) throw Error('prepared Step is outside captured history');
+    delete mapping.startsRequestSeries;
     const messages = await preparedMessages(session, mapping, fact, readFact, projectMessage);
     if (messages !== null && (messages.length || mapping.step > 0)) {
       prepareStep(session, mapping, fact.turn_id, fact.step_id, fact.timestamp_ms);
+      if (fact.decision.starts_request_series) mapping.startsRequestSeries = true;
       for (const message of messages) observeInput(session, mapping, message, fact.timestamp_ms);
     }
   } else if (['tool_intent', 'tool_started', 'tool_rejected', 'tool_result', 'tool_calls_superseded'].includes(fact.type)) {
@@ -115,8 +125,12 @@ async function observeFact(session, mapping, fact, readFact, llm, observeRequest
     if (pending && !mapping.calls.length) closeStep(session, mapping, fact.timestamp_ms);
   } else if (fact.type === 'step_ended' && fact.turn_id === mapping.turnId) {
     closeStep(session, mapping, fact.timestamp_ms);
+    delete mapping.startsRequestSeries;
+    delete mapping.preparedGeneration;
     mapping.stepId = null;
   } else if (fact.type === 'turn_terminal' && fact.turn_id === mapping.turnId) {
+    delete mapping.startsRequestSeries;
+    delete mapping.preparedGeneration;
     clearClaims(mapping); mapping.pendingMessages = [];
     observeTool(session, mapping, fact);
     closeStep(session, mapping, fact.timestamp_ms);

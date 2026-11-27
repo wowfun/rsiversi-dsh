@@ -94,10 +94,23 @@ integration('prepared requests preserve an unchanged system head restored from a
     assert.deepEqual(changed.sourceEventSeqs,[head.seq]);
     assert.deepEqual(changed.data.message.content,[{type:'text',text:'Changed'}]);
     assert.deepEqual(session.surface.nodes,[changed.seq]);
+    assert.equal(session.lastEvent('request/header').data.reason,'series');
+    const cut=session.seq;
+    await observe(session,fact,position);
+    assert.equal(session.seq,cut,'retry after a surface replacement keeps the new series');
+    const settings=JSON.parse(fact.evidence.configuration.text);
+    settings.settings.temperature=0.5;
+    fact.evidence.configuration=inline(settings);
+    position.startsRequestSeries=true;
+    await observe(session,fact,position);
+    const boundary=session.lastEvent('request/header').data;
+    assert.equal(boundary.reason,'change');
+    assert.equal(boundary.startsSeries,true);
+    assert.equal(position.startsRequestSeries,undefined);
   } finally { session.end(); }
 });
 
-integration('request headers compare JSON values and preserve series and ordered changes', async t => {
+integration('request headers preserve the released schema spelling and continue across ordinary steps', async t => {
   const cohort = await loadCohort(cohortRoot);
   const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
   t.after(() => ctx.fiber.dispose());
@@ -122,12 +135,12 @@ integration('request headers compare JSON values and preserve series and ordered
     assert.equal(session.lastEvent('request/header').data.reason, 'initial');
     const reordered = [{...definitions[0],input_schema:{properties:{choice:{enum:['a','b'],type:'string'}},type:'object'}},definitions[1]];
     await observe(session, intent(reordered));
-    assert.equal(session.seq, 1, 'object key order must not invent a request-header change');
+    assert.equal(session.seq, 2);
+    assert.equal(session.lastEvent('request/header').data.reason, 'change');
+    assert.equal(JSON.stringify(session.requestHeader().tools[0].parameters),JSON.stringify(reordered[0].input_schema));
     session.appendObserved('step/start', {turn:1,step:1}, 20);
     await observe(session, intent(reordered));
-    assert.equal(session.lastEvent('request/header').data.reason, 'series');
-    assert.equal(JSON.stringify(session.requestHeader().tools[0].parameters), JSON.stringify(reordered[0].input_schema),
-      'a new series preserves this evidence spelling even when the previous header is structurally equal');
+    assert.equal(session.seq, 3, 'an ordinary step retains the previous header');
     const changed = structuredClone(reordered);
     changed[0].input_schema.properties.choice.enum.reverse();
     for (const fact of [intent(changed),intent([...changed].reverse()),intent([...changed].reverse(),{stop:[],max_output_tokens:2048})]) {
@@ -151,6 +164,39 @@ integration('request headers compare JSON values and preserve series and ordered
   } finally { session.end(); }
 });
 
+integration('a new captured application resumes only on its first conversation request', async () => {
+  const cohort=await loadCohort(cohortRoot);
+  const api={...await cohort.import('@deepseek-ai/dsh-session'),...await cohort.subpath('@deepseek-ai/dsh-session','surface'),
+    ...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const header={version:4,id:'request-resume',createdAt:1,isSeeded:false};
+  let session=new SessionFacade({},api,{header},false),mapping=restoreMapping(),seq=0;
+  let observe=factObserver(session,mapping);
+  const send=async body=>{
+    const fact={...body,seq:++seq,timestamp_ms:seq};
+    session.begin();
+    try {await observe(fact);mapping.factCursor=seq;} finally {session.end();}
+  };
+  const prepare=generation=>send({type:'step_prepared',application:{state:'ready',generation,tools:[]}});
+  const request=()=>send({type:'model_intent',effect_id:'m'+seq,purpose:{kind:'conversation'},snapshot,evidence:evidence()});
+  await prepare('first');await request();
+  await prepare('first');await request();
+  await prepare('unused');
+  await prepare('first');await request();
+  await prepare('second');
+  session=new SessionFacade({},api,{header,events:session.snapshotEvents()},false);
+  mapping=restoreMapping(mapping);observe=factObserver(session,mapping);
+  await request();await request();
+  assert.deepEqual(session.snapshotEvents().filter(event=>event.type==='request/header').map(event=>event.data.reason),
+    ['initial','resume']);
+  const events=session.snapshotEvents();
+  session=new SessionFacade({},api,{header:{...header,id:'fork',isSeeded:true,parentSession:header.id},
+    inheritedEventCount:events.length,events},false);
+  mapping=restoreMapping();observe=factObserver(session,mapping);
+  await request();await request();
+  assert.deepEqual(session.snapshotEvents(events.length).filter(event=>event.type==='request/header').map(event=>event.data.reason),
+    ['resume']);
+});
+
 integration('referenced request schemas share immutable bodies within one projection', async t => {
   const cohort = await loadCohort(cohortRoot);
   const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
@@ -159,6 +205,9 @@ integration('referenced request schemas share immutable bodies within one projec
     ...await cohort.subpath('@deepseek-ai/dsh-session', 'surface'),
     ...await cohort.import('@deepseek-ai/dsh-util-values')};
   const session = new SessionFacade(ctx, api, {header:{version:4,id:'shared-evidence',createdAt:1,isSeeded:false}}, false);
+  let comparisons=0;
+  const compare=api.headerEquals;
+  api.headerEquals=(a,b)=>{comparisons++;return compare(a,b);};
   const original = {type:'model_intent',seq:1,timestamp_ms:10,purpose:{kind:'conversation'},snapshot,evidence:evidence()};
   const reference = {...original,seq:2,timestamp_ms:12,evidence:{availability:'available'}};
   for (const name of ['configuration','tools']) reference.evidence[name] = {kind:'reference',seq:1,section:name,
@@ -174,6 +223,7 @@ integration('referenced request schemas share immutable bodies within one projec
     await observeRequest(session, reference);
     assert.equal(sourceReads,0,'verified references reuse the projected sections without reading the original Fact');
     const second = session.requestHeader();
+    assert.equal(comparisons,0,'a repeated verified tool list needs no JSON comparison');
     assert.deepEqual(second, first);
     assert.equal(second.tools, first.tools, 'a referenced section must share its tool array and wrappers across series');
     assert.equal(second.tools[0].parameters, first.tools[0].parameters, 'a reference must not allocate another schema');
@@ -490,17 +540,18 @@ integration('native semantic system evidence round-trips through original JSONL 
     {type:'model_intent',effect_id:'model-0',purpose:{kind:'conversation'},snapshot,evidence:first},
     {type:'step_ended',turn_id:'turn'},
     {type:'step_started',turn_id:'turn',step_id:'step-2'},
-    {type:'step_inputs_prepared',turn_id:'turn',step_id:'step-2',decision:{kind:'enter',messages:[]}},
-    {type:'model_intent',effect_id:'model-1',purpose:{kind:'conversation'},snapshot,evidence:reference}]
+    {type:'step_inputs_prepared',turn_id:'turn',step_id:'step-2',decision:{kind:'enter',starts_request_series:true,messages:[]}},
+    {type:'model_intent',effect_id:'model-1',purpose:{kind:'conversation'},snapshot,evidence:reference},
+    {type:'model_intent',effect_id:'model-retry',purpose:{kind:'conversation'},snapshot,evidence:reference}]
     .map((fact,index)=>({...fact,seq:index+1,timestamp_ms:10+index}));
   let reads=0;
   const project=factProjector(session,restoreMapping(),async after=>{
     reads++;assert.equal(after,0,'references borrow the already decoded page');
-    return {through:8,value:facts};
-  },8,undefined,await cohort.import('@deepseek-ai/dsh-llm'));
+    return {through:9,value:facts};
+  },9,undefined,await cohort.import('@deepseek-ai/dsh-llm'));
   await project(4);
   const firstSchema=session.requestHeader().tools[0].parameters;
-  await project(8);
+  await project(9);
   assert.equal(reads,1);
   const headers=session.snapshotEvents().filter(event=>event.type==='request/header');
   assert.deepEqual(headers.map(event=>event.data.reason),['initial','series']);
@@ -517,7 +568,7 @@ integration('native semantic system evidence round-trips through original JSONL 
 test('disabled tools and unsupported request controls cannot publish misleading headers', async () => {
   const observeRequest = requestObserver();
   const appended = [];
-  const session = { seq:0, lastEvent() {}, adoptObserved(event) { appended.push(event); } };
+  const session = { seq:0, requestHeader() {}, adoptObserved(event) { appended.push(event); } };
   const fact = { seq: 1, timestamp_ms: 10, purpose: { kind: 'conversation' }, snapshot, evidence: evidence() };
   const tools = JSON.parse(fact.evidence.tools.text); tools.choice = { type: 'none' }; fact.evidence.tools = inline(tools);
   await observeRequest(session, fact);

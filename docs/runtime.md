@@ -189,6 +189,8 @@ the attributed sections from the last retained snapshot. The first reminder
 introduces the current context. An update supersedes earlier snapshots,
 including summaries. Clearing the context records an empty section list.
 The reminder escapes closing delimiters inside contributed text.
+An entered waterfall decision can declare `startsRequestSeries: true`. The
+native preparation Fact carries this boundary to its first conversation request.
 The waterfall receives user-role inputs. Native developer guidance keeps its
 slots around that ordered result; removing all originally claimed user inputs
 also drops guidance instead of starting a guidance-only request. Original object
