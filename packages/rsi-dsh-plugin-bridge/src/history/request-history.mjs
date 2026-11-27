@@ -91,10 +91,11 @@ export function requestObserver(readFact) {
         || !isDeepStrictEqual(languageSettings, snapshot.language_settings)) throw new Error('request route differs from prepared snapshot');
     const tools = await section(fact, 'tools', originalAt, prior?.tools, toolsOf);
     const system = mapping && await section(fact, 'system', originalAt, prior?.system, systemOf);
-    if (system) systemHead(session, mapping, fact.timestamp_ms, system.value);
+    const surfaceChanged = mapping?.startsRequestSeries === true || replacedSinceRequest(session, prior?.through ?? 0);
+    const systemChanged = system && systemHead(session, mapping, fact.timestamp_ms, system.value);
     const header = tools.value ? {...base, tools:tools.value} : base;
     const previous = session.requestHeader();
-    const startsSeries = mapping?.startsRequestSeries === true || replacedSinceRequest(session, prior?.through ?? 0);
+    const startsSeries = surfaceChanged || systemChanged;
     const generation = mapping?.preparedGeneration;
     const resumed = generation || (!prior && session.inheritedEventCount > 0
       && session.lastEvent('request/header')?.seq < session.inheritedEventCount);

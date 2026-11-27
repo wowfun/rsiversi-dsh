@@ -8,14 +8,17 @@ export function modelTextBlock(block) {
   return {type:'text', text:block.content.text};
 }
 
-/** Session surface operations are validated by the original DSH SurfaceManager. */
+/** Install the system content and report whether it replaces established instructions. */
 export function systemHead(session, mapping, time, content) {
   const previous = session.firstSurfaceEvent();
   if (previous && previous.type !== 'system/message') throw new Error('conversation lacks its system head');
-  if (previous && (content === undefined || isDeepStrictEqual(previous.data.message.content, content))) return;
+  if (previous && (content === undefined || isDeepStrictEqual(previous.data.message.content, content))) return false;
+  const id = `rsi:${session.id}:system`;
+  const dormant = previous?.data.message.id === id && previous.data.message.content.length === 0 && !session.requestHeader();
   session.adoptObserved({type:'system/message',seq:session.seq,time,data:{turn:mapping.turn,step:mapping.step,
-    message:{id:`rsi:${session.id}:system`,role:'system',source:{kind:'system-prompt'},content:content??[]}},
+    message:{id,role:'system',source:{kind:'system-prompt'},content:content??[]}},
     ...(previous?{surfaceOp:{op:'replace',startSeq:previous.seq,endSeq:previous.seq},sourceEventSeqs:[previous.seq]}:{surfaceOp:'append'})});
+  return !!previous && !dormant;
 }
 
 export function contentBlocks(content, seq, offset = 0) {

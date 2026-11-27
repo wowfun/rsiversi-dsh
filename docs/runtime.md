@@ -993,7 +993,10 @@ Tool choice `none` omits tools from the header. Non-text response formats and
 provider request extensions require an explicit adapter instead of partial headers.
 Entered user and developer inputs preserve their role, canonical source and stable
 message identity. A dormant empty system head precedes the first input; it denotes
-that no request has established instructions yet. Each conversation ModelIntent
+that no request has established instructions yet. Filling it for the first
+request establishes the initial system prompt. An explicit pre-step declaration
+or a replacement of already established content starts a request series.
+Each conversation ModelIntent
 replaces that head when its authenticated system content changes. The comparison
 preserves block order and disregards JSON object member order. No placeholder is used
 as model-request evidence. Native semantic text blocks (`type: text`,

@@ -71,6 +71,25 @@ integration('a region survives foreground intent and an interrupted region close
   } finally { session.end(); }
 });
 
+integration('filling the initial native system head preserves explicit and restored series boundaries', async () => {
+  const cohort=await loadCohort(cohortRoot);
+  const api={...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session','surface'),...await cohort.import('@deepseek-ai/dsh-util-values')};
+  for(const [restored,explicit,expected] of [[false,false,undefined],[false,true,true],[true,false,true]]){
+    const writer=api.Session.create('first-system-head');
+    writer.append('system/message',{turn:1,step:1,message:{id:restored?'seed-system':`rsi:${writer.id}:system`,
+      role:'system',source:{kind:'system-prompt'},content:[]}},{surfaceOp:'append'});
+    const facade=new SessionFacade({},api,{header:writer.header,events:writer.snapshotEvents()},false);
+    const fact={type:'model_intent',seq:1,timestamp_ms:12,purpose:{kind:'conversation'},snapshot,evidence:evidence()};
+    facade.begin();
+    try {await requestObserver()(facade,fact,{turn:1,step:1,startsRequestSeries:explicit});}
+    finally {facade.end();}
+    const header=facade.lastEvent('request/header').data;
+    assert.equal(header.reason,'initial');
+    assert.equal(header.startsSeries,expected);
+  }
+});
+
 integration('prepared requests preserve an unchanged system head restored from a DSH Session', async t => {
   const cohort = await loadCohort(cohortRoot);
   const ctx = new (await cohort.import('@deepseek-ai/cordis')).Context();
