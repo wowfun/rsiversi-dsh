@@ -83,9 +83,14 @@ export function readJournalDocument(document) {
   return decodeJournal(JSON.parse(document));
 }
 function decodeJournal(state) {
+  if(state?.version===10) {
+    if(state.operations===undefined)state.operations=[];
+    if(state.inboxSlotFrom===undefined)state.inboxSlotFrom=0;
+    if(state.inheritedEventCount===undefined&&!state.header?.isSeeded)state.inheritedEventCount=0;
+  }
   if(!shape(state,['version','header','inheritedEventCount','events','sources','sourceDigest','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom','nativePreset'])
     ||state.nativePreset!==undefined&&(state.version<7||!presetId(state.nativePreset))
-    ||![1,2,3,4,5,6,7,8,9].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
+    ||!Number.isInteger(state.version)||state.version<1||state.version>10||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
   const prefixDigest=state.version>=7;
   if(prefixDigest?!isDigest(state.sourceDigest):Object.hasOwn(state,'sourceDigest'))throw Error('Invalid application source digest');
@@ -134,9 +139,9 @@ function decodeJournal(state) {
 export function checkpointNativeTail(document,tail) {
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumJournalBytes)throw Error('Invalid application journal size');
   const raw=JSON.parse(document),state=decodeJournal({...raw});
-  if(state.version===9&&state.sourceDigest===tail.digest&&state.sources.length===tail.nativeSeq&&state.eventCount===tail.seq)
+  if(state.version>=9&&state.sourceDigest===tail.digest&&state.sources.length===tail.nativeSeq&&state.eventCount===tail.seq)
     return;
-  if(state.version!==9||state.sourceDigest!==tail.base)throw Error('Application journal checkpoint changed');
+  if(state.version<9||state.sourceDigest!==tail.base)throw Error('Application journal checkpoint changed');
   const length=tail.nativeSeq-state.sources.length;
   if(length<=0||state.eventCount+length!==tail.seq)throw Error('Invalid application journal tail');
   const last=raw.sources.at(-1);
@@ -206,9 +211,11 @@ export function encodeJournalDocument(session,events,sources,sourceDigest,operat
     if(run&&run[0]+run[1]===seq)run[1]++;
     else {run=[seq,1];runs.push(run);}
   }
-  return packDocument(prefix,{version:9,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:runs,sourceDigest,operations});
+  return packDocument(prefix,{inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:runs,sourceDigest,operations});
 }
-function packDocument(prefix,body) {
+function packDocument(prefix,{inheritedEventCount,inboxSlotFrom,nativePreset,events,sources,sourceDigest,operations}) {
+  const body={version:10,inheritedEventCount:prefix.header.isSeeded||inheritedEventCount?inheritedEventCount:undefined,
+    inboxSlotFrom:inboxSlotFrom||undefined,nativePreset,events,sources,sourceDigest,operations:operations?.length?operations:undefined};
   const value=JSON.stringify(prefix).slice(0,-1)+',\n'+JSON.stringify(body).slice(1);
   if(Buffer.byteLength(value)>maximumJournalBytes)throw Error('Application journal document capacity');
   return value;

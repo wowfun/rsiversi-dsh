@@ -1,4 +1,4 @@
-import {legacySources,legacyPrefix} from '../fixtures/legacy-journal.mjs';
+import {legacyFields,legacySources,legacyPrefix} from '../fixtures/legacy-journal.mjs';
 import assert from 'node:assert/strict';
 import {createHash,Hash} from 'node:crypto';
 import {createRequire} from 'node:module';
@@ -41,6 +41,8 @@ test('native progress checkpoints at the next plugin record or shutdown and repl
   assert.throws(()=>cold(writes[0],native.with(0,{...native[0],time:555})),/prefix changed/);
   const shutdown=checkpointNativeTail(writes[0],pending);
   assert.equal(shutdown,journal.encode());
+  const previous=JSON.stringify({...legacyFields(JSON.parse(writes[0])),version:9});
+  assert.equal(checkpointNativeTail(previous,pending),shutdown);
   assert.equal(checkpointNativeTail(shutdown,pending),undefined,'an already published tail needs no write');
   for(const conflict of [{seq:pending.seq+1},{nativeSeq:pending.nativeSeq+1},{digest:'0'.repeat(64)}])
     assert.throws(()=>checkpointNativeTail(shutdown,{...pending,...conflict}),/checkpoint changed/);
@@ -85,7 +87,7 @@ test('cold recovery preserves native sources correlated in reverse acceptance or
   assert.deepEqual(disk.sources,[[1,1],[0,1]]);
   assert.deepEqual(disk.operations.map(op=>[op.id,op.source]),[['first',1],['second',0]]);
   const restore=state=>new SessionProjectionJournal(ctx,api,{header},{restore:state,native,adoptRestore:true});
-  const previous={...disk,version:7,sourceDigest:legacyPrefix(legacySources(journal)),sources:[{seq:1,operation:'second'},{seq:0,operation:'first'}]};
+  const previous={...legacyFields(disk),version:7,sourceDigest:legacyPrefix(legacySources(journal)),sources:[{seq:1,operation:'second'},{seq:0,operation:'first'}]};
   assert.equal(restore(readJournalDocument(JSON.stringify(previous))).encode(),encoded);
   const parse=patch=>readJournalDocument(JSON.stringify({...disk,...patch}));
   for(const sources of [[[0,2],[1,1]], [[0,100_001]], [[0,0]], [[99_999,2]], [[1]], [[0,1,2]]])
@@ -298,18 +300,18 @@ test('one durable source digest detects cold changes and advances only after a v
   const native=[0,1].map(seq=>({type:'model/selection',seq,time:seq,data:{...selection,model:'model-'+seq}}));
   journal.merge(native);
   const before=journal.encode(),saved=JSON.parse(before);
-  assert.equal(saved.version,9);assert.match(saved.sourceDigest,/^[a-f0-9]{64}$/);
+  assert.equal(saved.version,10);assert.match(saved.sourceDigest,/^[a-f0-9]{64}$/);
   assert.deepEqual(saved.sources,[[0,2]]);
   const restore=(state,events=native)=>new SessionProjectionJournal(ctx,api,{header},
     {restore:readJournalDocument(JSON.stringify(state)),native:events});
   assert.equal(restore(saved).encode(),before);
-  const previous={...saved,version:8,sourceDigest:legacyPrefix(legacySources(journal))};
+  const previous={...legacyFields(saved),version:8,sourceDigest:legacyPrefix(legacySources(journal))};
   assert.equal(restore(previous).encode(),before);
   assert.throws(()=>restore({...previous,sourceDigest:'0'.repeat(64)}),/prefix changed/);
   assert.throws(()=>restore({...saved,sourceDigest:'0'.repeat(64)}),/prefix changed/);
   assert.throws(()=>restore(saved,[native[0],{...native[1],time:9}]),/prefix changed/);
   assert.throws(()=>restore(saved,native.slice(0,1)),/prefix moved backwards/);
-  assert.throws(()=>readJournalDocument(JSON.stringify({...saved,version:7,sources:[{seq:0,hash:'0'.repeat(64)},{seq:1}]})),/source map/);
+  assert.throws(()=>readJournalDocument(JSON.stringify({...legacyFields(saved),version:7,sources:[{seq:0,hash:'0'.repeat(64)},{seq:1}]})),/source map/);
   const next={...native[1],seq:2,time:2};
   assert.throws(()=>journal.advance(2,[next,{...next,seq:3,surfaceOp:{type:'replace',startSeq:99,endSeq:99}}]),/outside its observed prefix/);
   assert.equal(journal.encode(),before,'a rejected batch cannot advance the saved source digest');
@@ -322,7 +324,7 @@ test('one durable source digest detects cold changes and advances only after a v
 test('version 6 source hashes are checked before rewriting a journal with one prefix digest', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t),native=[{type:'model/selection',seq:0,time:1,data:selection}];
   journal.merge(native);
-  const legacy=JSON.parse(journal.encode());legacy.version=6;delete legacy.sourceDigest;
+  const legacy=legacyFields(JSON.parse(journal.encode()));legacy.version=6;delete legacy.sourceDigest;
   legacy.sources=legacySources(journal);
   let stored;
   const cold=new SessionProjectionJournal(ctx,api,{header},
@@ -613,7 +615,7 @@ test('durable journals omit native bodies while preserving local acknowledgement
     {seq:1,time:3,type:'model/selection',data:selection}];
   const correlations=new Map([[1,'choice']]);journal.merge(native,correlations);
   const document=journal.encode(),state=JSON.parse(document);
-  assert.equal(state.version,9);assert.equal(state.ownedEventCount,2);
+  assert.equal(state.version,10);assert.equal(state.ownedEventCount,2);
   assert.equal(Object.hasOwn(state,'eventCount'),false);
   assert.equal(readJournalDocument(document).eventCount,3);
   assert.deepEqual(state.events.map(event=>event.seq),[0,1]);
@@ -690,6 +692,9 @@ test('a cold catalog reads the atomic title prefix without parsing history and m
   assert.equal(changes,2);
   const manual={...header,parentSession:'parent',isSeeded:true};
   const unmarked=new SessionProjectionJournal(ctx,api,{header:manual},{save:value=>storage.save(manual.id,value)});
+  const seeded=JSON.parse(unmarked.encode());assert.equal(seeded.inheritedEventCount,0);
+  delete seeded.inheritedEventCount;
+  assert.throws(()=>readJournalDocument(JSON.stringify(seeded)),/Invalid application journal/);
   unmarked.accept('ordinary-rename','session/title',{title,source:{kind:'user'},messageSeqs:[]});
   await unmarked.flush();
   assert.equal((await storage.decorate([{...row}]))[0].parent,undefined,'a title is not proof of a DSH subagent origin');
@@ -924,8 +929,8 @@ test('saved journals retain the native prefix that used predecessor-based inbox 
   const {ctx,api,journal}=await fixture(t),restore=(raw,native)=>new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(JSON.stringify(raw)),native});
   const native=[0,1].map(seq=>({type:'model/selection',seq,time:seq,data:selection}));
   journal.merge(native);
-  const saved=JSON.parse(journal.encode());assert.equal(restore(saved,native).inboxSlotFrom,0);
-  saved.version=1;saved.events=journal.session.snapshotEvents();delete saved.inboxSlotFrom;delete saved.ownedEventCount;
+  const current=JSON.parse(journal.encode());assert.equal(restore(current,native).inboxSlotFrom,0);
+  const saved={...legacyFields(current),version:1,events:journal.session.snapshotEvents()};delete saved.inboxSlotFrom;delete saved.ownedEventCount;
   delete saved.sourceDigest;saved.sources=legacySources(journal);
   const cold=restore(saved,native);assert.equal(cold.inboxSlotFrom,2);
   cold.merge([...native,{...native[1],seq:2}]);

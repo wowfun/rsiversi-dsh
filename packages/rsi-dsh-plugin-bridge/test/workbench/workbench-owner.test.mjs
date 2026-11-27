@@ -1,4 +1,4 @@
-import {legacySources} from '../fixtures/legacy-journal.mjs';
+import {legacyFields,legacySources} from '../fixtures/legacy-journal.mjs';
 import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import {nativeSubmission} from '../fixtures/native-submission.mjs';
 import assert from 'node:assert/strict';
@@ -338,7 +338,8 @@ test('a log-only approval with no native mutation receipt persists across owners
   const snapshot=await f.persistence.stat('one');
   assert.notEqual(snapshot.revision,beforeRevision,'application-owned events invalidate the stored observation');
   const stored=JSON.parse(await f.options.storage.read('one'));
-  assert.equal(stored.version,9);
+  for(const field of ['operations','inboxSlotFrom','inheritedEventCount'])assert.equal(Object.hasOwn(stored,field),false,field);
+  assert.equal(stored.version,10);
   assert.deepEqual(stored.events.map(row=>row.type),['approval/asked','approval/decided']);
   const before=f.reads;
   const cold=workbenchHistory(f.options);t.after(()=>cold.close());
@@ -374,7 +375,7 @@ test('the original search engine observes a native-only cold Session without a s
 test('an existing full journal is rewritten after canonical reconciliation without changing event coordinates', {skip:!root},async t=>{
   const f=await fixture(t),session=await f.capture();
   // A native-only existing file also needs rewriting, even without local operations.
-  const state=JSON.parse(f.history.owner(session).journal.encode());
+  const state=legacyFields(JSON.parse(f.history.owner(session).journal.encode()));
   state.version=1;state.events=session.snapshotEvents();delete state.ownedEventCount;
   delete state.sourceDigest;state.sources=legacySources(f.history.owner(session).journal);
   await f.options.storage.save('one',JSON.stringify(state).replace(',"version"',',\n"version"'));
@@ -383,7 +384,7 @@ test('an existing full journal is rewritten after canonical reconciliation witho
   assert.equal(f.reads-before,1);
   assert.deepEqual(reopened.snapshotEvents(),session.snapshotEvents());
   const stored=JSON.parse(await f.options.storage.read('one'));
-  assert.equal(stored.version,9);assert.deepEqual(stored.events,[]);assert.equal(stored.ownedEventCount,0);
+  assert.equal(stored.version,10);assert.deepEqual(stored.events,[]);assert.equal(stored.ownedEventCount,0);
   assert.equal(Object.hasOwn(stored,'eventCount'),false);
   const again=workbenchHistory(f.options);t.after(()=>again.close());
   assert.deepEqual((await again.capture('one',await again.metadata('one'))).snapshotEvents(),session.snapshotEvents());
@@ -392,7 +393,7 @@ test('an existing full journal is rewritten after canonical reconciliation witho
 test('failed canonical reconciliation cannot rewrite a full journal during owner disposal', {skip:!root},async t=>{
   const f=await fixture(t),session=await f.capture(),owner=f.history.owner(session);
   owner.driver.accept({...base,reasoningEffort:'high'});await owner.driver.ready();await f.capture();
-  const state=JSON.parse(owner.journal.encode());state.version=1;state.events=session.snapshotEvents();delete state.ownedEventCount;
+  const state=legacyFields(JSON.parse(owner.journal.encode()));state.version=1;state.events=session.snapshotEvents();delete state.ownedEventCount;
   delete state.sourceDigest;state.sources=legacySources(owner.journal);
   delete state.operations[0].receipt;
   state.sources[0].hash='0'.repeat(64);

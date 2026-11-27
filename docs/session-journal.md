@@ -536,9 +536,13 @@ additional readers wait locally before issuing native RPCs. No queued reader
 holds a native request slot. The Host checks the page's request, Session and
 coordinates and bounds its retained storage; no persistent history copy is added.
 
-Version 9 snapshots contain the Session header, owned and inherited event counts,
+Version 10 snapshots contain the Session header, owned event count,
 local-owned events at their original positions, the native source map, its
-`sourceDigest` and mutation records in one JSON document. In native event order,
+`sourceDigest` and any mutation records in one JSON document. A seeded Session
+stores its inherited length, including zero. An ordinary Session starts at zero.
+Only a positive predecessor-based inbox boundary or a nonempty mutation list
+occupies space in a new snapshot. Existing version 9 documents remain readable
+without republishing them. In native event order,
 each source-map run stores the first application position and the number of
 consecutive positions. Runs may occur in any order and cannot overlap. A
 mutation's optional native source index identifies its correlation, including
@@ -577,7 +581,7 @@ to substitute a cached body. Restoration uses the same native read batch as the
 first observation. Older documents are validated and normalized once: version 1
 uses its complete log, and version 1/2 input invocations must agree exactly with
 their accepted event before their duplicate body is removed. Successful native
-reconciliation rewrites them as version 9; failed validation cannot replace the
+reconciliation rewrites older source representations in the current format; failed validation cannot replace the
 document. Version 3/4 input recovery descriptors and version 5 correlated inputs
 retain their existing meaning. Versions 1–6 retain their per-event hash checks
 on cold read. Versions 7 and 8 verify their original prefix digest over the

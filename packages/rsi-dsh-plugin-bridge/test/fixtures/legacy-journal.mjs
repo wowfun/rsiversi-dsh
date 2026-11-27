@@ -1,5 +1,9 @@
 import {createHash} from 'node:crypto';
 
+export function legacyFields(document) {
+  return {inheritedEventCount:0,inboxSlotFrom:0,operations:[],...document};
+}
+
 export function legacySources(journal) {
   return Array.from({length:journal.nativeSeq},(_,index)=>{
     const {event,...row}=journal.sourceAt(index);

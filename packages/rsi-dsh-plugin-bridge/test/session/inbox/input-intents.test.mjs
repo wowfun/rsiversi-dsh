@@ -1,4 +1,4 @@
-import {legacySources} from '../../fixtures/legacy-journal.mjs';
+import {legacyFields,legacySources} from '../../fixtures/legacy-journal.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {setImmediate} from 'node:timers/promises';
@@ -58,7 +58,7 @@ for(const method of ['inject','followup'])test(`${method} validates and rewrites
   const f=await nativeInboxFixture(t),original=message('previous-input');
   f.state.holdSubmissions=true;f.state[method==='inject'?'failExecute':'failSubmit']='after';
   await assert.rejects(f.scope.runOwned(()=>method==='inject'?legacyInject(f,original):f.agent.followup(original)),/reply lost/);
-  const legacy=JSON.parse(f.documents.get('one')),operation=legacy.operations[0];legacy.version=2;
+  const legacy=legacyFields(JSON.parse(f.documents.get('one'))),operation=legacy.operations[0];legacy.version=2;
   delete legacy.sourceDigest;legacy.sources=legacySources(f.owner.journal);
   legacy.eventCount=f.agent.session.seq;delete legacy.ownedEventCount;
   legacy.events=legacy.events.map(event=>structuredClone(f.agent.session.eventAt(event.seq)));
@@ -81,7 +81,7 @@ for(const method of ['inject','followup'])test(`${method} validates and rewrites
   assert.deepEqual(session.eventAt(operation.seq),legacy.events.find(event=>event.seq===operation.seq));
   await f.scope.runOwned(()=>owner.input.ready());
   const stored=JSON.parse(f.documents.get('one'));
-  assert.equal(stored.version,9);assert.equal(JSON.stringify(stored.operations).includes('previous-input'),false);
+  assert.equal(stored.version,10);assert.equal(JSON.stringify(stored.operations).includes('previous-input'),false);
   assert.equal((method==='inject'?commands(f):submitted(f)).length,1);
   const changed=structuredClone(stored);
   if(method==='inject')changed.operations[0].invocation.sha256='b'.repeat(64);
