@@ -28,14 +28,25 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     catch(error){if(error.code==='ENOENT')return [];throw error;}
   }
   async function discover() {
-    const flat=await names(directory),files=new Map();
+    const flat=await names(directory),unmatched=new Map();
     if(flat.includes('packed'))for(const name of await names(packedDirectory)) {
-      if(name.endsWith('.journal'))files.set(name.slice(0,-8),{plain:false});
+      if(name.endsWith('.journal'))unmatched.set(name.slice(0,-8),false);
     }
-    for(const name of flat)if(name.endsWith('.json'))files.set(name.slice(0,-5),{plain:true});
-    return files;
+    for(const name of flat)if(name.endsWith('.json'))unmatched.set(name.slice(0,-5),true);
+    return {unmatched,known:new Map()};
   }
-  function pathFor(stem,plain) {
+  function locate({unmatched,known},id) {
+    const hit=known.get(id);
+    if(hit||!unmatched.size)return hit;
+    const stem=hash('sha256',id),plain=unmatched.get(stem);
+    if(plain===undefined)return;
+    const entry={plain};
+    unmatched.delete(stem);
+    known.set(id,entry);
+    return entry;
+  }
+  function pathFor(id,plain) {
+    const stem=hash('sha256',id);
     return plain?join(directory,stem+'.json'):join(packedDirectory,stem+'.journal');
   }
   function catalogFiles() {
@@ -59,10 +70,9 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     }catch(error){if(error.code!=='ENOENT')throw error;}
     finally{await handle?.close();}
   }
-  async function metadata(files,id) {
-    const stem=hash('sha256',id),entry=files.get(stem);
+  async function metadata(entry,id) {
     if(!entry||Object.hasOwn(entry,'hint'))return entry?.hint;
-    const pending=readCatalog(pathFor(stem,entry.plain));
+    const pending=readCatalog(pathFor(id,entry.plain));
     entry.hint=pending;
     try{
       const hint=await pending;
@@ -72,15 +82,17 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     catch(error){delete entry.hint;throw error;}
   }
   return {
-    async metadata(id){return metadata(await catalogFiles(),id);},
+    async metadata(id){return metadata(locate(await catalogFiles(),id),id);},
     async decorate(rows,signal) {
       signal?.throwIfAborted();
       if(!rows.length)return rows;
       const files=await catalogFiles().catch(error=>{console.warn('Session catalog hint:',error.message);});
       signal?.throwIfAborted();
-      if(!files?.size)return rows;
+      if(!files||!files.unmatched.size&&!files.known.size)return rows;
       for(const row of rows) {
-        const hint=await metadata(files,row.id).catch(error=>{console.warn('Session catalog hint:',error.message);});
+        const id=row.id,entry=locate(files,id);
+        if(!entry)continue;
+        const hint=await metadata(entry,id).catch(error=>{console.warn('Session catalog hint:',error.message);});
         signal?.throwIfAborted();
         const {header,catalogTitle}=hint??{};
         if(header?.id!==row.id||header.createdAt!==row.createdAt)continue;
@@ -93,9 +105,9 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     async read(id) {
       let handle;
       try {
-        const stem=hash('sha256',id),entry=(await catalogFiles()).get(stem);
+        const entry=locate(await catalogFiles(),id);
         if(!entry)return;
-        const path=pathFor(stem,entry.plain);
+        const path=pathFor(id,entry.plain);
         handle=await open(path,'r');
         const info=await handle.stat();
         const packed=!entry.plain;
@@ -112,8 +124,8 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
       finally{await handle?.close();}
     },
     async save(id,value) {
-      const files=await catalogFiles(),stem=hash('sha256',id),plain=files.get(stem)?.plain??false;
-      const path=pathFor(stem,plain),after=journalCatalog(value);
+      const files=await catalogFiles(),plain=locate(files,id)?.plain??false;
+      const path=pathFor(id,plain),after=journalCatalog(value);
       let bytes=value;
       if(!plain){
         const body=value.indexOf('\n')+1;
@@ -121,8 +133,8 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
         bytes=Buffer.concat([Buffer.from(value.slice(0,body)),await compress(value.slice(body),checksum)]);
       }
       await writeFileAtomic(path,bytes,{mode:0o600,dirMode:0o700});
-      const before=files.get(stem)?.hint;
-      files.set(stem,{plain,hint:after});
+      const before=files.known.get(id)?.hint;
+      files.known.set(id,{plain,hint:after});
       if(before?.catalogTitle?.seq!==after?.catalogTitle?.seq || before?.header?.origin!==after?.header?.origin)changed?.();
     },
   };
