@@ -1,12 +1,12 @@
 import {randomBytes} from 'node:crypto';
-import {encodedPart,eventPage,eventPageCapacity,readPart,TOOL_RESULT_BYTES} from './settlement.mjs';
+import {encodedPart,eventPage,eventPageSizes,readPart,TOOL_RESULT_BYTES} from './settlement.mjs';
 
 export function stagedMutations({records, get, restore, intents, ctx, lifetime, reserveOutput}) {
   const operations = new Set();
   function reserveToolOutput(record,operation) {
     const events=record.session.snapshotEvents(operation.start);
     if(events.length>4096)throw Error('settlement event capacity');
-    const bytes=Math.max(TOOL_RESULT_BYTES,eventPageCapacity(events));
+    const bytes=Math.max(TOOL_RESULT_BYTES,eventPageSizes(events).pageCapacity);
     operation.output.resize(bytes);operation.toolOutput=true;
   }
   async function runStage(id, operationId, invoke, signal) {
@@ -38,7 +38,7 @@ export function stagedMutations({records, get, restore, intents, ctx, lifetime, 
       if(decisionLength>32*1024*1024+64)throw Error('Step decision capacity');
       if(payload.suffix.length>4096||Buffer.byteLength(JSON.stringify(payload.checkpoint))>64*1024)throw Error('settlement metadata capacity');
       const token = randomBytes(32).toString('hex');
-      const pageCapacity=eventPageCapacity(payload.suffix);
+      const {pageCapacity}=eventPageSizes(payload.suffix);
       const outputBytes=Math.max(pageCapacity,operation.toolOutput?TOOL_RESULT_BYTES:0)
         +(decisionLength>256*1024?decisionLength:0);
       operation.output.resize(outputBytes);

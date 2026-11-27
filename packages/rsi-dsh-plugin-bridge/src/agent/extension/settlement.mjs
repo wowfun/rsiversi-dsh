@@ -5,11 +5,16 @@ export const JOURNAL_BYTES=64*1024*1024;
 // Bridge results have no enforcement stamps: 4MiB value + 4MiB metadata +
 // 8MiB escaped text + 64KiB contexts + bounded image descriptors/framing.
 export const TOOL_RESULT_BYTES=17*1024*1024;
-export function eventPageCapacity(events) {
+export function eventPageSizes(events) {
   let maximum=0;
-  for(const event of events)maximum=Math.max(maximum,encodedEventBytes(event)+2);
+  let bytes=2+Math.max(0,events.length-1); // Brackets and commas of the encoded array.
+  for(const event of events){
+    const size=encodedEventBytes(event);
+    bytes+=size;
+    maximum=Math.max(maximum,size+2);
+  }
   if(maximum>JOURNAL_BYTES)throw Error('operation event capacity');
-  return Math.max(events.length?INLINE_BODY_BYTES:0,maximum);
+  return {bytes,pageCapacity:Math.max(events.length?INLINE_BODY_BYTES:0,maximum)};
 }
 
 export function encodedPart(value,maximum,token) {

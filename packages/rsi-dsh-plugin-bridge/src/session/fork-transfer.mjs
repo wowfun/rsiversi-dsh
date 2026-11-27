@@ -2,7 +2,7 @@ import { SessionFacade } from './session.mjs';
 import { restoreMapping, factObserver } from '../history/history.mjs';
 import { readHistory } from '../history/pages.mjs';
 import { forkSnapshot, validateLineage } from './fork.mjs';
-import {eventPage,eventPageCapacity,readPart} from '../agent/extension/settlement.mjs';
+import {eventPage,eventPageSizes,readPart} from '../agent/extension/settlement.mjs';
 
 const bytes = value => Buffer.byteLength(JSON.stringify(value));
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
@@ -19,9 +19,10 @@ export class ForkTransfers {
   begin(args) {
     const { operation_id, session_id, created_at, count, checkpoint, after_seq, through_seq, include_inherited } = args;
     if (!identity(operation_id) || !identity(session_id) || ![created_at, count, after_seq, through_seq].every(integer)
-      || typeof include_inherited !== 'boolean' || count > 100_000 || after_seq > through_seq || bytes(checkpoint) > 64 * 1024) throw new Error('invalid fork transfer boundary');
-    if (this.#entries.has(operation_id) || this.#entries.size >= 2) throw new Error('fork transfer capacity');
+      || typeof include_inherited !== 'boolean' || count > 100_000 || after_seq > through_seq) throw new Error('invalid fork transfer boundary');
     const size = bytes(checkpoint);
+    if (size > 64 * 1024) throw new Error('invalid fork transfer boundary');
+    if (this.#entries.has(operation_id) || this.#entries.size >= 2) throw new Error('fork transfer capacity');
     if (this.otherBytes() + this.encodedBytes + size > 256 * 1024 * 1024) throw new Error('generation mirror capacity');
     const controller = new AbortController();
     const timer = setTimeout(() => this.release(operation_id), 35_000); timer.unref();
@@ -65,8 +66,10 @@ export class ForkTransfers {
         afterFact: entry.after_seq, throughFact: entry.through_seq, includeInherited: entry.include_inherited }, this.ctx.sessionProjections, this.surface);
       const checkpoint = { seed: result.seed, lineage: result.lineage, mapping: result.mapping, pendingIntent: result.pendingIntent,
         views: result.views };
-      const size = bytes(result.events) + bytes(checkpoint) + eventPageCapacity(result.events);
-      if (bytes(checkpoint) > 64 * 1024 || bytes(result.events) > 64 * 1024 * 1024
+      const {bytes:eventBytes,pageCapacity} = eventPageSizes(result.events);
+      const checkpointBytes = bytes(checkpoint);
+      const size = eventBytes + checkpointBytes + pageCapacity;
+      if (checkpointBytes > 64 * 1024 || eventBytes > 64 * 1024 * 1024
         || this.otherBytes() + this.encodedBytes - entry.bytes + size > 256 * 1024 * 1024) throw new Error('fork result capacity');
       entry.events = []; entry.checkpoint = null; entry.bytes = size; entry.result = { events: result.events, checkpoint };
       return { count: result.events.length, checkpoint };

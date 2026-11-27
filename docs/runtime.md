@@ -1038,7 +1038,9 @@ their summary text and lifecycle records. Full
 forks preserve the existing seed and event identities, including nested lineage.
 Each in-process child owns its event array. Loading or forking a mirror reuses
 events already admitted as immutable and counts their original encoded bytes
-toward its capacity. Exporting the child serializes the same standalone log.
+toward its capacity. A fork transfer includes the JSON array framing, its
+checkpoint and space for one result page. Sizing a fork uses the admitted
+event lengths. Only the requested page needs a contiguous encoding.
 The pinned turn-boundary projection keeps its last Turn number; omitted closed
 Step references are cleared. The selected Plan, Todo, time-context and committed
 system-section states retain their values at the cut. Their admitted versions

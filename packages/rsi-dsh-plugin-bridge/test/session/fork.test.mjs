@@ -103,12 +103,15 @@ test('Full, Last, empty and nested cuts restore exact original projections witho
   const result = await bridge.forks.finish({ operation_id: 'transfer' });
   const page = bridge.forks.read({ operation_id: 'transfer', offset: 0 });
   assert.equal(page.next_offset, result.count);
+  assert.equal(bridge.forks.encodedBytes, Buffer.byteLength(JSON.stringify(page.events.value))
+    + Buffer.byteLength(JSON.stringify(result.checkpoint)) + 256 * 1024);
   assert.ok(JSON.stringify(page.events).includes('Captured suffix'));
   assert.ok(!JSON.stringify(page.events).includes('EXCLUDED_PRIVATE_CONVERSATION'));
   await restarted.loadAgent({ session_id: 'transferred', created_at: 20, revision: 0, events: page.events.value, checkpoint: result.checkpoint });
   assert.equal(restarted.project('transferred').values.todos, null, 'canonical Turn start resets Todo even with no attached event observers');
   assert.deepEqual(bridge.canonical('parent'), original, 'fork synchronization must not replace the live parent');
   bridge.forks.release('transfer'); bridge.forks.release('transfer');
+  assert.equal(bridge.forks.encodedBytes, 0);
   assert.throws(() => bridge.forks.read({ operation_id: 'transfer', offset: 0 }), /unavailable/);
   const unsafe = structuredClone(original);
   unsafe.events[9].sourceEventSeqs = [4];
