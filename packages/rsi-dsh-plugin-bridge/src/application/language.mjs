@@ -36,7 +36,8 @@ export function languageCalls(call,owner) {
     const project=modelChunks((_,chunk)=>chunks.push(chunk));
     let received;
     const work=bodies.send(request,{id},signal,body=>
-      call('application.language',{id,request:owner,model:{deployment:options.provider,model:options.model},body},signal)
+      call('application.language',{id,request:owner,model:{deployment:options.provider,model:options.model},
+        session_id:options.sessionId,purpose:options.purpose,body},signal)
     ).then(reply=>state.next.resolve({done:true,events:reply?.events}),error=>state.next.resolve({error}));
     try {
       for(;;) {

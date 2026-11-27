@@ -21,7 +21,7 @@ function hostField(key,read,write,valid,changed) {
 
 /** Retain the original Loader schemas, staged forms, path edits and validation.
  * Host-owned fields share the original form's revision and reset semantics. */
-export async function workbenchHostSettings(modules,load,sessions) {
+export async function workbenchHostSettings(modules,load,sessions,flushSettings) {
   const settingsName='@deepseek-ai/dsh-settings',controllerName='@deepseek-ai/dsh-api-settings-controller';
   const loopName='@deepseek-ai/dsh-agent-loop';
   const permissionName='@deepseek-ai/dsh-permission-presets';
@@ -70,7 +70,10 @@ export async function workbenchHostSettings(modules,load,sessions) {
       const formEditor=Object.create(editor);
       formEditor.edit=(entry,change)=>{
         const ns=entry.options.id, field=fields.get(ns);
-        if(!field)return editor.edit(entry,change);
+        if(!field){
+          const edited=editor.edit(entry,change);
+          return flushSettings?Promise.resolve(edited).then(flushSettings):edited;
+        }
         return sessions.withCaller(async signal=>{
           const snapshot=await field.refresh(signal),observed=field.revision;
           if(!snapshot)throw Error('Host Settings unavailable: '+ns);

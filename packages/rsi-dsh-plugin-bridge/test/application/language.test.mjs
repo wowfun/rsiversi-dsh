@@ -64,11 +64,12 @@ test('standalone calls feed the native route, stream with backpressure and cance
   const calls=languageCalls(async(method,args,signal)=>{
     assert.equal(method,'application.language');assert.equal(args.request,'owner');
     assert.deepEqual(args.model,{deployment:'configured',model:'selected'});
+    assert.equal(args.purpose,'整理便签');assert.equal(args.session_id,'external-session');
     assert.deepEqual(args.body.value.messages.map(m=>[m.role,m.content[0].content.text]),[['system','Keep the date.'],['user','14:30']]);
     try{await calls.deliver({id:args.id,events:[opening,delta('first')]},signal);delivered=true;}
     finally{cancelled.resolve(signal.aborted);}
   },'owner');
-  const stream=calls.stream(options);
+  const stream=calls.stream({...options,purpose:'整理便签',sessionId:'external-session'});
   assert.equal((await stream.next()).value.type,'block-start');
   assert.equal((await stream.next()).value.text,'first');assert.equal(delivered,false);
   await stream.return();assert.equal(await cancelled.promise,true);calls.close();

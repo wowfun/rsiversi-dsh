@@ -327,6 +327,10 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
       return activities.run(operation,requestSignal(signal));
     },
     readSubmission:input=>submissionBodies.read(input),
+    exposeSessionView(session){
+      const active=scope.getStore();
+      (active.views??=new Map()).set(session.id,session);
+    },
     runOwned:activities.run,observeOwned:activities.observe,observeStream:activities.observeStream,retainDraft,async close(){submissionBodies.close();await activities.close();},
     inbox,
     command:(id,operation,signal)=>scoped('application.command',{session_id:id,operation},signal),

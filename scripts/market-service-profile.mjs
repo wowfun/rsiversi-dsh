@@ -28,6 +28,7 @@ plugin = "rsi.web.application"
 profile = ${quote(profile)}
 host_desktop = true
 tools = true
+deepseek_request_fields = true
 presets = true
 replace_preset_tools = ["schedule_create", "schedule_list", "schedule_delete", "schedule_resume"]
 replace_tools_in_presets = ["standard"]

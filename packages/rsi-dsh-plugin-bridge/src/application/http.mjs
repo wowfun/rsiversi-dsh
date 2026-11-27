@@ -3,10 +3,11 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {isIP} from 'node:net';
 import {SidebarBodyError} from './sessions.mjs';
 import {serveShareEntry} from './share-entry.mjs';
+import {modelFieldRoute} from '../workbench/deepseek-fields.mjs';
 
 // Wrap the public route seats. Cordis still owns ordering, matching, index
 // transforms, disposal, and termination of upgraded sockets.
-export async function provideHttp(ctx,load,key,sessionScope) {
+export async function provideHttp(ctx,load,key,sessionScope,refreshModelSession) {
   const {WebServer} = await load('@deepseek-ai/dsh-host-webserver');
   const inProcess = new AsyncLocalStorage();
   const publicRequest = new AsyncLocalStorage();
@@ -15,8 +16,8 @@ export async function provideHttp(ctx,load,key,sessionScope) {
   function nativeOwner(req) {
     return (req.headers instanceof Headers ? req.headers.get('x-rsi-upstream-owner') : req.headers['x-rsi-upstream-owner']) === '1';
   }
-  function authenticated(req) {
-    const value = req.headers instanceof Headers ? req.headers.get('x-rsi-upstream-key') : req.headers['x-rsi-upstream-key'];
+  function authenticated(req,name='x-rsi-upstream-key') {
+    const value = req.headers instanceof Headers ? req.headers.get(name) : req.headers[name];
     return typeof value === 'string' && value.length === 64 && Buffer.byteLength(value) === expected.length &&
       timingSafeEqual(Buffer.from(value),expected);
   }
@@ -125,6 +126,12 @@ export async function provideHttp(ctx,load,key,sessionScope) {
   }
   await (await ctx.plugin(PrivateServer,{host:'127.0.0.1',port:0,
     compression:'gzip',compressionLevel:1,compressionThresholdBytes:1024})).await();
+  if(refreshModelSession){
+    const {WebSocketServer}=await load('ws');
+    const route=modelFieldRoute(ctx,WebSocketServer,sessionScope,refreshModelSession,req=>
+      !req.headers.origin && !req.headers['x-rsi-upstream-key'] && authenticated(req,'x-rsi-model-key')?'anonymous':'deny');
+    WebServer.prototype.registerUpgrade.call(ctx.webServer,route);
+  }
   ctx.on('webserver/request',(req,res,next)=>{
     if(!authenticated(req)){res.writeHead(403).end();return;}
     req.url=documentPath(req.url);

@@ -11,6 +11,7 @@ import {createApplication} from '../../src/application/application.mjs';
 import {provideHttp} from '../fixtures/application-http.mjs';
 import {workbenchProfile} from '../../src/workbench/profile.mjs';
 import {workbenchHostSettings} from '../../src/workbench/host-settings.mjs';
+import {workbenchDeepSeekFields} from '../../src/workbench/deepseek-fields.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
 test('a late settings read cannot restore a retired Host default',async()=>{
@@ -73,7 +74,8 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const rows=selected.rows.filter(row=>names.has(row.name.replace('@deepseek-ai/','')));
   permissions.config.presets['team-review']={sandbox:'read-only',approval:'never'};
   rows.push({id:'probe',name:'settings-probe',config:{token:'isolated-test-secret'}});
-  let app,stored=null,revision=1;
+  let app,fields,stored=null,revision=1;
+  const fieldActivity=[];
   const snapshot=()=>({id:stored??'standard',selected:stored,version:{scope_id:'test',revision}});
   let cap=null,loopRevision=0;
   const loopSnapshot=()=>({base:2,selected:cap,version:{scope_id:'loop',revision:loopRevision}});
@@ -91,7 +93,8 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   async function start(){
     const hostModules=new Map();
     app=await createApplication({profile,modules,baseRows:rows,hostModules,provide:async(ctx,load)=>{
-      await workbenchHostSettings(hostModules,load,sessions);
+      fields=await workbenchDeepSeekFields(hostModules,load,enabled=>fieldActivity.push(enabled));
+      await workbenchHostSettings(hostModules,load,sessions,fields.flush);
       await ctx.plugin((await load('@deepseek-ai/dsh-session')).default);
       await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
       await ctx.plugin((await load('@deepseek-ai/dsh-agent')).AgentRegistry);
@@ -151,12 +154,14 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const logNs='session-log-deepseek';
   const logForm=before.value.namespaces.find(row=>row.ns===logNs);
   assert.equal(logForm?.value.enabled,false);
+  assert.deepEqual(fieldActivity,[]);
   const logSession=app.ctx.sessions.create('opt-in-log');
   logSession.append('turn/start',{turn:1});
   const prepareLog=()=>app.ctx.deepseekLlmApiExtensions.prepare({body:{model:'fixture'},sessionId:logSession.id,signal:AbortSignal.timeout(5000)});
   assert.deepEqual(Object.keys((await prepareLog()).fields),[]);
   const enabled=await rpc('settings/mutate',{ns:logNs,ops:[{op:'set',path:['enabled'],value:true}],expectedRevision:logForm.revision});
   assert.equal(enabled.ok,true,JSON.stringify(enabled));
+  assert.deepEqual(fieldActivity,[true]);
   assert.equal((await prepareLog()).fields.dsh_session_log.events[0].type,'turn/start');
   const modelForm=before.value.namespaces.find(row=>row.ns===modelNs);
   assert.deepEqual(modelForm?.value,{enabled:false,allowedModels:[]});
@@ -258,4 +263,12 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.deepEqual(await Promise.all(generated.map(path=>readFile(path))),saved);
   await app.ctx.settings.mutate(logNs,[{op:'unset',path:['enabled']}]);
   assert.equal(app.ctx.settings.describe().find(row=>row.ns===logNs).value.enabled,false);
+  assert.equal(fieldActivity.at(-1),false);
+  const contribution=app.ctx.inject(['deepseekLlmApiExtensions'],ctx=>{ctx.deepseekLlmApiExtensions.register('sample_field',{prepare:()=>({value:3})});});
+  await contribution;
+  await fields.flush();
+  assert.equal(fieldActivity.at(-1),true);
+  await contribution.dispose();
+  await fields.flush();
+  assert.equal(fieldActivity.at(-1),false);
 });

@@ -24,6 +24,7 @@ import {jobController} from '../workbench/job-controller.mjs';
 import {packagedPresetPlugins,workbenchProfile} from '../workbench/profile.mjs';
 import {workbenchPresetRegistry} from '../workbench/presets.mjs';
 import {workbenchHostSettings} from '../workbench/host-settings.mjs';
+import {workbenchDeepSeekFields} from '../workbench/deepseek-fields.mjs';
 import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
 import {moveRegistryCache,profileState,registryCache,viewNpm} from '../../../rsi-dsh-cordis/src/registry/npm-install.mjs';
@@ -44,7 +45,7 @@ import {watchWorkbenchCatalog} from '../workbench/catalog.mjs';
 
 const {generation,roots,layout}=await readWorkerLaunch();
 let modules, recordWriter, checkpointEngine, app, opening, nativeSessions, language, workbench;
-async function open({protocol,profile,key,owner,importer,timings=false,tools=false,language:hasLanguage=false}) {
+async function open({protocol,profile,key,owner,importer,timings=false,tools=false,language:hasLanguage=false,deepseekFields=false}) {
   const start=performance.now();
   if (protocol !== 16 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
   modules=installReleaseResolver(layout,roots,profile);
@@ -81,7 +82,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
   };
   const hostModules=new Map();
   const setup=performance.now();
-  let toolListener,retireToolOutcome,sessionScope;
+  let toolListener,retireToolOutcome,sessionScope,fields;
   const boundary=requestBoundary();
   const candidate = await createApplication({modules:applicationModules,profile,hostModules,clientOnly,baseRows:base[0].insert,boundary,provide:async (ctx,load) => {
     workbench=ctx;
@@ -123,7 +124,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
     const presets='@deepseek-ai/dsh-agent-preset-registry';
     const presetModule=await load(presets);
-    const defaults=await workbenchHostSettings(hostModules,load,sessionScope);
+    if(deepseekFields)fields=await workbenchDeepSeekFields(hostModules,load,value=>call('application.deepseek.fields',value));
+    const defaults=await workbenchHostSettings(hostModules,load,sessionScope,fields?.flush);
     const basic='@deepseek-ai/dsh-compaction-basic';
     hostModules.set(basic,workbenchCompaction((await load(basic)).default,
       (await load('@deepseek-ai/dsh-compaction')).ManualCompactionError,sessionScope,(id,signal)=>agents.refresh(id,signal),
@@ -163,7 +165,10 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const goals=workbenchGoalMutations((await load(goalName)).default,caller,
       id=>sessionScope.commitControl(id,{type:'disarm_goal'}));
     hostModules.set(goalName,goals.Runtime);
-    await provideHttp(ctx,load,key,sessionScope);
+    function captureModelSession(id,active,signal){
+      if(active||agents?.get(id))return history.capture(id,undefined,signal);
+    }
+    await provideHttp(ctx,load,key,sessionScope,deepseekFields?captureModelSession:undefined);
     await ctx.plugin(leasedPluginPackages(boot,modules));
     let packageManager;
     if (importer) {
@@ -225,6 +230,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
   const composed=performance.now();
   try {
     const warnings=await refresh(candidate,market ? await market.layers(true) : [],{restore:true});
+    await fields?.flush();
     for(const warning of warnings) console.warn('DSH profile:',warning);
     app = candidate;
     return {protocol,port:app.ctx.webServer.port,prefixes:['/document','/plugins','/api','/sidebar','/dsh-market','/rsi-brand'],

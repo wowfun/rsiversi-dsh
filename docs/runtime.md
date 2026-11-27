@@ -344,6 +344,15 @@ stream converter emits a DSH error finish with code `CONTENT_REFUSED`.
 Usage chunks and completed content keep their original order. The same
 terminal reason is available to plugins reading the recorded attempt.
 
+The workbench defaults DeepSeek Session log upload to off. When enabled,
+the released request contributor includes outstanding Session events in the
+next eligible request, including events produced while disabled. Native
+Responses and Chat Completions retain the selected deployment and protocol.
+Contributors observe the provider's actual base JSON body. An HTTP 2xx
+accepts the prepared fields even if streaming later fails. Session recovery
+uses the accepted sequence in the journal. The Host does not store another
+copy of the transmitted log.
+
 A resident observation retains the caller and cancellation lifetime without
 holding one publication open forever. Writes scheduled by its notifications open
 finite owner activities; per-Agent ordering still applies. Their lifetime is
