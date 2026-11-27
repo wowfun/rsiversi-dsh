@@ -348,6 +348,9 @@ The workbench defaults DeepSeek Session log upload to off. When enabled,
 the released request contributor includes outstanding Session events in the
 next eligible request, including events produced while disabled. Native
 Responses and Chat Completions retain the selected deployment and protocol.
+The native adapter uses the workbench root's request-extension registry.
+Plugins in an isolated registry can register and retire same-named fields
+independently of native requests.
 Contributors share the provider's actual base JSON body. The workbench
 decodes it on first access, including when a contributor first reads it in
 its acceptance callback. Metadata-only contributions need no decoded copy.

@@ -4,7 +4,9 @@ const logName='@deepseek-ai/dsh-session-log-deepseek';
 /** The released registry owns fields and callbacks. Publish whether the native
  * adapter needs its request boundary at all, including after plugin retirement. */
 export async function workbenchDeepSeekFields(modules,load,publish) {
-  const [{default:Registry},log]=await Promise.all([load(registryName),load(logName)]);
+  const [{default:Registry},log,{Context}]=await Promise.all([load(registryName),load(logName),load('@deepseek-ai/cordis')]);
+  const nativeRegistry=ctx=>ctx[Context.isolate].deepseekLlmApiExtensions===
+    ctx[Context.root][Context.isolate].deepseekLlmApiExtensions;
   const names=new Set();
   let logEnabled,announced=false,pending;
   const active=()=>names.size>(names.has('dsh_session_log') && logEnabled?.get()===false ? 1 : 0);
@@ -25,6 +27,7 @@ export async function workbenchDeepSeekFields(modules,load,publish) {
   modules.set(registryName,class extends Registry {
     register(name,provider){
       const release=super.register(name,provider);
+      if(!nativeRegistry(this.ctx))return release;
       const unwatch=this.ctx.effect(()=>{
         names.add(name);sync();
         return ()=>{names.delete(name);sync();};
@@ -33,6 +36,7 @@ export async function workbenchDeepSeekFields(modules,load,publish) {
     }
   });
   modules.set(logName,{...log,async apply(ctx,config){
+    if(!nativeRegistry(ctx))return log.apply(ctx,config);
     logEnabled=config.enabled;
     ctx.on('loader/volatile-update',sync);
     ctx.effect(()=>()=>{if(logEnabled===config.enabled)logEnabled=undefined;});

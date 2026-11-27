@@ -9,8 +9,35 @@ import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
 import {provideHttp} from '../../src/application/http.mjs';
 import {applicationSessions} from '../../src/application/sessions.mjs';
+import {workbenchDeepSeekFields} from '../../src/workbench/deepseek-fields.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('same-named fields in isolated registries leave the native adapter independent',{skip:!root},async t=>{
+  const profile=await mkdtemp(join(tmpdir(),'rsi-field-registries-'));
+  t.after(()=>rm(profile,{recursive:true,force:true}));
+  const require=createRequire(join(root,'package.json'));
+  const service='deepseekLlmApiExtensions',name='@deepseek-ai/dsh-deepseek-llm-api-extensions';
+  const hostModules=new Map(),states=[];
+  let activity;
+  const app=await createApplication({profile,baseRows:[{id:'fields',name}],hostModules,modules:{entry:n=>require.resolve(n)},provide:async(ctx,load)=>{
+    activity=await workbenchDeepSeekFields(hostModules,load,enabled=>states.push(enabled));
+  }});
+  t.after(()=>app.close());
+  await app.reconcile([[]]);
+  const isolated=app.ctx.isolate(service);
+  await isolated.plugin(hostModules.get(name));
+  const register=(ctx,value)=>ctx.inject([service],owner=>{owner[service].register('field',{prepare:()=>({value})});});
+  const nested=register(isolated,'nested');await nested;await activity.flush();
+  assert.deepEqual(states,[]);
+  const outer=register(app.ctx,'outer');await outer;await activity.flush();
+  const request={body:{},signal:new AbortController().signal};
+  assert.equal((await isolated[service].prepare(request)).fields.field,'nested');
+  await nested.dispose();await activity.flush();
+  assert.equal((await app.ctx[service].prepare(request)).fields.field,'outer');
+  assert.deepEqual(states,[true]);
+  await outer.dispose();await activity.flush();
+  assert.deepEqual(states,[true,false]);
+});
 test('a private field transaction retains only its own 2xx acceptance and carries the exact provider body',{skip:!root},async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-model-fields-')),key=randomBytes(32).toString('hex');
   t.after(()=>rm(profile,{recursive:true,force:true}));
