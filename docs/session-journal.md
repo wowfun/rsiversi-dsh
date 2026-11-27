@@ -305,10 +305,8 @@ accepted mutations in that publication. No native intent is created for the
 rejected call, and it triggers no native refresh; already accepted operations
 still settle normally.
 
-The native event source computes the journal digest and byte count from one
-temporary JSON encoding. Plugin events and display mirrors need only the byte
-count. If reconciliation later requests a digest, it is computed once for that
-immutable object. Admission retains no encoded string or duplicate body. The next saved plugin
+Admission measures the event's UTF-8 size. A native-only reader can display and
+reconcile history using the immutable events already held by its source. The next saved plugin
 record, mutation binding, receipt or catalog change checkpoints the observed
 native prefix alongside the application data. Native progress alone advances the
 in-memory digest. Orderly shutdown checkpoints that tail for existing journals,
@@ -318,22 +316,17 @@ another reader at that checkpoint succeeds without rewriting the journal.
 After an abrupt stop,
 cold recovery verifies the saved prefix and replays subsequent events from the Host.
 
-Each consumed native event retains its source position, content digest and
-application position in memory. Persistence stores only the position/correlation
-map and one ordered source-prefix digest. The digest is SHA-256 over the UTF-8
-domain `rsi.dsh.native-source-prefix.v1` followed by a NUL byte and the fixed-width
-lowercase hexadecimal event digests in source order. It detects the same missing,
-reordered or changed source content without storing one digest per event.
-The rolling hash advances only after a whole observation batch passes validation;
-flush copies its state without rescanning history. Cold loading reconstructs the
-transient event digests and verifies the saved prefix before exposing the log.
-Live partial observations retain their per-event checks. These digests are not
-a runtime-version compatibility gate. Coordinate-only remapping of an admitted
+The source map holds application positions and references to the original frozen
+events. Replaying an overlapping batch compares those events directly. An application
+checkpoint stores one SHA-256 over the UTF-8 domain `rsi.dsh.native-source-prefix.v2`,
+a NUL byte and the consecutive JSON event objects in native order. The digest
+starts on the first checkpoint. Subsequent checkpoints consume only the newly
+accepted suffix. Cold loading verifies the native prefix before exposing the log.
+Coordinate-only remapping of an admitted
 immutable event shares its body and derives its exact encoded size from the
 changed integer widths. The new envelope and reference containers are frozen;
 size evidence does not establish event or surface validity. Receiving admission
-still checks both. Such remaps compute their own digest only if it is requested;
-they do not retain another serialized body. Unadmitted inputs take ordinary full
+still checks both. Unadmitted inputs take ordinary full
 encoding and validation. Surface positions, source
 event references, developer header references and command-result references are
 translated into application coordinates. A native event explicitly correlated
@@ -542,7 +535,7 @@ additional readers wait locally before issuing native RPCs. No queued reader
 holds a native request slot. The Host checks the page's request, Session and
 coordinates and bounds its retained storage; no persistent history copy is added.
 
-Version 8 snapshots contain the Session header, owned and inherited event counts,
+Version 9 snapshots contain the Session header, owned and inherited event counts,
 local-owned events at their original positions, the native source map, its
 `sourceDigest` and mutation records in one JSON document. In native event order,
 each source-map run stores the first application position and the number of
@@ -583,11 +576,11 @@ to substitute a cached body. Restoration uses the same native read batch as the
 first observation. Older documents are validated and normalized once: version 1
 uses its complete log, and version 1/2 input invocations must agree exactly with
 their accepted event before their duplicate body is removed. Successful native
-reconciliation rewrites them as version 8; failed validation cannot replace the
+reconciliation rewrites them as version 9; failed validation cannot replace the
 document. Version 3/4 input recovery descriptors and version 5 correlated inputs
 retain their existing meaning. Versions 1–6 retain their per-event hash checks
-until successful native reconciliation. Version 7 retains its per-position
-correlation checks and native prefix digest. Older catalog hints acquire their owned count
+on cold read. Versions 7 and 8 verify their original prefix digest over the
+per-event checksums on cold read. Older catalog hints acquire their owned count
 when that existing reconciliation rewrites the document.
 
 The supplied persistence writer must atomically replace that document. A flush

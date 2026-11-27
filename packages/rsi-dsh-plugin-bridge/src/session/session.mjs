@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import {assertForkAnnotation, isForkAnnotation} from './fork-annotations.mjs';
 import {callSessionListeners,notifySession} from './observers.mjs';
@@ -109,17 +108,9 @@ export function validateHeader(header) {
       || (header.delegationDepth !== undefined && !integer(header.delegationDepth))) throw new Error('invalid Session header');
   return Object.freeze(structuredClone(header));
 }
-const encodedDigest = encoded => createHash('sha256').update(encoded).digest('hex');
 /** Byte evidence follows the already admitted immutable event identity. */
 export function encodedEventBytes(event) {
   return admitted.get(event)?.bytes ?? Buffer.byteLength(JSON.stringify(event));
-}
-export function digest(value) {
-  const known=admitted.get(value);
-  if(known?.hash!==undefined)return known.hash;
-  const hash=encodedDigest(JSON.stringify(value));
-  if(known)known.hash=hash;
-  return hash;
 }
 
 /** Summary coordinates are in surface order; a replacement can place a newer seq before an older one. */
@@ -188,13 +179,13 @@ export function remap(input,seq,sourceAt) {
 /** No upstream constructor: it appends seed/resume markers before attachment. */
 export class SessionFacade {
   #events = []; #ctx; #api; #surface; #active = false; #bytes = 0; #retired = false; #announced = false;
-  #branch; #base = 0; #requestHeader; #titleEvent; #journalSource;
+  #branch; #base = 0; #requestHeader; #titleEvent;
   #eventsSnapshot; #derived; #publishing=false;
-  constructor(ctx, api, { header, events = [], inheritedEventCount = 0, eventState, journalSource = false }, announce = true) {
+  constructor(ctx, api, { header, events = [], inheritedEventCount = 0, eventState }, announce = true) {
     this.header = validateHeader(header); this.id = header.id;
     if (!integer(inheritedEventCount) || inheritedEventCount > events.length) throw new Error('invalid inherited prefix');
     this.inheritedEventCount = inheritedEventCount;
-    this.#ctx = ctx; this.#api = api; this.#journalSource = journalSource;
+    this.#ctx = ctx; this.#api = api;
     for (const event of events) this.#admit(event, false, eventState === 'shared-frozen' || admitted.has(event));
     this.firstLiveSeq = this.seq;
     if (announce) this.attach();
@@ -276,7 +267,7 @@ export class SessionFacade {
   /** Stage a batch over already validated immutable events without cloning its prefix. */
   branch() {
     if(this.#active||this.#retired||this.#announced)throw new Error('Only an idle unpublished mirror can stage a batch');
-    const candidate=new SessionFacade(this.#ctx,this.#api,{header:this.header,journalSource:this.#journalSource},false);
+    const candidate=new SessionFacade(this.#ctx,this.#api,{header:this.header},false);
     candidate.#base=this.seq;candidate.#bytes=this.#bytes;
     candidate.#requestHeader=this.#requestHeader;
     candidate.#titleEvent=this.#titleEvent;
@@ -381,7 +372,7 @@ export class SessionFacade {
       if (!known) {
         if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
       }
-      admitted.set(event, {bytes,hash:this.#journalSource && !known ? encodedDigest(encoded) : known?.hash,validate:this.#api.adoptSessionEvent});
+      admitted.set(event, {bytes,validate:this.#api.adoptSessionEvent});
     }
     return bytes;
   }

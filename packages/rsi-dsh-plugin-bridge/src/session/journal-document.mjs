@@ -9,7 +9,18 @@ const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0)
 const shape=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).every(key=>keys.includes(key));
 const isDigest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 
-export const createSourceDigest=()=>createHash('sha256').update('rsi.dsh.native-source-prefix.v1\0');
+export const createSourceDigest=()=>createHash('sha256').update('rsi.dsh.native-source-prefix.v2\0');
+
+/** Verify the representation in a previous document before replacing it. */
+export function verifyPreviousPrefix(state,native) {
+  const prefix=state.version>=7?createHash('sha256').update('rsi.dsh.native-source-prefix.v1\0'):undefined;
+  for(const [index,row] of state.sources.entries()) {
+    const hash=createHash('sha256').update(JSON.stringify(native[index])).digest('hex');
+    if(prefix)prefix.update(hash);
+    else if(hash!==row.hash)throw Error('Native event prefix changed');
+  }
+  if(prefix&&prefix.digest('hex')!==state.sourceDigest)throw Error('Native event prefix changed');
+}
 
 /** Accepted operations keep their first position when preparation or a receipt replaces the row. */
 export class JournalOperations extends Map {
@@ -74,7 +85,7 @@ export function readJournalDocument(document) {
 function decodeJournal(state) {
   if(!shape(state,['version','header','inheritedEventCount','events','sources','sourceDigest','operations','catalogTitle','eventCount','ownedEventCount','inboxSlotFrom','nativePreset'])
     ||state.nativePreset!==undefined&&(state.version<7||!presetId(state.nativePreset))
-    ||![1,2,3,4,5,6,7,8].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
+    ||![1,2,3,4,5,6,7,8,9].includes(state.version)||!Array.isArray(state.events)||!Array.isArray(state.sources)||!Array.isArray(state.operations))
     throw Error('Invalid application journal');
   const prefixDigest=state.version>=7;
   if(prefixDigest?!isDigest(state.sourceDigest):Object.hasOwn(state,'sourceDigest'))throw Error('Invalid application source digest');
@@ -91,7 +102,7 @@ function decodeJournal(state) {
   const limit=derivesCount?100_000:state.eventCount;
   if(!integer(limit)||limit>100_000||state.events.length>limit||state.sources.length>limit||state.operations.length>limit)
     throw Error('Invalid application journal');
-  let count=state.version===8?expandSourceRuns(state,limit):0;
+  let count=state.version>=8?expandSourceRuns(state,limit):0;
   if(!integer(state.inboxSlotFrom)||state.inboxSlotFrom>state.sources.length)throw Error('Invalid saved inbox source boundary');
   const inboxEvents=new Map();
   for(const event of state.events){
@@ -123,9 +134,9 @@ function decodeJournal(state) {
 export function checkpointNativeTail(document,tail) {
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumJournalBytes)throw Error('Invalid application journal size');
   const raw=JSON.parse(document),state=decodeJournal({...raw});
-  if(state.version===8&&state.sourceDigest===tail.digest&&state.sources.length===tail.nativeSeq&&state.eventCount===tail.seq)
+  if(state.version===9&&state.sourceDigest===tail.digest&&state.sources.length===tail.nativeSeq&&state.eventCount===tail.seq)
     return;
-  if(state.version!==8||state.sourceDigest!==tail.base)throw Error('Application journal checkpoint changed');
+  if(state.version!==9||state.sourceDigest!==tail.base)throw Error('Application journal checkpoint changed');
   const length=tail.nativeSeq-state.sources.length;
   if(length<=0||state.eventCount+length!==tail.seq)throw Error('Invalid application journal tail');
   const last=raw.sources.at(-1);
@@ -195,7 +206,7 @@ export function encodeJournalDocument(session,events,sources,sourceDigest,operat
     if(run&&run[0]+run[1]===seq)run[1]++;
     else {run=[seq,1];runs.push(run);}
   }
-  return packDocument(prefix,{version:8,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:runs,sourceDigest,operations});
+  return packDocument(prefix,{version:9,inheritedEventCount:session.inheritedEventCount,inboxSlotFrom,nativePreset,events,sources:runs,sourceDigest,operations});
 }
 function packDocument(prefix,body) {
   const value=JSON.stringify(prefix).slice(0,-1)+',\n'+JSON.stringify(body).slice(1);

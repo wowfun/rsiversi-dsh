@@ -1,7 +1,7 @@
 import {isDeepStrictEqual} from 'node:util';
-import {SessionFacade,digest,isChildSetupEvent,isJournalEvent,isPermissionEvent,remap} from './session.mjs';
+import {SessionFacade,isChildSetupEvent,isJournalEvent,isPermissionEvent,remap} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
-import {restoreJournalEvents,encodeJournalDocument,createSourceDigest,JournalOperations} from './journal-document.mjs';
+import {restoreJournalEvents,encodeJournalDocument,createSourceDigest,verifyPreviousPrefix,JournalOperations} from './journal-document.mjs';
 
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
 const identity=value=>typeof value==='string'&&value.length>0&&value.length<=256;
@@ -13,7 +13,7 @@ export class SessionProjectionJournal {
   #ctx;#api;#session;#sources=[];#operations=new JournalOperations();#operationIds=[];#publishing=false;
   #modelSelectionId;#revision=0;#saved=-1;#writing;#nextWrite;#annotationCount=0;#rewrite=false;
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
-  #sourceDigest=createSourceDigest();#nativePreset;
+  #sourceDigest;#hashedCount=0;#nativePreset;
   #liveTimer;#liveWrite=false;#liveRevision=-1;
   #ownedRevision=0;#savedDigest;#nativeTail;#remembered=-1;
   constructor(ctx,api,seed,{save,notify=()=>{},report=()=>{},restore,adoptRestore=false,native,nativeEventState,nativePreset,nativeTail}={}) {
@@ -26,18 +26,19 @@ export class SessionProjectionJournal {
         if(!api.isJsonValue(restore))throw Error('Application journal requires lossless JSON');
         api.deepFreeze(restore);
       } else restore=this.#snapshot(restore);
-      const sources=restore.version>=7?restore.sources.map((source,index)=>{
+      const sources=restore.sources.map(({seq,operation},index)=>{
         const event=native?.[index];
         if(event?.seq!==index)throw Error('Native event prefix moved backwards');
-        return Object.freeze({...source,hash:digest(event)});
-      }):restore.sources.slice();
-      for(const source of sources)this.#sourceDigest.update(source.hash);
-      if(restore.version>=7&&this.#sourceDigest.copy().digest('hex')!==restore.sourceDigest)
+        return Object.freeze({event:this.#nativeInput(event),seq,...(operation===undefined?{}:{operation})});
+      });
+      this.#sources=sources;
+      if(restore.version<9)verifyPreviousPrefix(restore,native);
+      else if(this.#prefixDigest()!==restore.sourceDigest)
         throw Error('Native event prefix changed');
       seed={header:restore.header,events:this.#nativeInput(restoreJournalEvents(restore,native)),inheritedEventCount:restore.inheritedEventCount};
       this.#session=this.#create(seed);this.#inboxSlotFrom=restore.inboxSlotFrom;
       this.#restore(sources,restore.operations);
-      this.#saved=0;this.#savedDigest=restore.sourceDigest;this.#rewrite=restore.version<8;
+      this.#saved=0;this.#savedDigest=restore.sourceDigest;this.#rewrite=restore.version<9;
     } else {
       if(seed.events?.length)throw Error('Import native events through merge');
       this.#session=this.#create(seed);
@@ -85,7 +86,6 @@ export class SessionProjectionJournal {
         throw Error('Application journal contains unowned event positions');
       this.#owned.push(event);
     }
-    this.#sources=sources;
   }
   get session(){return this.#session;}
   get seq(){return this.#session.seq;}
@@ -219,7 +219,7 @@ export class SessionProjectionJournal {
       const operationId=typeof correlation==='string'?correlation:correlation?.id;
       const reconcile=correlation?.reconcile===true;
       if(existing) {
-        if(existing.hash!==digest(event)||existing.operation!==operationId||
+        if(!isDeepStrictEqual(existing.event,event)||existing.operation!==operationId||
           operationId!==undefined&&(existing.seq!==operationAt(operationId)?.seq)!==reconcile)
           throw Error('Native event prefix changed');
         const expected=remap(translated,existing.seq,sourceAt),stored=eventAt(existing.seq);
@@ -235,7 +235,7 @@ export class SessionProjectionJournal {
         operations.set(operationId,Object.freeze({...operation,source:event.seq}));
       }
       if(!operation||reconcile)events.push(projected);
-      sources.push(Object.freeze({hash:digest(event),seq,...(operation?{operation:operationId}:{})}));
+      sources.push(Object.freeze({event,seq,...(operation?{operation:operationId}:{})}));
     }
     const count=this.#annotationCount+annotations.length;
     const inherited=(inheritedEventCount?sourceAt(inheritedEventCount-1).seq+1:0)+count;
@@ -254,7 +254,7 @@ export class SessionProjectionJournal {
       this.#owned.push(this.#session.eventAt(seq));
     }
     this.#annotationCount=count;
-    for(const source of sources){this.#sources.push(source);this.#sourceDigest.update(source.hash);}
+    for(const source of sources)this.#sources.push(source);
     for(const [id,operation] of operations)this.#operations.set(id,operation);
     if(sources.length||preceding.length||this.#rewrite)this.#revision++;
     if(operations.size||preceding.length||annotations.length||this.#rewrite||events.some(event=>event.type==='session/title'))
@@ -262,7 +262,13 @@ export class SessionProjectionJournal {
     this.#rewrite=false;
     const appended=this.#session.snapshotEvents(start);this.#publish(appended);return Object.freeze(appended);
   }
-  encode(sourceDigest=this.#sourceDigest.copy().digest('hex')) {
+  #prefixDigest() {
+    this.#sourceDigest??=createSourceDigest();
+    for(;this.#hashedCount<this.#sources.length;this.#hashedCount++)
+      this.#sourceDigest.update(JSON.stringify(this.#sources[this.#hashedCount].event));
+    return this.#sourceDigest.copy().digest('hex');
+  }
+  encode(sourceDigest=this.#prefixDigest()) {
     let selected;
     const events=this.#owned.map(event=>{
       if(event.type==='agent-preset/selected')selected=event.data.agentPreset;
@@ -293,7 +299,7 @@ export class SessionProjectionJournal {
   }
   #rememberNativeTail() {
     if(this.#saved<this.#revision&&this.#saved>=this.#ownedRevision&&this.#remembered!==this.#revision){
-      this.#nativeTail?.({base:this.#savedDigest,digest:this.#sourceDigest.copy().digest('hex'),seq:this.seq,nativeSeq:this.nativeSeq});
+      this.#nativeTail?.({base:this.#savedDigest,digest:this.#prefixDigest(),seq:this.seq,nativeSeq:this.nativeSeq});
       this.#remembered=this.#revision;
     }
   }
@@ -313,7 +319,7 @@ export class SessionProjectionJournal {
       });
     }
     if(!this.#save)return Promise.reject(Error('Application journal has no persistence writer'));
-    const revision=this.#revision,hash=this.#sourceDigest.copy().digest('hex'),value=this.encode(hash);
+    const revision=this.#revision,hash=this.#prefixDigest(),value=this.encode(hash);
     const promise=Promise.resolve().then(async()=>{
       try{
         await this.#save(value);this.#saved=revision;this.#savedDigest=hash;this.#remembered=-1;

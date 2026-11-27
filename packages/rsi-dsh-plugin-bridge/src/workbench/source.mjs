@@ -11,7 +11,7 @@ import {readControls,nativeFactPages} from '../history/native-pages.mjs';
 /** A retained native projector has no retained request authority or partial published batches. */
 export async function workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome}) {
   const seed=meta.inherited?await inheritedSession(ctx,api,llm,call,release,header,signal):{header};
-  const session=new SessionFacade(ctx,api,{...seed,journalSource:true},false);
+  const session=new SessionFacade(ctx,api,seed,false);
   let current={session,mapping:seed.mapping??restoreMapping(null),controlThrough:0,
     model:workbenchModel(meta.selection_cursor?.kind==='durable'?meta.model_baseline:meta.model_selection),
     inbox:workbenchInbox(),spawning:new Set(),spawned:new Map(),origins:new Map()};

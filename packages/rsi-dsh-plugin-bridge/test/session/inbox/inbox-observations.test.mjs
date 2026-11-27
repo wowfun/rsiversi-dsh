@@ -1,3 +1,4 @@
+import {legacySources} from '../../fixtures/legacy-journal.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createRequire} from 'node:module';
@@ -117,7 +118,7 @@ test('correlated input storage preserves local coordinates and rejects missing o
     assert.equal(f.documents.get('inbox'),document,'failed recovery cannot overwrite the durable evidence');
   }
   const previous=structuredClone(state);previous.version=4;
-  delete previous.sourceDigest;previous.sources=Array.from({length:f.journal.nativeSeq},(_,index)=>f.journal.sourceAt(index));
+  delete previous.sourceDigest;previous.sources=legacySources(f.journal);
   previous.eventCount=f.session.seq;delete previous.ownedEventCount;
   previous.events=previous.events.map(event=>f.session.eventAt(event.seq));
   f.documents.set('inbox',JSON.stringify(previous));

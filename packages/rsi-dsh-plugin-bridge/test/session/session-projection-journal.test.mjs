@@ -1,5 +1,6 @@
+import {legacySources,legacyPrefix} from '../fixtures/legacy-journal.mjs';
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
+import {createHash,Hash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -8,7 +9,7 @@ import {tmpdir} from 'node:os';
 import {test} from 'node:test';
 import {checkpointNativeTail,readJournalDocument} from '../../src/session/journal-document.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
-import {SessionFacade,digest,validateHeader} from '../../src/session/session.mjs';
+import {SessionFacade,validateHeader} from '../../src/session/session.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -84,7 +85,7 @@ test('cold recovery preserves native sources correlated in reverse acceptance or
   assert.deepEqual(disk.sources,[[1,1],[0,1]]);
   assert.deepEqual(disk.operations.map(op=>[op.id,op.source]),[['first',1],['second',0]]);
   const restore=state=>new SessionProjectionJournal(ctx,api,{header},{restore:state,native,adoptRestore:true});
-  const previous={...disk,version:7,sources:[{seq:1,operation:'second'},{seq:0,operation:'first'}]};
+  const previous={...disk,version:7,sourceDigest:legacyPrefix(legacySources(journal)),sources:[{seq:1,operation:'second'},{seq:0,operation:'first'}]};
   assert.equal(restore(readJournalDocument(JSON.stringify(previous))).encode(),encoded);
   const parse=patch=>readJournalDocument(JSON.stringify({...disk,...patch}));
   for(const sources of [[[0,2],[1,1]], [[0,100_001]], [[0,0]], [[99_999,2]], [[1]], [[0,1,2]]])
@@ -263,49 +264,33 @@ test('selection identifiers share Header bounds and rejected selections leave no
   assert.equal(cold.encode(),journal.encode());
 });
 
-test('ordinary mirror events acquire their digest only when requested', {skip:!root},async t=>{
-  const {ctx,api}=await fixture(t);
-  const session=new SessionFacade(ctx,api,{header},false);
-  session.begin();
-  const event=session.appendObserved('user/message',message('display','user','中文'),1,{surfaceOp:'append'});
-  session.end();
-  const stringify=JSON.stringify;
-  let encodings=0;
-  t.mock.method(JSON,'stringify',function(value,...args){
-    if(value===event)encodings++;
-    return stringify(value,...args);
-  });
-  const expected=createHash('sha256').update(stringify(event)).digest('hex');
-  assert.equal(digest(event),expected);
-  assert.equal(digest(event),expected);
-  assert.equal(encodings,1);
-});
-
-test('native admission shares one encoding with source digests while cold replay still checks them', {skip:!root},async t=>{
+test('reading native events hashes no bodies until a journal checkpoint needs them', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t,{nativeEventState:'shared-frozen'});
-  const source=new SessionFacade(ctx,api,{header,journalSource:true},false).branch();
-  const stringify=JSON.stringify;let encoded=0;
-  t.mock.method(JSON,'stringify',function(value,...args){
-    if(value?.type==='user/message'&&value.data.id==='single-encoding')encoded++;
-    return stringify(value,...args);
+  const source=new SessionFacade(ctx,api,{header},false).branch();
+  const update=Hash.prototype.update;
+  let bodies=0;
+  t.mock.method(Hash.prototype,'update',function(input,...args){
+    if(typeof input==='string'&&input.includes('checkpoint-probe'))bodies++;
+    return update.call(this,input,...args);
   });
   source.begin();
-  const event=source.appendObserved('user/message',message('single-encoding','user','immutable input'),1,{surfaceOp:'append'});
+  const event=source.appendObserved('user/message',message('checkpoint-probe','user','immutable input'),1,{surfaceOp:'append'});
   source.end();
-  assert.equal(encoded,1,'admission accounts for the encoded byte size');
   journal.merge(source.snapshotEvents());
   journal.merge(source.snapshotEvents());
-  assert.equal(encoded,1,'transfer and repeated reconciliation reuse the admitted digest');
+  assert.equal(bodies,0);
+  journal.append('feedback/record',{text:'saved'});
   const document=journal.encode();
+  assert.equal(bodies,1);
+  assert.equal(journal.encode(),document);
+  assert.equal(bodies,1,'a second encoding consumes only new events');
   const cold=new SessionProjectionJournal(ctx,api,{header},{restore:readJournalDocument(document),
     native:source.snapshotEvents(),nativeEventState:'shared-frozen'});
   cold.merge(source.snapshotEvents());
   assert.equal(cold.encode(),document);
-  assert.equal(encoded,1,'cold reconciliation reuses the native admission evidence');
-  const changed=api.deepFreeze({...event,time:2});
-  assert.throws(()=>cold.merge([changed]),/prefix changed/);
-  assert.equal(encoded,2,'freezing a different object does not establish admission');
-  assert.equal(cold.encode(),document);
+  assert.equal(bodies,2,'cold recovery checks the independent checkpoint once');
+  assert.throws(()=>cold.merge([api.deepFreeze({...event,time:2})]),/prefix changed/);
+  assert.equal(bodies,2,'a rejected merge compares its immutable source directly');
 });
 
 test('one durable source digest detects cold changes and advances only after a valid native batch', {skip:!root},async t=>{
@@ -313,11 +298,14 @@ test('one durable source digest detects cold changes and advances only after a v
   const native=[0,1].map(seq=>({type:'model/selection',seq,time:seq,data:{...selection,model:'model-'+seq}}));
   journal.merge(native);
   const before=journal.encode(),saved=JSON.parse(before);
-  assert.equal(saved.version,8);assert.match(saved.sourceDigest,/^[a-f0-9]{64}$/);
+  assert.equal(saved.version,9);assert.match(saved.sourceDigest,/^[a-f0-9]{64}$/);
   assert.deepEqual(saved.sources,[[0,2]]);
   const restore=(state,events=native)=>new SessionProjectionJournal(ctx,api,{header},
     {restore:readJournalDocument(JSON.stringify(state)),native:events});
   assert.equal(restore(saved).encode(),before);
+  const previous={...saved,version:8,sourceDigest:legacyPrefix(legacySources(journal))};
+  assert.equal(restore(previous).encode(),before);
+  assert.throws(()=>restore({...previous,sourceDigest:'0'.repeat(64)}),/prefix changed/);
   assert.throws(()=>restore({...saved,sourceDigest:'0'.repeat(64)}),/prefix changed/);
   assert.throws(()=>restore(saved,[native[0],{...native[1],time:9}]),/prefix changed/);
   assert.throws(()=>restore(saved,native.slice(0,1)),/prefix moved backwards/);
@@ -335,16 +323,15 @@ test('version 6 source hashes are checked before rewriting a journal with one pr
   const {ctx,api,journal}=await fixture(t),native=[{type:'model/selection',seq:0,time:1,data:selection}];
   journal.merge(native);
   const legacy=JSON.parse(journal.encode());legacy.version=6;delete legacy.sourceDigest;
-  legacy.sources=Array.from({length:journal.nativeSeq},(_,index)=>journal.sourceAt(index));
+  legacy.sources=legacySources(journal);
   let stored;
   const cold=new SessionProjectionJournal(ctx,api,{header},
     {restore:readJournalDocument(JSON.stringify(legacy)),native,save:async value=>{stored=value;}});
   cold.merge(native);await cold.flush();
   assert.equal(stored,journal.encode());
   const corrupt=structuredClone(legacy);corrupt.sources[0].hash='0'.repeat(64);
-  const bad=new SessionProjectionJournal(ctx,api,{header},
-    {restore:readJournalDocument(JSON.stringify(corrupt)),native,save:async()=>{assert.fail('invalid history must not publish');}});
-  assert.throws(()=>bad.merge(native),/prefix changed/);
+  assert.throws(()=>new SessionProjectionJournal(ctx,api,{header},
+    {restore:readJournalDocument(JSON.stringify(corrupt)),native,save:async()=>{assert.fail('invalid history must not publish');}}),/prefix changed/);
 });
 
 test('request headers freeze once at admission and share immutable schemas across journal transfer', {skip:!root},async t=>{
@@ -626,7 +613,7 @@ test('durable journals omit native bodies while preserving local acknowledgement
     {seq:1,time:3,type:'model/selection',data:selection}];
   const correlations=new Map([[1,'choice']]);journal.merge(native,correlations);
   const document=journal.encode(),state=JSON.parse(document);
-  assert.equal(state.version,8);assert.equal(state.ownedEventCount,2);
+  assert.equal(state.version,9);assert.equal(state.ownedEventCount,2);
   assert.equal(Object.hasOwn(state,'eventCount'),false);
   assert.equal(readJournalDocument(document).eventCount,3);
   assert.deepEqual(state.events.map(event=>event.seq),[0,1]);
@@ -939,7 +926,7 @@ test('saved journals retain the native prefix that used predecessor-based inbox 
   journal.merge(native);
   const saved=JSON.parse(journal.encode());assert.equal(restore(saved,native).inboxSlotFrom,0);
   saved.version=1;saved.events=journal.session.snapshotEvents();delete saved.inboxSlotFrom;delete saved.ownedEventCount;
-  delete saved.sourceDigest;saved.sources=Array.from({length:journal.nativeSeq},(_,index)=>journal.sourceAt(index));
+  delete saved.sourceDigest;saved.sources=legacySources(journal);
   const cold=restore(saved,native);assert.equal(cold.inboxSlotFrom,2);
   cold.merge([...native,{...native[1],seq:2}]);
   assert.equal(restore(JSON.parse(cold.encode()),[...native,{...native[1],seq:2}]).inboxSlotFrom,2);

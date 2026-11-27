@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {createHash} from 'node:crypto';
 import {loadCohort} from '../../../rsi-dsh-cordis/src/runtime/cohort.mjs';
-import {SessionFacade,digest,remap} from '../../src/session/session.mjs';
+import {SessionFacade,remap} from '../../src/session/session.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
 import {readJournalDocument} from '../../src/session/journal-document.mjs';
 
@@ -48,11 +47,6 @@ test('coordinate remaps retain exact UTF-8 size across integer widths without en
   try {
     for(const event of mapped)target.adoptObserved(event);
     assert.equal(encodings,0,'changing only coordinates must not re-encode the body for admission');
-    for(const event of mapped){
-      const expected=createHash('sha256').update(stringify(event)).digest('hex');
-      assert.equal(digest(event),expected);assert.equal(digest(event),expected);
-    }
-    assert.equal(encodings,mapped.length,'each requested remapped digest is computed once');
   }finally{JSON.stringify=stringify;target.end();}
   assert.equal(target.encodedBytes,target.snapshotEvents().reduce((sum,event)=>sum+Buffer.byteLength(stringify(event)),0));
   assert.deepEqual(target.lastEvent('compaction/summary').data.shadowedRange,{start:101,end:102});
