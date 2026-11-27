@@ -346,8 +346,14 @@ terminal reason is available to plugins reading the recorded attempt.
 
 The workbench enables the released DeepSeek package inventory contributor by
 default. Eligible requests, including automatic titles, carry the names and
-versions of active Loader packages. The owner can turn off this contributor
-independently of Session log upload.
+versions of active Loader packages. To turn off this contributor independently
+of Session log upload, add the following entry to the workbench profile's
+`cordis.patch.yml`.
+
+```yaml
+- id: plugin-package-inventory-deepseek
+  config: { enabled: false }
+```
 
 The workbench defaults DeepSeek Session log upload to off. When enabled,
 the released request contributor includes outstanding Session events in the
