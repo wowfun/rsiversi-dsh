@@ -299,11 +299,10 @@ accepted mutations in that publication. No native intent is created for the
 rejected call, and it triggers no native refresh; already accepted operations
 still settle normally.
 
-Successful event admission computes its byte count and content digest from the
-same temporary JSON encoding. The private admission record retains the count,
-digest and validator identity, not the encoded string or another event body.
-Journal reconciliation reuses that digest only for the admitted immutable
-object; other values are encoded and hashed independently. The next saved plugin
+The native event source computes the journal digest and byte count from one
+temporary JSON encoding. Plugin events and display mirrors need only the byte
+count. If reconciliation later requests a digest, it is computed once for that
+immutable object. Admission retains no encoded string or duplicate body. The next saved plugin
 record, mutation binding, receipt or catalog change checkpoints the observed
 native prefix alongside the application data. Native progress alone advances the
 in-memory digest. Orderly shutdown checkpoints that tail for existing journals,

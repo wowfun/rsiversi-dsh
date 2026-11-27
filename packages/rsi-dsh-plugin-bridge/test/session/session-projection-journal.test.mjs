@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {test} from 'node:test';
 import {checkpointNativeTail,readJournalDocument} from '../../src/session/journal-document.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
-import {SessionFacade,validateHeader} from '../../src/session/session.mjs';
+import {SessionFacade,digest,validateHeader} from '../../src/session/session.mjs';
 import {sessionJournalStore} from '../../src/session/session-journal-store.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
@@ -263,9 +263,27 @@ test('selection identifiers share Header bounds and rejected selections leave no
   assert.equal(cold.encode(),journal.encode());
 });
 
+test('ordinary mirror events acquire their digest only when requested', {skip:!root},async t=>{
+  const {ctx,api}=await fixture(t);
+  const session=new SessionFacade(ctx,api,{header},false);
+  session.begin();
+  const event=session.appendObserved('user/message',message('display','user','中文'),1,{surfaceOp:'append'});
+  session.end();
+  const stringify=JSON.stringify;
+  let encodings=0;
+  t.mock.method(JSON,'stringify',function(value,...args){
+    if(value===event)encodings++;
+    return stringify(value,...args);
+  });
+  const expected=createHash('sha256').update(stringify(event)).digest('hex');
+  assert.equal(digest(event),expected);
+  assert.equal(digest(event),expected);
+  assert.equal(encodings,1);
+});
+
 test('native admission shares one encoding with source digests while cold replay still checks them', {skip:!root},async t=>{
   const {ctx,api,journal}=await fixture(t,{nativeEventState:'shared-frozen'});
-  const source=new SessionFacade(ctx,api,{header},false);
+  const source=new SessionFacade(ctx,api,{header,journalSource:true},false).branch();
   const stringify=JSON.stringify;let encoded=0;
   t.mock.method(JSON,'stringify',function(value,...args){
     if(value?.type==='user/message'&&value.data.id==='single-encoding')encoded++;

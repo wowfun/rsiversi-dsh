@@ -186,13 +186,13 @@ export function remap(input,seq,sourceAt) {
 /** No upstream constructor: it appends seed/resume markers before attachment. */
 export class SessionFacade {
   #events = []; #ctx; #api; #surface; #active = false; #bytes = 0; #retired = false; #announced = false;
-  #branch; #base = 0; #requestHeader; #titleEvent;
+  #branch; #base = 0; #requestHeader; #titleEvent; #journalSource;
   #eventsSnapshot; #derived; #publishing=false;
-  constructor(ctx, api, { header, events = [], inheritedEventCount = 0, eventState }, announce = true) {
+  constructor(ctx, api, { header, events = [], inheritedEventCount = 0, eventState, journalSource = false }, announce = true) {
     this.header = validateHeader(header); this.id = header.id;
     if (!integer(inheritedEventCount) || inheritedEventCount > events.length) throw new Error('invalid inherited prefix');
     this.inheritedEventCount = inheritedEventCount;
-    this.#ctx = ctx; this.#api = api;
+    this.#ctx = ctx; this.#api = api; this.#journalSource = journalSource;
     for (const event of events) this.#admit(event, false, eventState === 'shared-frozen' || admitted.has(event));
     this.firstLiveSeq = this.seq;
     if (announce) this.attach();
@@ -274,7 +274,7 @@ export class SessionFacade {
   /** Stage a batch over already validated immutable events without cloning its prefix. */
   branch() {
     if(this.#active||this.#retired||this.#announced)throw new Error('Only an idle unpublished mirror can stage a batch');
-    const candidate=new SessionFacade(this.#ctx,this.#api,{header:this.header},false);
+    const candidate=new SessionFacade(this.#ctx,this.#api,{header:this.header,journalSource:this.#journalSource},false);
     candidate.#base=this.seq;candidate.#bytes=this.#bytes;
     candidate.#requestHeader=this.#requestHeader;
     candidate.#titleEvent=this.#titleEvent;
@@ -378,7 +378,7 @@ export class SessionFacade {
       if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
     }
     if (!known || known.validate !== this.#api.adoptSessionEvent)
-      admitted.set(event, {bytes,hash:known?known.hash:encodedDigest(encoded),validate:this.#api.adoptSessionEvent});
+      admitted.set(event, {bytes,hash:this.#journalSource && !known ? encodedDigest(encoded) : known?.hash,validate:this.#api.adoptSessionEvent});
     return bytes;
   }
 }
