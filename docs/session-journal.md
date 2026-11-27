@@ -297,9 +297,9 @@ This transfer retains event, surface and size validation and freezes the whole
 owned graph. Externally supplied mutable inputs still cross the snapshot boundary.
 Restored local records cross
 the lossless-JSON boundary before being combined with the frozen native prefix.
-Adoption still validates
-event envelopes, surface relations and the retained-history budget before
-publication. No second durable body or global interning cache is created.
+An unchanged immutable event carries its event-local validation to mirrors
+using the same DSH validator. Each destination checks its position, supported
+event types, surface relations and retained-history budget before publication.
 A caller can catch a synchronous validation failure without failing other
 accepted mutations in that publication. No native intent is created for the
 rejected call, and it triggers no native refresh; already accepted operations

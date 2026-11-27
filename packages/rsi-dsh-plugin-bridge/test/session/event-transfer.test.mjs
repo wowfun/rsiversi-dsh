@@ -115,3 +115,23 @@ test('unchanged admitted events retain identity through native merge and cold re
   assert.equal(events[1].surfaceOp.startSeq,0);
   assert.throws(()=>{events[0].data.message.content[0].text='mutation';},TypeError);
 });
+
+test('a receiving mirror reuses frozen Todo contents and checks its own plugin record support', {skip:!root}, async t=>{
+  const cohort=await loadCohort(root);
+  const api={...await cohort.import('@deepseek-ai/dsh-session'),
+    ...await cohort.subpath('@deepseek-ai/dsh-session','surface'),...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const header={version:4,id:'frozen-todo',createdAt:1,isSeeded:false};
+  const source=new SessionFacade({},api,{header},false);
+  const content='Bring the meeting notes';
+  source.begin();
+  const todo=source.appendObserved('todo/write',{todos:[{status:'pending',content}]},1);
+  const record=source.appendObserved('plugin:notes/saved',{},2,{ignorable:true});
+  source.end();
+  const target=new SessionFacade({},{...api,pluginRecordOf:()=>undefined},{header},false);
+  const length=t.mock.method(Buffer,'byteLength');
+  target.adoptBatch([todo]);
+  assert.equal(target.eventAt(0),todo);
+  assert.ok(!length.mock.calls.some(call=>call.arguments[0]===content));
+  assert.throws(()=>target.adoptBatch([record]),/event envelope/);
+  assert.equal(target.seq,1);
+});

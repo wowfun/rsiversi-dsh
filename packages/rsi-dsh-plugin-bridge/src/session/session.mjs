@@ -30,14 +30,16 @@ const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is
 export const presetId = value => typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
 const shape = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).every(key => keys.includes(key));
-function envelope(event, seq, api) {
-  if (!shape(event, ['seq', 'time', 'type', 'data', 'surfaceOp', 'sourceEventSeqs', 'ignorable'])
-      || event.seq !== seq || !integer(event.seq) || !Number.isSafeInteger(event.time)
-      || typeof event.type !== 'string' || !Object.hasOwn(event, 'data')
-      || (event.ignorable !== undefined && event.ignorable !== true)) throw new Error('unsupported or invalid event envelope');
-  if (!allowed.has(event.type) && !compactionEvents.has(event.type) && !isForkAnnotation(event.type) && !isChildSetupEvent(event.type)
+function envelope(event, seq, api, validated) {
+  if (event.seq !== seq || typeof event.type !== 'string' || !allowed.has(event.type) && !compactionEvents.has(event.type)
+      && !isForkAnnotation(event.type) && !isChildSetupEvent(event.type)
       && (!api.pluginRecordOf?.(event) || event.surfaceOp !== undefined || event.sourceEventSeqs !== undefined))
     throw new Error('unsupported or invalid event envelope');
+  if (validated) return;
+  if (!shape(event, ['seq', 'time', 'type', 'data', 'surfaceOp', 'sourceEventSeqs', 'ignorable'])
+      || !integer(event.seq) || !Number.isSafeInteger(event.time)
+      || !Object.hasOwn(event, 'data')
+      || (event.ignorable !== undefined && event.ignorable !== true)) throw new Error('unsupported or invalid event envelope');
   const data = event.data;
   if (isForkAnnotation(event.type)) assertForkAnnotation(event);
   if (event.surfaceOp !== undefined && (isJournalEvent(event.type)||compactionEvents.has(event.type)||isChildSetupEvent(event.type)||event.type==='goal/change'))
@@ -368,17 +370,19 @@ export class SessionFacade {
     this.#events.push(event); this.#bytes += bytes; this.#eventsSnapshot = undefined;
   }
   #prepare(event, seq, usedBytes, adopt) {
-    envelope(event, seq, this.#api);
     const known = adopt ? admitted.get(event) : undefined;
+    const validated = known && known.validate === this.#api.adoptSessionEvent;
+    envelope(event, seq, this.#api, validated);
     const encoded = known ? undefined : JSON.stringify(event);
     const bytes = known?.bytes ?? Buffer.byteLength(encoded);
     if (usedBytes + bytes > 64 * 1024 * 1024 || seq >= 100_000) throw new Error('Session mirror capacity');
-    if (!known || known.validate !== this.#api.adoptSessionEvent) this.#api.adoptSessionEvent(event);
-    if (!known) {
-      if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
-    }
-    if (!known || known.validate !== this.#api.adoptSessionEvent)
+    if (!validated) {
+      this.#api.adoptSessionEvent(event);
+      if (!known) {
+        if(adopt)freezeTransferred(event);else this.#api.deepFreeze(event);
+      }
       admitted.set(event, {bytes,hash:this.#journalSource && !known ? encodedDigest(encoded) : known?.hash,validate:this.#api.adoptSessionEvent});
+    }
     return bytes;
   }
 }
