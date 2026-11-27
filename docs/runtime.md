@@ -935,8 +935,9 @@ An RSI Step can contain several model requests: the DSH step counter advances
 per prepared request, while the RSI acceptance identity remains unchanged.
 Conversation ModelIntents map their actual route, effective reasoning effort,
 sampling controls and complete JSON Tool schemas to DSH request headers. Referenced
-evidence is read from the same captured Fact authority and checked against its
-original inline digest; missing evidence fails the stage. History reads carry their
+evidence is read from the same captured Fact authority. The bridge checks the
+reference's section, coordinate, Host digest and byte count against its original.
+The Host validates the inline bytes when decoding stored Facts. History reads carry their
 captured horizon and consume bounded contiguous Fact pages. Inherited reads use
 the same page contract within their retained native interval. Evidence references
 to a Fact in the current decoded page borrow that Fact instead of issuing another

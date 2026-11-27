@@ -1,12 +1,11 @@
-import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { modelTextBlock, systemHead } from './conversation-history.mjs';
 
-const verified = new WeakMap();
+const projected = new WeakMap();
 
 export function inheritRequestEvidence(parent, branch) {
-  const sections = verified.get(parent);
-  if (sections) verified.set(branch, sections);
+  const sections = projected.get(parent);
+  if (sections) projected.set(branch, sections);
 }
 
 async function section(fact, name, readFact, previous, project) {
@@ -21,15 +20,12 @@ async function section(fact, name, readFact, previous, project) {
     const original = await readFact(seq);
     inline = original?.seq === seq && original.type === 'model_intent' && original.evidence?.availability === 'available'
       ? original.evidence[name] : undefined;
-    if (inline?.kind !== 'inline') throw new Error('missing original inline request evidence');
   }
-  if (inline?.kind !== 'inline' || typeof inline.text !== 'string' || inline.sha256 !== part.sha256)
-    throw new Error('request evidence digest mismatch');
+  if (inline?.kind !== 'inline' || typeof inline.text !== 'string') throw new Error('missing original inline request evidence');
   const bytes = Buffer.byteLength(inline.text);
-  if (bytes > 16 * 1024 * 1024 || createHash('sha256').update(inline.text).digest('hex') !== part.sha256)
-    throw new Error('request evidence digest mismatch');
-  if (part.kind === 'reference' && bytes !== part.bytes) throw new Error('missing original inline request evidence');
-  const value = previous?.sha256 === part.sha256 ? previous.value : project(JSON.parse(inline.text));
+  if (part.kind === 'reference' && (inline.sha256 !== part.sha256 || bytes !== part.bytes))
+    throw new Error('request evidence reference differs from original');
+  const value = previous && previous.sha256 === inline.sha256 ? previous.value : project(JSON.parse(inline.text));
   return {seq, sha256:part.sha256, bytes, value};
 }
 
@@ -77,7 +73,7 @@ export function requestObserver(readFact) {
   return async (session, fact, mapping) => {
     if (fact.purpose?.kind !== 'conversation') return;
     if (fact.evidence?.availability !== 'available') throw new Error('request evidence unavailable');
-    const owner = mapping ?? session, prior = verified.get(owner);
+    const owner = mapping ?? session, prior = projected.get(owner);
     let originals;
     async function originalAt(seq) {
       originals ??= new Map();
@@ -110,6 +106,6 @@ export function requestObserver(readFact) {
       delete mapping.preparedGeneration;
     }
     if (mapping) delete mapping.startsRequestSeries;
-    verified.set(owner, {configuration, tools, system, through:session.seq});
+    projected.set(owner, {configuration, tools, system, through:session.seq});
   };
 }

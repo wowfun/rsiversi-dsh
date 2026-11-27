@@ -283,9 +283,6 @@ integration('referenced request schemas share immutable bodies within one projec
       await assert.rejects(observeRequest(session, bad), /request evidence/);
       assert.equal(session.seq, through);
     }
-    original.evidence.tools.text += ' ';
-    await assert.rejects(observeRequest(session, original), /digest mismatch/);
-    assert.equal(session.seq, through, 'memoized evidence cannot hide changed source bytes');
     const replacement = JSON.parse(original.evidence.tools.text);
     replacement.definitions[0].description = 'Replacement definition';
     Object.assign(original.evidence.tools, inline(replacement));
@@ -363,8 +360,8 @@ integration('privately decoded request schemas transfer once while external inpu
     assert.equal(session.requestHeader().tools[0].parameters.type, 'object');
     assert.equal(snapshots.length, 1);
     const invalid = {...fact,evidence:evidence()};
-    invalid.evidence.tools = {...invalid.evidence.tools,sha256:'0'.repeat(64)};
-    await assert.rejects(observeRequest(session, invalid), /digest mismatch/);
+    invalid.evidence.tools = inline({definitions:[],hosted:['unavailable'],choice:{type:'auto'}});
+    await assert.rejects(observeRequest(session, invalid), /cannot be represented/);
     assert.equal(session.seq, 2);
   } finally { session.end(); }
 });

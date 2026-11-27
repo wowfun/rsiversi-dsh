@@ -271,14 +271,14 @@ Tool-call arguments and inbox messages can remain shared immutable values.
 The producer does not mutate a transferred graph. External callers of
 `appendObserved` still receive snapshot isolation, and every transferred event
 retains the same schema, surface, coordinate and capacity checks.
-Each live native history projection remembers the last verified inline Fact
-coordinate, SHA-256, byte count and projected value for each request section.
+The Host supplies typed request Facts and checks inline bytes when reading durable
+history. Each live projection remembers the original Fact coordinate, Host
+digest, byte count and projected value for each request section.
 A staged cut inherits those bindings from its captured parent. Its replacements
 become visible on commit. A matching reference reuses the projected settings,
 tool definitions or system content; the request still checks its captured model
 route. Other references to the same earlier Fact share one read within that
-request. Inline bytes are verified on every admission. No original evidence
-text or page is retained across cuts. A restored or independent projection
+request. A restored or independent projection
 resolves references from its own history.
 Request headers use the release's canonical equality, including declaration
 order and the JSON spelling of tool schemas. A request that reuses its frozen
