@@ -35,19 +35,16 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     for(const name of flat)if(name.endsWith('.json'))unmatched.set(name.slice(0,-5),true);
     return {unmatched,known:new Map()};
   }
-  function locate({unmatched,known},id) {
+  function locate({unmatched,known},id,forWrite=false) {
     const hit=known.get(id);
-    if(hit||!unmatched.size)return hit;
+    if(hit||!forWrite&&!unmatched.size)return hit;
     const stem=hash('sha256',id),plain=unmatched.get(stem);
-    if(plain===undefined)return;
-    const entry={plain};
+    if(plain===undefined&&!forWrite)return;
+    const entry={file:plain?stem+'.json':'packed/'+stem+'.journal'};
+    if(plain===undefined)return entry;
     unmatched.delete(stem);
     known.set(id,entry);
     return entry;
-  }
-  function pathFor(id,plain) {
-    const stem=hash('sha256',id);
-    return plain?join(directory,stem+'.json'):join(packedDirectory,stem+'.journal');
   }
   function catalogFiles() {
     return discovery??=discover().catch(error=>{discovery=undefined;throw error;});
@@ -70,9 +67,9 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     }catch(error){if(error.code!=='ENOENT')throw error;}
     finally{await handle?.close();}
   }
-  async function metadata(entry,id) {
+  async function metadata(entry) {
     if(!entry||Object.hasOwn(entry,'hint'))return entry?.hint;
-    const pending=readCatalog(pathFor(id,entry.plain));
+    const pending=readCatalog(join(directory,entry.file));
     entry.hint=pending;
     try{
       const hint=await pending;
@@ -82,7 +79,7 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
     catch(error){delete entry.hint;throw error;}
   }
   return {
-    async metadata(id){return metadata(locate(await catalogFiles(),id),id);},
+    async metadata(id){return metadata(locate(await catalogFiles(),id));},
     async decorate(rows,signal) {
       signal?.throwIfAborted();
       if(!rows.length)return rows;
@@ -92,7 +89,7 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
       for(const row of rows) {
         const id=row.id,entry=locate(files,id);
         if(!entry)continue;
-        const hint=await metadata(entry,id).catch(error=>{console.warn('Session catalog hint:',error.message);});
+        const hint=await metadata(entry).catch(error=>{console.warn('Session catalog hint:',error.message);});
         signal?.throwIfAborted();
         const {header,catalogTitle}=hint??{};
         if(header?.id!==row.id||header.createdAt!==row.createdAt)continue;
@@ -107,10 +104,9 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
       try {
         const entry=locate(await catalogFiles(),id);
         if(!entry)return;
-        const path=pathFor(id,entry.plain);
-        handle=await open(path,'r');
+        handle=await open(join(directory,entry.file),'r');
         const info=await handle.stat();
-        const packed=!entry.plain;
+        const packed=entry.file.endsWith('.journal');
         // A 128 MiB incompressible input can expand by up to ZSTD_compressBound.
         const fileLimit=packed?maximumJournalBytes+maximumJournalBytes/256:maximumJournalBytes;
         if(!info.isFile()||info.size>fileLimit)throw Error('Application journal document capacity');
@@ -124,17 +120,17 @@ export function sessionJournalStore(directory,{writeFileAtomic},changed) {
       finally{await handle?.close();}
     },
     async save(id,value) {
-      const files=await catalogFiles(),plain=locate(files,id)?.plain??false;
-      const path=pathFor(id,plain),after=journalCatalog(value);
+      const files=await catalogFiles(),entry=locate(files,id,true);
+      const after=journalCatalog(value);
       let bytes=value;
-      if(!plain){
+      if(entry.file.endsWith('.journal')){
         const body=value.indexOf('\n')+1;
         if(!body)throw Error('Incomplete application journal catalog');
         bytes=Buffer.concat([Buffer.from(value.slice(0,body)),await compress(value.slice(body),checksum)]);
       }
-      await writeFileAtomic(path,bytes,{mode:0o600,dirMode:0o700});
+      await writeFileAtomic(join(directory,entry.file),bytes,{mode:0o600,dirMode:0o700});
       const before=files.known.get(id)?.hint;
-      files.known.set(id,{plain,hint:after});
+      files.known.set(id,{file:entry.file,hint:after});
       if(before?.catalogTitle?.seq!==after?.catalogTitle?.seq || before?.header?.origin!==after?.header?.origin)changed?.();
     },
   };

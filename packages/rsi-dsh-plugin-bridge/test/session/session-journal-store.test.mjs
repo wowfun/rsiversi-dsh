@@ -41,4 +41,7 @@ test('cold metadata and history share file discovery and see only successful pub
   const rows=Array.from({length:64},(_,i)=>({id:'native-'+i,createdAt:1}));
   await cold.decorate(rows);
   assert.equal(hash.mock.callCount(),0,'a known directory uses Session IDs on later listings');
+  await cold.save(id,document);
+  assert.equal(await cold.read(id),document);
+  assert.equal(hash.mock.callCount(),0,'known journals reuse their filename for writes and reads');
 });

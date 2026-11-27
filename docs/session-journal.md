@@ -14,8 +14,9 @@ The writer replaces both parts atomically. These files live under
 encoding, including on subsequent writes. Each Session has one writable file.
 Catalog queries and cold history reads share the profile's journal directory
 listing. Only a matching filename requires a prefix or full-body read. The
-catalog associates a discovered file with its Session ID on first match.
-Once all filenames are known by ID, subsequent lookups use those IDs directly.
+catalog associates a discovered filename with its Session ID on first match.
+Subsequent body reads and writes use that filename. Once all filenames are
+known by ID, listing native-only sessions requires no filename hashes.
 The profile's sole writer publishes a new filename after successful atomic
 replacement, including when the first lookup preceded creation of the
 directory. Native-only sessions require no per-session storage entries or
