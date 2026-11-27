@@ -12,10 +12,12 @@ the original bounded UTF-8 document. Unconsumed trailing bytes fail recovery.
 The writer replaces both parts atomically. These files live under
 `sessions/packed/`. Existing flat JSON journals keep their original paths and
 encoding, including on subsequent writes. Each Session has one writable file.
-The catalog discovers the profile's journal filenames once and reads a prefix
-only for a listed native identity with a matching file. The profile writer
-publishes new filenames to that catalog after successful atomic replacement.
-Native-only sessions require no per-session storage entries or file opens.
+Catalog queries and cold history reads share the profile's journal directory
+listing. Only a matching filename requires a prefix or full-body read. The
+profile's sole writer publishes a new filename after successful atomic
+replacement, including when the first lookup preceded creation of the
+directory. Native-only sessions require no per-session storage entries or
+file opens.
 
 `SessionProjectionJournal` owns the application event log shared by attached
 Agents, workbench history and cold persistence. Native Kernel owns execution.
