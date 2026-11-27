@@ -30,6 +30,7 @@ test(`${kind} ${stop?'default cancel':'inbox clear'} clears 64 inputs in two syn
     assert.deepEqual(f.projection(),{'next-step':[],'next-turn':[]});assert.equal(cancels(f).length,0);
   });
   assert.equal(notices.length,64);assert.equal(cancels(f).length,1);
+  assert.deepEqual(cancels(f)[0].args.cause,stop?{kind:'user'}:undefined);
   assert.equal(cancels(f)[0].args.keep_inbox,false);assert.equal(!!cancels(f)[0].args.inbox_only,!stop);
   assert.equal(f.state.pending.length,0);assert.equal(!!f.state.cancelled,stop);
   assert.equal(f.calls.filter(row=>row.op?.type==='mutate'||row.op?.type==='discard_draft').length,0);
@@ -40,11 +41,14 @@ test(`${kind} ${stop?'default cancel':'inbox clear'} clears 64 inputs in two syn
 test('keepInbox preserves inputs and a steer accepted immediately after cancellation wakes the next turn',enabled,async t=>{
   const f=await nativeInboxFixture(t,{kind:'durable',pending:pending(2)});f.state.activeTurn=true;f.state.holdSubmissions=true;await f.refresh();
   await f.scope.runOwned(()=>{
-    f.agent.cancel({kind:'user'},{keepInbox:true});
+    const cause={kind:'hook',reason:'保留原文\n  second line'};
+    f.agent.cancel(cause,{keepInbox:true});
+    cause.reason='changed after cancel';
     assert.equal(f.agent.inbox.nextStep.length+f.agent.inbox.nextTurn.length,2);
     f.agent.steer(message('after-stop'));assert.equal(f.agent.inbox.nextTurn.at(-1).id,'after-stop');
   });
   assert.equal(cancels(f).length,1);assert.equal(cancels(f)[0].args.keep_inbox,true);
+  assert.deepEqual(cancels(f)[0].args.cause,{kind:'hook',reason:'保留原文\n  second line'});
   assert.equal(sends(f)[0].args.delivery,'next_turn');assert.equal(f.state.pending.length,3);
 });
 

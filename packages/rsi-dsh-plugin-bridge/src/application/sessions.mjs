@@ -199,9 +199,9 @@ export function applicationSessions(send,{ctx,capture,owner,agent,registered=age
       close=>send('application.presets',packet(close)),operation,undefined,undefined,signal);
     return result.value;
   }
-  async function cancel({sessionId,keepInbox=true,inboxOnly=false},signal) {
+  async function cancel({sessionId,keepInbox=true,inboxOnly=false,cause},signal) {
     const request=activeRequest();
-    const result=await call('application.cancel',{request,session_id:sessionId,keep_inbox:keepInbox,...(inboxOnly?{inbox_only:true}:{})},signal);
+    const result=await call('application.cancel',{request,session_id:sessionId,keep_inbox:keepInbox,...(inboxOnly?{inbox_only:true}:{}),...(cause&&{cause})},signal);
     if(result.session_id!==sessionId)throw new Error('Invalid native cancellation receipt');
     return {accepted:true};
   }

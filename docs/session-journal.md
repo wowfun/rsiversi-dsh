@@ -21,6 +21,11 @@ replacement, including when the first lookup preceded creation of the
 directory. Native-only sessions require no per-session storage entries or
 file opens.
 
+An Agent's cancellation cause comes from the native Turn's cancellation request.
+The projected `turn/end` preserves user, parent, disposal and hook causes,
+including the hook's original reason. A cancellation without recorded Agent
+attribution uses DSH's `legacy` cause.
+
 `SessionProjectionJournal` owns the application event log shared by attached
 Agents, workbench history and cold persistence. Native Kernel owns execution.
 The attached Agent's model-selection append and the ordinary workbench model

@@ -13,6 +13,27 @@ import {compactionLanguage} from '../../src/history/compaction-history.mjs';
 
 const cohortRoot = process.env.RSI_DSH_COHORT;
 const integration = (name, run) => test(name, { skip: !cohortRoot }, run);
+
+integration('a cancelled turn retains its recorded cause across a history page boundary', async () => {
+  const cohort=await loadCohort(cohortRoot);
+  const api={...await cohort.import('@deepseek-ai/dsh-session'),...await cohort.subpath('@deepseek-ai/dsh-session','surface'),
+    ...await cohort.import('@deepseek-ai/dsh-util-values')};
+  const session=new SessionFacade({},api,{header:api.Session.create('cancel-cause').header},false);
+  let mapping=restoreMapping(),seq=0;
+  const add=(type,turn_id,fields={})=>factObserver(session,mapping)({seq:++seq,timestamp_ms:seq,type,turn_id,...fields});
+  session.begin();
+  for(const reason of [{kind:'user'},{kind:'hook',reason:'第一行\n  第二行 '},{kind:'parent'},{kind:'disposed'},'native diagnostic',null]) {
+    await add('message_turn_accepted','current');
+    await add('cancel_requested','previous',{reason:{kind:'user'}});
+    await add('cancel_requested','current',{reason});
+    mapping=restoreMapping(JSON.parse(JSON.stringify(mapping)));
+    await add('turn_terminal','current',{outcome:{status:'cancelled'}});
+    assert.deepEqual(session.lastEvent('turn/end').data.reason,{kind:'aborted',reason:
+      reason && typeof reason==='object'?reason:{kind:'legacy'}});
+    assert.equal(mapping.cancelCause,undefined);
+  }
+  session.end();
+});
 const inline = value => {
   const text = JSON.stringify(value);
   return { kind: 'inline', text, sha256: createHash('sha256').update(text).digest('hex') };

@@ -7,11 +7,16 @@ import { claimInput, clearClaims, preparedMessages } from './input-history.mjs';
 
 const integer = value => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 const keys = ['version', 'factCursor', 'turn', 'step', 'turnId', 'stepId', 'stepOpen', 'model', 'calls', 'pendingMessages', 'claims'];
-const optional = ['compaction','compactionSettlement','startsRequestSeries','requestGeneration','preparedGeneration'];
+const optional = ['compaction','compactionSettlement','startsRequestSeries','requestGeneration','preparedGeneration','cancelCause'];
+function validCancelCause(cause) {
+  return cause && (cause.kind==='hook' ? typeof cause.reason==='string' && Object.keys(cause).length===2
+    : ['user','parent','disposed'].includes(cause.kind) && Object.keys(cause).length===1);
+}
 export function restoreMapping(value) {
   if (value == null) return { version: 4, factCursor: 0, turn: 0, step: 0, turnId: null, stepId: null, stepOpen: false, model: null, calls: [], pendingMessages: [], claims: [] };
   if (keys.some(key => !Object.hasOwn(value,key)) || Object.keys(value).some(key => !keys.includes(key) && !optional.includes(key))
       || 'startsRequestSeries' in value && (value.startsRequestSeries !== true || !value.stepOpen)
+      || 'cancelCause' in value && (!value.turnId || !validCancelCause(value.cancelCause))
       || ['requestGeneration','preparedGeneration'].some(key => key in value &&
         (typeof value[key] !== 'string' || !value[key].length || value[key].length > 256))
       || 'compaction' in value && (!integer(value.compaction) || !value.compaction || value.compaction > value.factCursor)
@@ -128,6 +133,8 @@ async function observeFact(session, mapping, fact, readFact, llm, observeRequest
     delete mapping.startsRequestSeries;
     delete mapping.preparedGeneration;
     mapping.stepId = null;
+  } else if (fact.type === 'cancel_requested' && fact.turn_id === mapping.turnId && fact.reason && typeof fact.reason === 'object') {
+    mapping.cancelCause = fact.reason;
   } else if (fact.type === 'turn_terminal' && fact.turn_id === mapping.turnId) {
     delete mapping.startsRequestSeries;
     delete mapping.preparedGeneration;
@@ -135,11 +142,12 @@ async function observeFact(session, mapping, fact, readFact, llm, observeRequest
     observeTool(session, mapping, fact);
     closeStep(session, mapping, fact.timestamp_ms);
     const outcome = fact.outcome;
-    const reason = { completed: { kind: 'completed' }, blocked: { kind: 'blocked' }, cancelled: { kind: 'aborted', reason: { kind: 'legacy' } },
+    const reason = { completed: { kind: 'completed' }, blocked: { kind: 'blocked' }, cancelled: { kind: 'aborted', reason: mapping.cancelCause ?? { kind: 'legacy' } },
       interrupted: { kind: 'interrupted' }, max_tokens: { kind: 'max-tokens' } }[outcome.status]
       ?? { kind: 'error', error: { code: outcome.code, message: outcome.message } };
     session.adoptObserved({type:'turn/end',seq:session.seq,time:fact.timestamp_ms,
       data:{turn:mapping.turn,reason,rsi:{session:session.id,fact:fact.seq,turn:fact.turn_id}}});
+    delete mapping.cancelCause;
     mapping.turnId = null; mapping.stepId = null; mapping.model = null;
   }
 }

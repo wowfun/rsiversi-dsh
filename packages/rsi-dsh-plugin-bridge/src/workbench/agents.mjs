@@ -222,13 +222,13 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         }
       }
     }
-    function clear(inboxOnly,keepInbox=false) {
+    function clear(inboxOnly,keepInbox=false,cause) {
       let operations=[],accepted=false;
       const pending=stage(record,async signal=>{
         if(!accepted)return false;
         try {
           await record.owner.flush();
-          await scope.cancel({sessionId:record.id,keepInbox,inboxOnly},signal);
+          await scope.cancel({sessionId:record.id,keepInbox,inboxOnly,cause},signal);
           await input().confirmClear(operations);
         }catch(error){input().abandonClear(operations);throw error;}
       });
@@ -289,7 +289,9 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         change(()=>input().accept(message,aborted?'next_turn':'steer'),true);
       },
       cancel(cause,{keepInbox=false}={}){
-        try {clear(false,keepInbox);}
+        // Keep only the durable fields before abort listeners can mutate the live cause.
+        const durable=cause.kind==='hook'?{kind:'hook',reason:cause.reason}:{kind:cause.kind};
+        try {clear(false,keepInbox,durable);}
         finally {
           if(record.maintenance) {
             record.maintenance.stopping=record.tail;
@@ -342,7 +344,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
         await record.owner?.flush();
         if(created)await scope.runOwned(async signal=>{
           if(!record.view.inbox.driver_active&&!record.view.inbox.active_turn_id)return;
-          await scope.cancel({sessionId:id,keepInbox:true},signal);
+          await scope.cancel({sessionId:id,keepInbox:true,cause:{kind:'disposed'}},signal);
           await scope.inbox.waitIdle(id,signal);
         });
         if(failure)throw failure;
