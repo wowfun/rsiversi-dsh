@@ -158,6 +158,13 @@ Profiles with package management load the released page and plugin
 recommendation providers. Their skills and actions follow the DSH profile
 settings and registered services.
 
+The official DeepSeek log contributor records HTTP acceptance in the Session
+journal as `session-log-deepseek/delivery-accepted`. Its sequence refers to
+the last event in the submitted prefix. The contributor folds these events
+on recovery, matching the Session identity and format generation. Unconfirmed
+requests leave the prefix eligible for a later request. Upload is opt-in for
+RSIversi and includes eligible events recorded while the preference was off.
+
 The original `/feedback <text>` command and `sessionFeedback.record` Remote
 append `feedback/record` to this same journal. The event is log-only and does not
 enter model context or trigger a Turn. The Remote accepts a live Session and

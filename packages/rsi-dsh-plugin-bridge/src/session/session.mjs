@@ -8,7 +8,7 @@ const admitted = new WeakMap();
 const journalEvents = new Set(['session/title', 'session/title-llm-request', 'approval/asked', 'approval/decided',
   'command/run', 'command/done', 'hook/invoked', 'hook/result', 'job/registered', 'job/settled',
   'feedback/message-put', 'feedback/message-delete', 'feedback/record', 'agent-preset/selected',
-  'action-cards/decision','workspace/changes','subagent/catalog','subagent/descriptor']);
+  'action-cards/decision','workspace/changes','subagent/catalog','subagent/descriptor','session-log-deepseek/delivery-accepted']);
 export const isJournalEvent = type => journalEvents.has(type);
 export const isPermissionEvent = type => type==='sandbox/mode'||type==='permission/preset'||type==='approval/policy';
 export const isChildSetupEvent = type => isPermissionEvent(type)||type==='workspace-root/change';
@@ -71,6 +71,12 @@ function envelope(event, seq, api) {
   } else if (event.type === 'session/title') {
     if(typeof data?.title!=='string'||!data.title.trim()||typeof data.source?.kind!=='string'||
       !Array.isArray(data.messageSeqs)||data.messageSeqs.some(value=>!integer(value)||value>=seq))throw Error('Invalid Session title');
+  } else if (event.type === 'session-log-deepseek/delivery-accepted') {
+    if (!data || typeof data.sessionId !== 'string' || !data.sessionId ||
+        !integer(data.throughSeq) || data.throughSeq >= seq ||
+        (data.sessionFormatVersion !== undefined && !integer(data.sessionFormatVersion))) {
+      throw Error('Invalid Session log acceptance');
+    }
   } else if (event.type === 'turn/start') {
     if (!shape(data, ['turn', 'rsi']) || !integer(data.turn)) throw new Error('invalid Turn start');
   } else if (event.type === 'step/start') {
