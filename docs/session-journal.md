@@ -22,6 +22,7 @@ directory. Native-only sessions require no per-session storage entries or
 file opens.
 
 An Agent's cancellation cause comes from the native Turn's cancellation request.
+The workbench's `session/cancel` command records a user stop and keeps queued input.
 The projected `turn/end` preserves user, parent, disposal and hook causes,
 including the hook's original reason. A cancellation without recorded Agent
 attribution uses DSH's `legacy` cause.

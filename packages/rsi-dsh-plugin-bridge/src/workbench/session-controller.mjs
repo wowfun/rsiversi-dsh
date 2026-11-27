@@ -202,7 +202,7 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
       const {ref:attachment,data}=await this.ctx.get('attachments').readImage(ref,signal);
       return {attachment,data:Buffer.from(data.buffer,data.byteOffset,data.byteLength).toString('base64')};
     }
-    cancel(request,signal) {return scope.cancel(request,signal);}
+    cancel({sessionId},signal) {return scope.cancel({sessionId,cause:{kind:'user'}},signal);}
     async updateQueue(request,signal) {
       const source=await updateQueue(request,scope.inbox,history,RemoteError,signal);
       if(request.action.kind==='remove'&&source.kind==='user'&&source.rpcId) {

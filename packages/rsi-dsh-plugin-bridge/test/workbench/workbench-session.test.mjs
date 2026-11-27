@@ -422,7 +422,7 @@ test('base workbench serves authorized cold pages through published Typert witho
       return {id,preset:'standard',summary:{id,cwd:profile,updatedAt:10,blank:!args.fork,running:false}};
     }
     if(method==='application.cancel') {
-      assert.deepEqual(args,{request:'issued-request',session_id:'one',keep_inbox:true});
+      assert.deepEqual(args,{request:'issued-request',session_id:'one',keep_inbox:true,cause:{kind:'user'}});
       return {session_id:'one',receipt:{accepted:true,already_terminal:false}};
     }
     if(method==='application.submit') {
