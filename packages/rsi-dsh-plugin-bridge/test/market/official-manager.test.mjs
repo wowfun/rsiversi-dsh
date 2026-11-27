@@ -9,7 +9,6 @@ import {createApplication} from '../../src/application/application.mjs';
 import {createMarketProfile} from '../../src/market/market-profile.mjs';
 import {packageCommand} from '../../src/market/package-command.mjs';
 import {rootSet,stage} from '../fixtures/fixture-roots.mjs';
-import {replayableInstalls} from '../../src/market/install-receipts.mjs';
 import {managedBoundary} from '../../src/market/management.mjs';
 import {managedPackages} from '../../src/market/managed-packages.mjs';
 import {requestBoundary} from '../../src/application/request-boundary.mjs';
@@ -40,7 +39,7 @@ test('released Discover manager runs its configured package command and can inst
   const app=await createApplication({modules,profile,baseRows,hostModules,boundary,provide:async(ctx,load)=>{
     const manager='@deepseek-ai/dsh-plugin-manager';
     const managerModule=await load(manager);
-    hostModules.set(manager,await replayableInstalls(managedPackages(managedBoundary(managerModule.default,()=>managed),()=>managed,managerModule),join(held,'state'),await load('@deepseek-ai/dsh-atomic-write')));
+    hostModules.set(manager,managedPackages(managedBoundary(managerModule.default,()=>managed),()=>managed,managerModule));
     managed=await createMarketProfile({modules,profile,state:join(held,'state'),boot,boundary,reconcile:layers=>app.reconcile(layers),
       manager:()=>ctx.get('pluginManager'),active:id=>[...ctx.loader.entries()].some(entry=>entry.options.id===id && entry.fiber?.state===ctx.fiber.state),
       view:async candidate=>{assert.equal(candidate,spec);return {name,version:'0.28.2',description:'sidebar',dsh:{bundle:{patch:'cordis.patch.yml'}}};},
@@ -107,7 +106,7 @@ test('released Discover manager runs its configured package command and can inst
   assert.equal(result.enabled,false);
   assert.equal(result.application,'applied',JSON.stringify(result));
   assert.deepEqual(result.registries,['https://mirror.example/','https://fallback.example/']);
-  assert.deepEqual(await app.ctx.pluginManager.installBundle(spec,{requestId:'discover-retry',enabled:false,approvedBuilds:['build-first'],registry:'https://mirror.example/'}),result);
+  assert.equal(await app.ctx.pluginManager.waitForInstall('discover-retry'),null);
   assert.equal(imports,3);
   const replacementPreview=await app.ctx.pluginManager.inspect(spec,{registry:'https://private.example/npm'});
   assert.equal(replacementPreview.status,'accepted');
@@ -132,6 +131,8 @@ test('released Discover manager runs its configured package command and can inst
   const replaced=await app.ctx.pluginManager.installBundle(spec,{requestId:'same-version-replacement',enabled:true});
   assert.equal(replaced.application,'applied',JSON.stringify(replaced));
   assert.equal(imports,6,'an explicit install must resolve content even when the version is unchanged');
-  assert.deepEqual(await app.ctx.pluginManager.installBundle(spec,{requestId:'same-version-replacement',enabled:true}),replaced);
-  assert.equal(imports,6,'a repeated operation identity must not remove or reinstall');
+  assert.equal(await app.ctx.pluginManager.waitForInstall('same-version-replacement'),null);
+  const repeat=await app.ctx.pluginManager.installBundle(spec,{requestId:'same-version-replacement',enabled:true});
+  assert.equal(repeat.application,'applied',JSON.stringify(repeat));
+  assert.equal(imports,7,'an explicit install resolves current package contents');
 });

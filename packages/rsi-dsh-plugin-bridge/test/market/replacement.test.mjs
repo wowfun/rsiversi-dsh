@@ -12,7 +12,6 @@ import {requestBoundary} from '../../src/application/request-boundary.mjs';
 import {createMarketProfile} from '../../src/market/market-profile.mjs';
 import {managedPackages} from '../../src/market/managed-packages.mjs';
 import {managedBoundary} from '../../src/market/management.mjs';
-import {replayableInstalls} from '../../src/market/install-receipts.mjs';
 import {packageCommand} from '../../src/market/package-command.mjs';
 import {captureProfileFiles} from '../../src/market/profile-files.mjs';
 import {rootSet,stage} from '../fixtures/fixture-roots.mjs';
@@ -83,8 +82,7 @@ test('real local module replacement drains old callbacks, resolves same-version 
     app=await createApplication({profile,modules,boundary,hostModules,
       baseRows:[{id:'plugin-manager',name:managerName}],provide:async(ctx,load)=>{
         const original=await load(managerName);
-        hostModules.set(managerName,await replayableInstalls(
-          managedPackages(managedBoundary(original.default,()=>market),()=>market,original),options.state,await load('@deepseek-ai/dsh-atomic-write')));
+        hostModules.set(managerName,managedPackages(managedBoundary(original.default,()=>market),()=>market,original));
         market=await createMarketProfile(options);
         const command=await packageCommand(profile,market.packageRunner);
         ctx.effect(()=>()=>command.close());
@@ -119,8 +117,12 @@ test('real local module replacement drains old callbacks, resolves same-version 
     let disabled=false;
     const disabling=manager.setBundleEnabled(name,false).then(value=>{disabled=true;return value;});
     const queued=manager.installBundle(source,{requestId:'queued-behind-disable'});
+    const waiting=manager.waitForInstall('queued-behind-disable');
     assert.equal((await manager.cancelInstall('queued-behind-disable')).status,'cancelled');
     assert.equal((await queued).application,'cancelled');
+    assert.deepEqual(await waiting,await queued);
+    assert.equal(await manager.waitForInstall('queued-behind-disable'),null);
+    assert.deepEqual(await manager.cancelInstall('queued-behind-disable'),{status:'not-running'});
     for(const phase of ['download','build']){
       const concurrent=await boundary.capture(new AbortController().signal,()=>{});
       assert.equal(await concurrent.run(()=>app.ctx.replacementProbe.work(Promise.resolve())),'v1');
@@ -156,9 +158,8 @@ test('real local module replacement drains old callbacks, resolves same-version 
     assert.equal(app.ctx.replacementProbe.version,'v2');
     assert.deepEqual(await captureProfileFiles(profile),files,'failure restores exact bytes and absence');
     assert.deepEqual(roots({}),selected,'failure retains the exact old digest, not the now-broken local source');
-    const before=imports;
-    assert.deepEqual(await manager.installBundle(source,{requestId:'failed'}),failed);
-    assert.equal(imports,before,'failed operation replay is also a receipt lookup');
+    assert.equal(await manager.waitForInstall('failed'),null);
+    await assert.rejects(readFile(join(options.state,'install-receipts.json')),{code:'ENOENT'});
     assert.equal(JSON.parse(await readFile(join(options.state,'selections.json'))).rollback,null);
     importing=Promise.withResolvers();
     await writeVersion('v3');

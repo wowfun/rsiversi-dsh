@@ -28,7 +28,6 @@ import {workbenchDeepSeekFields} from '../workbench/deepseek-fields.mjs';
 import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
 import {moveRegistryCache,profileState,registryCache,viewNpm} from '../../../rsi-dsh-cordis/src/registry/npm-install.mjs';
-import {replayableInstalls} from '../market/install-receipts.mjs';
 import {managedBoundary,managementTools} from '../market/management.mjs';
 import {managedPackages} from '../market/managed-packages.mjs';
 import {historyHeader,workbenchHistory} from '../workbench/history.mjs';
@@ -177,8 +176,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       await moveRegistryCache(profile);
       const managerName='@deepseek-ai/dsh-plugin-manager';
       const managerModule=await load(managerName);
-      hostModules.set(managerName,await replayableInstalls(
-        managedPackages(managedBoundary(managerModule.default,()=>market),()=>market,managerModule),state,await load('@deepseek-ai/dsh-atomic-write')));
+      hostModules.set(managerName,managedPackages(
+        managedBoundary(managerModule.default,()=>market),()=>market,managerModule));
       if(tools){
         hostModules.set(managerName+'/tools',managementTools(await load('@deepseek-ai/dsh-tools'),boundary));
       }
