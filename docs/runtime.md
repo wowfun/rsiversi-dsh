@@ -1419,6 +1419,8 @@ no inherited history. The Host records the initiating plugin and derives the
 child's execution permissions and tree depth from the actual parent. A missing
 parent rejects creation before Agent publication. This is a compatibility
 difference from DSH, which accepts a descriptive parent ID on its own.
+In particular, a direct child of a read-only parent starts read-only even
+when the workbench default grants workspace writes.
 An explicit child working directory is resolved against the parent's current
 directory. The Host pins the result for execution, including a sibling project
 selected by the plugin. The DSH Session header retains its original project,
