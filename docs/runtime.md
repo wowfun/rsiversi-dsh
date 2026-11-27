@@ -344,6 +344,11 @@ stream converter emits a DSH error finish with code `CONTENT_REFUSED`.
 Usage chunks and completed content keep their original order. The same
 terminal reason is available to plugins reading the recorded attempt.
 
+The workbench enables the released DeepSeek package inventory contributor by
+default. Eligible requests, including automatic titles, carry the names and
+versions of active Loader packages. The owner can turn off this contributor
+independently of Session log upload.
+
 The workbench defaults DeepSeek Session log upload to off. When enabled,
 the released request contributor includes outstanding Session events in the
 next eligible request, including events produced while disabled. Native

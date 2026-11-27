@@ -70,7 +70,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.ok(selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'&&selected.clientOnly.has(row.id)));
   const names=new Set(['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway',
     'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-permission-presets','dsh-agent-preset-registry','dsh-tool-subagent/model-selection-settings',
-    'dsh-deepseek-llm-api-extensions','dsh-session-log-deepseek']);
+    'dsh-deepseek-llm-api-extensions','dsh-session-log-deepseek','dsh-plugin-package-inventory-deepseek']);
   const rows=selected.rows.filter(row=>names.has(row.name.replace('@deepseek-ai/','')));
   permissions.config.presets['team-review']={sandbox:'read-only',approval:'never'};
   rows.push({id:'probe',name:'settings-probe',config:{token:'isolated-test-secret'}});
@@ -154,14 +154,22 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   const logNs='session-log-deepseek';
   const logForm=before.value.namespaces.find(row=>row.ns===logNs);
   assert.equal(logForm?.value.enabled,false);
-  assert.deepEqual(fieldActivity,[]);
   const logSession=app.ctx.sessions.create('opt-in-log');
   logSession.append('turn/start',{turn:1});
   const prepareLog=()=>app.ctx.deepseekLlmApiExtensions.prepare({body:{model:'fixture'},sessionId:logSession.id,signal:AbortSignal.timeout(5000)});
+  const inventoryId='plugin-package-inventory-deepseek';
+  const defaults=(await prepareLog()).fields;
+  assert.deepEqual(Object.keys(defaults),['dsh_plugin_packages']);
+  assert.ok(defaults.dsh_plugin_packages.packages.some(row=>row.name==='@deepseek-ai/dsh-'+inventoryId));
+  assert.deepEqual(fieldActivity,[true]);
+  const inventoryEntry=()=>app.ctx.configEditor.entries().find(entry=>entry.options.id===inventoryId);
+  await app.ctx.configEditor.edit(inventoryEntry(),config=>({...config,enabled:false}));
+  await fields.flush();
   assert.deepEqual(Object.keys((await prepareLog()).fields),[]);
+  assert.deepEqual(fieldActivity,[true,false]);
   const enabled=await rpc('settings/mutate',{ns:logNs,ops:[{op:'set',path:['enabled'],value:true}],expectedRevision:logForm.revision});
   assert.equal(enabled.ok,true,JSON.stringify(enabled));
-  assert.deepEqual(fieldActivity,[true]);
+  assert.deepEqual(fieldActivity,[true,false,true]);
   assert.equal((await prepareLog()).fields.dsh_session_log.events[0].type,'turn/start');
   const modelForm=before.value.namespaces.find(row=>row.ns===modelNs);
   assert.deepEqual(modelForm?.value,{enabled:false,allowedModels:[]});
@@ -263,6 +271,8 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.deepEqual(await Promise.all(generated.map(path=>readFile(path))),saved);
   await app.ctx.settings.mutate(logNs,[{op:'unset',path:['enabled']}]);
   assert.equal(app.ctx.settings.describe().find(row=>row.ns===logNs).value.enabled,false);
+  assert.equal(inventoryEntry().options.config.enabled,false);
+  assert.deepEqual(Object.keys((await prepareLog()).fields),[]);
   assert.equal(fieldActivity.at(-1),false);
   const contribution=app.ctx.inject(['deepseekLlmApiExtensions'],ctx=>{ctx.deepseekLlmApiExtensions.register('sample_field',{prepare:()=>({value:3})});});
   await contribution;
@@ -271,4 +281,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   await contribution.dispose();
   await fields.flush();
   assert.equal(fieldActivity.at(-1),false);
+  await app.ctx.configEditor.edit(inventoryEntry(),()=>({}));
+  await fields.flush();
+  assert.deepEqual(Object.keys((await prepareLog()).fields),['dsh_plugin_packages']);
 });
