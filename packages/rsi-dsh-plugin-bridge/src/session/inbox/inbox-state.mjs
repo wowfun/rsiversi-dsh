@@ -13,12 +13,11 @@ export function inputNativeId(operation) {
 
 /** Bind native acceptances to local operations without using a reusable presentation ID. */
 export function inputIdentities(journal) {
-  const observed=new Map(journal.operations().filter(row=>['observed-input','submission'].includes(row.invocation?.kind))
-    .map(row=>[inputNativeId(row),row])),cache=new Map();
+  const cache=new Map();
   return row=>{
     if(cache.has(row.nativeId))return cache.get(row.nativeId);
     const source=row.source.type==='command'?row.source.source:undefined;
-    const operation=(source?journal.operation(source.request_id):undefined)??observed.get(row.nativeId);
+    const operation=(source?journal.operation(source.request_id):undefined)??journal.nativeInputOperation(row.nativeId);
     let key='native:'+row.nativeId;
     if(operation) {
       const accepted=journal.session.eventAt(operation.seq),invocation=operation.invocation;

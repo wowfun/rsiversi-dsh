@@ -1,9 +1,33 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {nativeInboxFixture,message} from '../../fixtures/native-inbox-fixture.mjs';
-import {inboxReader} from '../../../src/session/inbox/inbox-state.mjs';
+import {inboxReader,inputIdentities} from '../../../src/session/inbox/inbox-state.mjs';
 
 const enabled={skip:!process.env.RSI_DSH_MARKET_COHORT||!process.env.RSI_DSH_INBOX_SOURCE,timeout:15000};
+
+test('native input correlation reads current receipts without enumerating the journal',enabled,async t=>{
+  const f=await nativeInboxFixture(t),journal=f.owner.journal,original=message('display');
+  const source={type:'human',attribution:{id:original.id,source:original.source}};
+  const splice={target:'next-step',start:0,inserted:[original]};
+  const removed={target:'next-step',start:0,removedCount:1,inserted:[],outcome:'canceled'};
+  const row={nativeId:'native-id',source,message:original};
+  const alias={kind:'observed-input',message_id:row.nativeId,source};
+  journal.accept('first-observer','agent/inbox/spliced',splice,{},1);
+  journal.accept('first-removal','agent/inbox/spliced',removed,{},1);
+  journal.accept(row.nativeId,'agent/inbox/spliced',splice,{},2,{kind:'submission'});
+  journal.prepare('first-observer',alias);
+  const operations=journal.operations.bind(journal);
+  let scans=0;
+  journal.operations=()=>{scans++;return operations();};
+  assert.equal(inputIdentities(journal)(row).operation.id,row.nativeId);
+  journal.accept('second-removal','agent/inbox/spliced',removed,{},2);
+  journal.accept('last-observer','agent/inbox/spliced',splice,{},3,alias);
+  assert.equal(inputIdentities(journal)(row).operation.id,'last-observer');
+  assert.equal(inputIdentities(journal)({...row,nativeId:'unseen'}).operation,undefined);
+  journal.complete('last-observer',{kind:'not-dispatched'});
+  assert.throws(()=>inputIdentities(journal)(row),/disagrees with its prepared application input/);
+  assert.equal(scans,0);
+});
 
 test('changing inbox reads fold only appended events and keep metadata current',enabled,async t=>{
   const f=await nativeInboxFixture(t,{kind:'durable'}),journal=f.owner.journal;
@@ -69,6 +93,11 @@ test('native identity preparation invalidates a read captured by the synchronous
     message_id:'native-external',source:{type:'human',attribution:{id:original.id,source:original.source}},content:original.content}}];
   f.state.revision++;await f.refresh();
   assert.deepEqual(captured[0]['next-step'],[original]);
+  const journal=f.owner.journal,operations=journal.operations.bind(journal);
+  let scans=0;
+  journal.operations=()=>{scans++;return operations();};
+  for(let n=0;n<45;n++)f.owner.input.observeDraft(f.snapshot());
+  assert.equal(scans,0,'a repeated draft snapshot enumerated accepted operations');
   f.state.pending=[];f.state.revision++;await f.refresh();
   assert.equal(f.agent.inbox.hasPending,false,'the prepared identity permits observed draft withdrawal');
   assert.deepEqual(captured[0]['next-step'],[original],'the earlier immutable view stays unchanged');

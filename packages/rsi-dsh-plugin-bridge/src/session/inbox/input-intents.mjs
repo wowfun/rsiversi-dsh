@@ -18,8 +18,8 @@ function queueReceipt(id,input,receipt) {
 export function inputIntents(journal,{command,submit,messageStatus,readMessage,beforeSubmit,inbox,reader=inboxReader(journal)}) {
   let tail=Promise.resolve(),settledThrough=0;const undispatched=new Set();
   const read=()=>reader.prefix();
-  const inputs=()=>journal.operations().filter(row=>journal.session.eventAt(row.seq).type==='agent/inbox/spliced');
-  const pendingClears=new Set(inputs().filter(row=>row.invocation?.kind==='clear-inputs'&&!row.receipt).map(row=>row.id));
+  const pendingClears=new Set(journal.operations().filter(row=>row.invocation?.kind==='clear-inputs'&&!row.receipt&&
+    journal.session.eventAt(row.seq).type==='agent/inbox/spliced').map(row=>row.id));
   const activeClears=new Set(),blockedRestorations=new Set();
   function insert(message,target='next-step',invocation) {
     const state=read().state;
@@ -257,9 +257,7 @@ export function inputIntents(journal,{command,submit,messageStatus,readMessage,b
     ready(signal,through=journal.seq){const next=tail.catch(()=>{}).then(()=>settle(signal,through));tail=next;return next;},
     observeDraft(captured) {
       if(captured.kind!=='draft')return;
-      const known=new Map(inputs().flatMap(row=>{const id=inputNativeId(row);return id?[[id,row]]:[];}));
-      for(const row of captured.pending) {
-        if(known.has(row.message_id))continue;
+      for(const row of captured.pending.filter(row=>!journal.hasNativeInput(row.message_id))) {
         const source=row.message.source,message={id:nativeMessageId(source,row.message_id),role:'user',
           source:nativeMessageSource(source,row.message_id),content:contentBlocks(row.message.content)};
         insert(message,row.target.replace('_','-'),{kind:'observed-input',message_id:row.message_id,source});

@@ -1,7 +1,7 @@
 import {isDeepStrictEqual} from 'node:util';
 import {SessionFacade,digest,isChildSetupEvent,isJournalEvent,isPermissionEvent,remap} from './session.mjs';
 import {isForkAnnotation,isInheritedMarker} from './fork-annotations.mjs';
-import {restoreJournalEvents,encodeJournalDocument,createSourceDigest} from './journal-document.mjs';
+import {restoreJournalEvents,encodeJournalDocument,createSourceDigest,JournalOperations} from './journal-document.mjs';
 
 const integer=value=>Number.isSafeInteger(value)&&value>=0&&!Object.is(value,-0);
 const identity=value=>typeof value==='string'&&value.length>0&&value.length<=256;
@@ -10,7 +10,7 @@ const body=({seq,time,...value})=>value;
 
 /** One synchronous application event owner; native commands remain outside this log. */
 export class SessionProjectionJournal {
-  #ctx;#api;#session;#sources=[];#operations=new Map();#operationIds=[];#publishing=false;
+  #ctx;#api;#session;#sources=[];#operations=new JournalOperations();#operationIds=[];#publishing=false;
   #modelSelectionId;#revision=0;#saved=-1;#writing;#nextWrite;#annotationCount=0;#rewrite=false;
   #save;#notify;#report;#inboxSlotFrom=0;#owned=[];#sharedNative;
   #sourceDigest=createSourceDigest();#nativePreset;
@@ -105,6 +105,8 @@ export class SessionProjectionJournal {
   }
   operation(id){return this.#operations.get(id);}
   operationAt(seq){return this.#operations.get(this.#operationIds[seq]);}
+  nativeInputOperation(id){return this.#operations.nativeInput(id);}
+  hasNativeInput(id){return this.#operations.hasNativeInput(id);}
   latestModelSelection(){return this.#operations.get(this.#modelSelectionId);}
   #addOperation(operation,type) {
     this.#operations.set(operation.id,operation);

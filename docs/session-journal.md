@@ -347,6 +347,14 @@ visible without replaying the event prefix or changing an earlier public snapsho
 Native identity correlation remains a separate boundary check when a new native
 transition is folded. An invalid splice leaves the last valid fold intact and is
 rejected again on a later read; it cannot be skipped by advancing the cursor.
+Direct submissions use their operation ID as the native message ID. Only an
+observed input needs an alternate lookup from its native message ID to its
+application operation. The journal derives these aliases from prepared
+operations on acceptance and on recovery. Each lookup reads the current
+operation so later receipts participate in the same provenance check.
+Draft reconciliation checks membership by native message ID. It recognizes the
+derived message ID of a prepared context command even after a withdrawal.
+Native command acknowledgements still require their original request provenance.
 Native observations publish the source map and projection together before readers
 run. No read cache survives a new owner or replaces cold boundary validation.
 

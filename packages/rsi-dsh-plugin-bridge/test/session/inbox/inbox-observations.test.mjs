@@ -97,7 +97,10 @@ test('new native batches start at the committed inbox and discard rejected splic
 test('correlated input storage preserves local coordinates and rejects missing or changed native ownership',enabled,async t=>{
   const f=await fixture(t),text='native-owned-'.repeat(25_000),accepted=f.accept('owned',user('owned',text));
   assert.equal(f.journal.encode().split(text).length-1,1,'unobserved acceptance retains dispatch recovery');
-  f.external('before');f.acknowledgement('owned');await f.capture();
+  f.external('before');const nativeId=f.acknowledgement('owned');
+  assert.equal(f.journal.hasNativeInput(nativeId),true);
+  assert.equal(f.journal.nativeInputOperation(nativeId),undefined,'a command also needs its source request ID');
+  await f.capture();
   const saved=f.documents.get('inbox'),state=JSON.parse(saved);
   assert.equal(saved.includes(text),false);
   assert.equal(state.events.find(event=>event.seq===accepted.seq).data.inserted,null);

@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {presetId,remap} from './session.mjs';
 import {inboxObservationProjection} from './inbox/inbox-observations.mjs';
-import {inboxReader,inboxTransitions} from './inbox/inbox-state.mjs';
+import {inboxReader,inboxTransitions,inputNativeId} from './inbox/inbox-state.mjs';
 import {restoreInputOperation} from './inbox/input-invocation.mjs';
 
 export const maximumJournalBytes=128*1024*1024;
@@ -10,6 +10,29 @@ const shape=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&
 const isDigest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 
 export const createSourceDigest=()=>createHash('sha256').update('rsi.dsh.native-source-prefix.v1\0');
+
+/** Accepted operations keep their first position when preparation or a receipt replaces the row. */
+export class JournalOperations extends Map {
+  #inputAliases;
+  set(id,row) {
+    const input=row.invocation;
+    if((input?.kind==='observed-input'||input?.kind==='context-input')&&input!==this.get(id)?.invocation) {
+      const aliases=this.#inputAliases??=new Map(),nativeId=inputNativeId(row);
+      const previous=this.get(aliases.get(nativeId));
+      // Command IDs establish draft membership. Correlating a command needs its request provenance.
+      if(!previous||input.kind==='observed-input'&&(previous.invocation.kind!=='observed-input'||row.seq>previous.seq))
+        aliases.set(nativeId,id);
+    }
+    return super.set(id,row);
+  }
+  nativeInput(id) {
+    const operation=this.get(id);
+    const direct=operation?.invocation?.kind==='submission'?operation:undefined;
+    const observed=this.#inputAliases&&this.get(this.#inputAliases.get(id));
+    return observed?.invocation.kind==='observed-input'&&observed.seq>(direct?.seq??-1)?observed:direct;
+  }
+  hasNativeInput(id){return this.#inputAliases?.has(id)||this.get(id)?.invocation?.kind==='submission';}
+}
 
 function expandSourceRuns(state,limit) {
   let count=0,end=0;
@@ -148,9 +171,10 @@ export function restoreJournalEvents(state,native=[]) {
   }
   for(let seq=0;seq<events.length;seq++)if(!events[seq])throw Error('Application journal contains unowned event positions');
   if(!splices.length)return events;
-  const operations=new Map(state.operations.map(row=>[row.id,row]));
+  const operations=new JournalOperations();
+  for(const row of state.operations)operations.set(row.id,row);
   const view={session:{seq:events.length,eventAt:seq=>events[seq]},nativeSeq:state.sources.length,revision:0,
-    sourceAt:seq=>state.sources[seq],operations:()=>state.operations,operation:id=>operations.get(id),operationAt:seq=>at.get(seq)};
+    sourceAt:seq=>state.sources[seq],nativeInputOperation:id=>operations.nativeInput(id),operation:id=>operations.get(id),operationAt:seq=>at.get(seq)};
   const {projections}=inboxObservationProjection(view,splices,inboxReader(view,seq=>native[seq]));
   for(const [index,data] of projections) {
     const seq=state.sources[index].seq;
