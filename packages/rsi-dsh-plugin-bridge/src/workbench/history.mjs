@@ -46,8 +46,8 @@ function pageOf(session,api,end,{max,window}) {
   return {records:session.snapshotEvents(start,end).map(event=>({type:'event',event})),hasMore:start>0};
 }
 
-export function workbenchHistory({ctx,api,llm,RemoteError,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta,retireToolOutcome}) {
-  const owners=workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome});
+export function workbenchHistory({ctx,api,llm,RemoteError,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta}) {
+  const owners=workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta});
   const live=workbenchControl(authorize);
   async function open(request,signal,captured,first) {
     const {address}=request;

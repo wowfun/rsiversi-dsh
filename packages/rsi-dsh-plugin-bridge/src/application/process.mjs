@@ -82,7 +82,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
   };
   const hostModules=new Map();
   const setup=performance.now();
-  let toolListener,retireToolOutcome,sessionScope,fields;
+  let toolListener,sessionScope,fields;
   const boundary=requestBoundary();
   const candidate = await createApplication({modules:applicationModules,profile,hostModules,clientOnly,baseRows:base[0].insert,boundary,provide:async (ctx,load) => {
     workbench=ctx;
@@ -108,8 +108,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     history=workbenchHistory({ctx,api,llm,RemoteError,read:sessionScope.history,release:sessionScope.releaseHistory,
       listChildren:sessionScope.subagents.listChildren,authorize:sessionScope.authorize,command:sessionScope.command,
       submit:sessionScope.submit,inbox:sessionScope.inbox,
-      storage,creationMeta:(id,createdAt)=>agents?.creationMeta(id,createdAt),
-      retireToolOutcome:(...args)=>retireToolOutcome?.(...args)});
+      storage,creationMeta:(id,createdAt)=>agents?.creationMeta(id,createdAt)});
     ctx.effect(()=>()=>history.close(),'flush application Session journals');
     persistence=workbenchPersistence(history,await load('@deepseek-ai/dsh-session-persistence'),sessionScope.storedPages);
     hostModules.set('@deepseek-ai/dsh-workspace',{async apply(scope){
@@ -224,9 +223,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     }).await();
     if(tools){
       await (await ctx.plugin((await load('@deepseek-ai/dsh-user-approval')).default,{})).await();
-      const {retireOutcome,...listener}=await applicationTools(ctx,{load,key,generation,directory:tools.outcomeDirectory,sessions:sessionScope,boundary,
+      toolListener=await applicationTools(ctx,{load,key,generation,sessions:sessionScope,boundary,
         resolveAgent:(id,signal)=>sessionScope.runOwned(()=>agents.ensure(id,signal),signal)});
-      toolListener=listener;retireToolOutcome=retireOutcome;
     }
   }});
   const composed=performance.now();

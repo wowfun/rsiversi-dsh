@@ -676,46 +676,15 @@ After native view and invocation admission, the original pipeline resolves the
 captured registration. Withdrawal before dispatch or across an asynchronous hook
 produces the same structured DSH `UNKNOWN_TOOL` result and final-result notification;
 the bridge does not scan the tool catalog first or substitute its own missing-tool result.
-A started invocation is bound in memory under its native
-Session and effect before entering the original pipeline. The native Tool intent
-owns durable admission; the application persists only settled results. The initial
-start request stays open until the atomic outcome write completes. The original
-DSH pipeline owns detachment and freezing of plugin-authored results. The bridge
-builds a private native envelope from those values and returns that same owned
-outcome after publication, without parsing its own serialized copy. Reads from
-the durable ledger still decode the stored receipt at that boundary. A repeated
-start for the same retained invocation returns its
-recorded state. A read of its outcome never dispatches the tool. An interrupted
-body without a recorded result reports uncertainty. Reads and cancellation bind to the
-original registration and native Tool result identity, including the caller's
-argument digest. A cancellation arriving during admission waits for that ordered
-admission before deciding whether the body is running. Lost HTTP responses are followed
-only by outcome reads on the current or replacement process. A new execution requires
-the original live captured view and registration; duplicate start may read an existing
-matching receipt without that view. Missing receipts in a replacement process remain
-unknown. The registration and the Host-issued invocation identity bind the
-receipt. Equivalent JSON argument objects can arrive in a different key
-order and still refer to the same call. The Agent loop schedules parallel-safe calls per Session batch. Two
-Sessions with a parallel limit of ten can each execute ten calls concurrently.
-Pending and unknown live bindings share the
-128-record retention limit with settled files; only settled files count toward the
-64 MiB disk budget. Identity fields follow the native 256-byte identifier bound.
-Once an authorized native history read observes the matching committed
-`ToolResult`, its Session, effect and full result identity retire the redundant
-application receipt. Native Fact publication is the ownership transfer; a DSH
-surface event or a tool-body return is insufficient. The live ledger retains
-only the bounded invocation binding to refuse another execution, and subsequent
-outcome reads report unknown because the canonical result now belongs to Store.
-Cold history can retire leftover receipts after a crash. Unobserved receipts
-retain the existing recovery window and capacity policy. Cleanup failures are
-reported and leave the receipt available; they do not fail history reads.
-When the application retires, a call still awaiting admission cannot
-enter the plugin body. Retirement cancels bodies already running and waits for
-their final receipt writes before releasing the captured tool sets.
-Market tool hooks return text `additionalContexts` through this receipt.
-On success the same receipt preserves the original pipeline's `concludesTurn`
-marker. The native Executor decides at the batch boundary whether pending input
-needs another model request.
+Each captured view binds a started invocation to its Host-issued effect, tool registration
+and result identity. A repeated start in the same view returns its current state. Lost
+HTTP replies can be queried or cancelled there without repeating the plugin body.
+The original DSH pipeline detaches plugin results. The same materialized result,
+including deferred messages and the concludesTurn marker, remains available until
+the Host releases the view. Release cancels pending bodies and the selection drains
+their callbacks before disposal. After Worker loss the only durable outcome is the
+ToolResult in native session history. An unfinished call has an unknown outcome.
+Parallel-safe calls execute concurrently in each session batch.
 When policy prevents a native body from starting, the refusal frame carries
 the original pipeline's final deferred messages. The Kernel records them with
 the model call's rejection and claims them on its next preparation.
@@ -1386,7 +1355,7 @@ for standalone use. Failed compensation fences subsequent mutations. Address
 the reported recovery failure, then restart the application with the same
 profile and its existing Host state. Startup retries the retained recovery
 intent; creating a new profile is not required for a supported journal format.
-Tool listener protocol 17 uses the original execution pipeline's
+Tool listener protocol 18 uses the original execution pipeline's
 `executionMode` for overlap decisions on each captured application registration.
 The classifier sees the actual arguments and Agent scope. Only an exact positive
 decision allows concurrent dispatch. A retired view, undeclared classifier,

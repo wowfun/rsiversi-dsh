@@ -50,11 +50,8 @@ one side's retained Session views. Record the process identities and verify
 that the native measured lifetime has not read the target history before that
 query. Keep the initial corpus fixed between rounds; report growing-corpus
 measurements separately instead of mixing them into one cold-start percentile.
-Both sides start with isolated benchmark state. Native outcome receipts must not
-inherit files from previous runs: the real Kernel retires published outcomes,
-whereas a transport-only probe does not publish Facts. Measure a deliberately
-full receipt ledger separately and label its eviction work; do not mix it into
-an ordinary fresh-run sample without reporting that state.
+Both sides start with isolated benchmark state. The transport probe measures the live view.
+Native session Fact publication is measured through the running Host.
 
 Native transport measurements use RSI's Rust start/observe client, including
 typed response decoding and validation. Report a Node HTTP controller's timing

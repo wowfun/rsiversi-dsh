@@ -26,7 +26,7 @@ function compare(a,b) {
 }
 
 /** One event owner while any Agent, reader or pending write retains its Session. */
-export function workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome}) {
+export function workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta}) {
   const rows=new Map(),opening=new Map(),retained=new WeakMap(),nativeTails=new Map();let closed=false;
   const collected=new FinalizationRegistry(({id,reference})=>{if(rows.get(id)===reference)rows.delete(id);});
   async function create(header,meta,call,release,signal,first) {
@@ -38,7 +38,7 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     if(meta.inherited&&declared?.origin==='subagent')
       header={...header,origin:declared.origin,...(declared.delegationDepth===undefined?{}:{delegationDepth:declared.delegationDepth})};
     if(restore)header={...identityHeader(header),...restore.header.agentPreset===undefined?{}:{agentPreset:restore.header.agentPreset}};
-    const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal,retireToolOutcome});
+    const source=await workbenchSource({ctx,api,llm,header,meta,call,release,signal});
     source.current.permission=restoredPermissionSeed(restore);
     if(header.origin&&declared&&source.current.session.header.parentSession!==declared.parentSession)
       throw Error('Declared fork parent differs from its native seed');

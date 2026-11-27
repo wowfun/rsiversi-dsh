@@ -1,18 +1,18 @@
 import {createServer} from 'node:http';
 import {timingSafeEqual,randomUUID} from 'node:crypto';
 import {resultMetadata,toolPipeline} from './tool-pipeline.mjs';
-import {toolLedger} from './application-tool-ledger.mjs';
 import {toolContextOutput} from '../history/step-messages.mjs';
 import {prepareRequestInputs,runtimeContextProjection} from '../agent/request-input.mjs';
 import {serveNativeTools} from './native-tool.mjs';
 import {requestBoundary} from '../application/request-boundary.mjs';
 
+const identifier=value=>typeof value==='string'&&value.length>0&&Buffer.byteLength(value)<=256;
 const maxBytes=32*1024*1024;
 // Native mailbox prefix (32 MiB), contributions (16 MiB), Tool contexts
 // (16 MiB), preceding preset edits (32 MiB), and 1 MiB of envelopes.
 const maxPreparationBytes=(32+16+16+32+1)*1024*1024;
 
-export async function applicationTools(ctx,{load,key,generation,directory,sessions,resolveAgent,boundary=requestBoundary()}){
+export async function applicationTools(ctx,{load,key,generation,sessions,resolveAgent,boundary=requestBoundary()}){
   const tools=await load('@deepseek-ai/dsh-tools');
   const prompt=await load('@deepseek-ai/dsh-system-prompt');
   const {renderPrompt}=prompt;
@@ -20,7 +20,6 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   const runtimeContext=runtimeContextProjection({...prompt,...await load('@deepseek-ai/dsh-llm')});
   const {execute,executionMode}=toolPipeline(ctx,await load('@deepseek-ai/dsh-tools/pipeline'),tools);
   const views=new Map(),secret=Buffer.from(key);
-  const ledger=await toolLedger(directory,(await load('@deepseek-ai/dsh-atomic-write')).writeFileAtomic);
   const lanes={capture:{active:0,limit:24},release:{active:0,limit:64},cancel:{active:0,limit:24},work:{active:0,limit:24}};
   function release(id) {
     const row=views.get(id);
@@ -34,7 +33,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       ||modelSelection.reasoningEffort!==undefined&&(typeof modelSelection.reasoningEffort!=='string'||!modelSelection.reasoningEffort))
       throw Error('Tool capture requires the native request model selection');
     if(views.has(view)||views.size>=64)throw Error('Tool capture capacity');
-    const row={bindings:new Map(),reserved:new Set(reserved)};
+    const row={bindings:new Map(),calls:new Map(),reserved:new Set(reserved)};
     row.lease=await boundary.capture(signal,()=>row.selection?.dispose());
     // Capacity and identity can change while reconciliation blocks capture.
     if(views.has(view)||views.size>=64){row.lease.release();throw Error('Tool capture capacity');}
@@ -100,7 +99,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       arguments:args,toolSet:view.selection,signal}),signal,{generation,effect:input.effect});
     const contexts=toolContextOutput(result.additionalContexts??[]);
     // The pipeline detached and froze plugin data; this fresh envelope stays
-    // private until the ledger has published it, so its payloads can be shared.
+    // private to this request view, so its payloads can be shared.
     return {value:result.value??null,content:result.content,is_error:result.isError===true,metadata:resultMetadata(result),
       ...(result.concludesTurn?{concludes_turn:true}:{}),
       ...(contexts.length?{additional_contexts:contexts}:{})};
@@ -126,13 +125,38 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
         return executionMode({agent:row.agent,toolSet:row.selection,callId:call.id,
           name:call.name,arguments:args,signal})==='parallel';
       }
-      case '/v1/start':{
+      case '/v1/start':
+      case '/v1/outcome':
+      case '/v1/cancel':{
         const view=views.get(input.view);
-        const admitted=view?.agent&&view.agent.id===input.session&&view.bindings.get(input.registration)===input.name;
-        return ledger.start(input,admitted?stop=>view.lease.run(()=>run(input,AbortSignal.any([stop,view.lease.signal]),view)):undefined);
+        const {session,effect,registration,identity}=input;
+        const captured=view?.agent?.id===session&&view?.bindings.has(registration);
+        const call=captured?view.calls.get(effect):undefined;
+        const matches=call&&call.registration===registration&&call.identity.owner_id===identity?.owner_id&&
+          call.identity.call_id===identity.call_id&&call.identity.request_sha256===identity.request_sha256&&identity.invocation_id===effect;
+        if(path==='/v1/outcome')return matches?call.outcome:{state:'unknown'};
+        if(path==='/v1/cancel'){
+          const accepted=!!(matches&&call.abort);
+          if(accepted)call.abort.abort();
+          return {accepted};
+        }
+        if(!captured||view.bindings.get(registration)!==input.name)return {state:'unknown'};
+        if(!identity||!identifier(effect)||identity.invocation_id!==effect||!identifier(identity.call_id)||
+          !identifier(identity.owner_id)||!/^[0-9a-f]{64}$/.test(identity.request_sha256))throw Error('Invalid native tool invocation');
+        if(call){
+          if(!matches)throw Error('Tool effect was already bound to another call');
+          return call.outcome;
+        }
+        const abort=new AbortController();
+        const entry={registration,identity,abort,outcome:{state:'pending'}};
+        view.calls.set(effect,entry);
+        try {
+          const result=await view.lease.run(()=>run(input,AbortSignal.any([abort.signal,view.lease.signal]),view));
+          entry.outcome={state:'settled',result};
+        }catch{entry.outcome={state:'unknown'};}
+        finally{entry.abort=undefined;}
+        return entry.outcome;
       }
-      case '/v1/outcome':return ledger.outcome(input);
-      case '/v1/cancel':return ledger.cancel(input);
       case '/v1/release':release(input.view);return {};
       default:throw Error('Unknown application tool operation');
     }
@@ -155,7 +179,7 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
       for await(const chunk of req){size+=chunk.length;if(size>limit)throw Error('Tool request exceeds capacity');chunks.push(chunk);}
       const input=JSON.parse(Buffer.concat(chunks).toString());
       // Body admission ends before execution. The native scheduler owns each
-      // batch, and the ledger reserves outstanding effects until settlement.
+      // batch, and the captured view owns its live invocations.
       if(req.url==='/v1/start'){lane.active--;readingOrServing=false;}
       const value=await dispatch(req.url,input,abort.signal);
       if(res.destroyed)return;
@@ -173,11 +197,9 @@ export async function applicationTools(ctx,{load,key,generation,directory,sessio
   const closeNative=serveNativeTools(server,WebSocketServer,authenticated,views,sessions,execute);
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
   ctx.effect(()=>async()=>{
-    closeNative();server.close();server.closeAllConnections();await ledger.close();
+    closeNative();server.close();server.closeAllConnections();
     for(const id of views.keys())release(id);
     await boundary.close();
   },'close application tool source');
-  return {protocol:17,generation,port:server.address().port,
-    retireOutcome:(session,effect,identity)=>ledger.retire(session,effect,identity)
-      ?.catch(error=>ctx.logger.warn('Application tool receipt cleanup failed:',error))};
+  return {protocol:18,generation,port:server.address().port};
 }
