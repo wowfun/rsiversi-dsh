@@ -105,7 +105,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const {canonicalClientTimeZone}=await load('@deepseek-ai/dsh-util-time');
     const interactions=workbenchInteractions(ctx,sessionScope,await load('@deepseek-ai/dsh-scope'));
     const api=Object.assign({},await load('@deepseek-ai/dsh-session'),await load('@deepseek-ai/dsh-session/surface'),await load('@deepseek-ai/dsh-util-values'));
-    history=workbenchHistory({ctx,api,llm,read:sessionScope.history,release:sessionScope.releaseHistory,
+    history=workbenchHistory({ctx,api,llm,RemoteError,read:sessionScope.history,release:sessionScope.releaseHistory,
       listChildren:sessionScope.subagents.listChildren,authorize:sessionScope.authorize,command:sessionScope.command,
       submit:sessionScope.submit,inbox:sessionScope.inbox,
       storage,creationMeta:(id,createdAt)=>agents?.creationMeta(id,createdAt),

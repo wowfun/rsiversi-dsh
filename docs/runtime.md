@@ -1743,7 +1743,12 @@ Selecting a seeded history reconstructs the retained ancestor intervals
 before the child's own events. Full and empty inherited prefixes use the
 same fork projection as the Agent bridge. A selective suffix that needs an
 unavailable projection checkpoint reports its limitation. A subagent address
-must identify the child's actual direct parent.
+must identify the child's actual direct parent. History pages and followers
+resolve a DSH child's mode from its own durable descriptor. A breadcrumb may
+open the child with mode `unknown` before its catalog arrives. An explicit
+mode must match. The ordinary Session address is reserved for ordinary
+Sessions. Native children exposed by the native catalog retain their
+continuable history address.
 For a manual Side Chat fork, a native Turn boundary in the supplied DSH seed
 determines the cut directly. When the seed lacks a boundary, the factory reads
 the attached parent's events only through its first local Turn start.

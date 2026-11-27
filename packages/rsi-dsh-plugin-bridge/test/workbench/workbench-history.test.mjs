@@ -349,6 +349,53 @@ test('reconnect opens inside a real prefix, emits dense subsequent chunks and cl
   assert.deepEqual((await flow.next()).value,{type:'event',event:stepEnd});
   await flow.return();assert.ok(closed);
 });
+test('subagent breadcrumbs read the durable mode on a page and a cold follow',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json'));
+  const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));
+  const ctx=new (await load('cordis')).Context();
+  t.after(()=>ctx.fiber.dispose());
+  await ctx.plugin((await load('dsh-session-projection')).default);
+  ctx.provide('workingDirectory',{});
+  const subagents=await load('dsh-subagent');
+  await ctx.plugin(subagents.default);
+  const api=Object.assign({},await load('dsh-session'),await load('dsh-session/surface'),await load('dsh-util-values'));
+  const saved=new Map(),signal=new AbortController().signal;
+  const storage={read:id=>saved.get(id),save:(id,doc)=>saved.set(id,structuredClone(doc))};
+  const options={ctx,api,storage,llm:await load('dsh-llm'),RemoteError:(await load('dsh-typert-protocol')).RemoteError,
+    read:async(id,op,_signal,parent)=>{
+      assert.equal(op.type,'open');
+      if(parent!==undefined&&parent!=='parent')throw Error('Session address does not identify a direct child');
+      return {id,created_at:1,through:0,cwd:process.cwd(),inherited:false,parent:'parent',plugin_child_depth:1,
+        model_baseline:{model:{deployment:'native',model:'configured'}},
+        selection_cursor:{kind:'durable',fact_seq:0,control_seq:0}};
+    }};
+  for(const mode of ['continuable','one-shot']){
+    const id='child-'+mode;
+    const address={kind:'subagent',childSessionId:id,parentSessionId:'parent',mode:'unknown'};
+    let history=workbenchHistory(options);
+    const session=await history.capture(id,await options.read(id,{type:'open'}),signal);
+    await assert.rejects(history.page({address},signal),{code:'subagent/catalog-diagnostic'});
+    await assert.rejects(history.page({address:{...address,parentSessionId:'different'}},signal),/direct child/);
+    const data=mode==='continuable'?subagents.snapshotSubagentDescriptor({mode,provider:'test',label:id})
+      :{version:subagents.SUBAGENT_DESCRIPTOR_VERSION,mode,provider:'test',label:id};
+    history.owner(session).journal.append('subagent/descriptor',data);
+    const page=await history.page({address},signal);
+    assert.deepEqual(page.records.map(row=>row.event.data),[data]);
+    assert.deepEqual(await history.page({address:{...address,mode}},signal),page);
+    await assert.rejects(history.page({address:{...address,mode:mode==='one-shot'?'continuable':'one-shot'}},signal),
+      {code:'subagent/unauthorized'});
+    await assert.rejects(history.page({address:{kind:'session',sessionId:id}},signal),{code:'session/agent-busy'});
+    await history.close();
+    history=workbenchHistory(options);
+    const follow=history.follow({address},signal);
+    try{
+      const {value:first}=await follow.next();
+      assert.deepEqual(first.records,page.records);
+      assert.equal(first.projections.values.subagent.mode,mode);
+    }finally{await follow.return();await history.close();}
+  }
+});
+
 test('released Session surface projects paged snapshots and follows only events after the captured cut',{skip:!root},async t=>{
   const require=createRequire(join(root,'package.json'));
   const load=name=>import(pathToFileURL(require.resolve('@deepseek-ai/'+name)));

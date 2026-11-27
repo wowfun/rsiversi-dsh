@@ -6,6 +6,8 @@ import {lastUsedModel} from './model.mjs';
 import {workbenchOwners} from './owner.mjs';
 import {nativeCapture} from '../history/native-pages.mjs';
 
+const childIdentity=new Set(['subagent']);
+
 export function historyHeader(meta) {
   const cwd=meta.creation_cwd??meta.cwd;
   return {version:4,id:meta.id,createdAt:meta.created_at,...(cwd?{cwd}:{}),
@@ -44,13 +46,13 @@ function pageOf(session,api,end,{max,window}) {
   return {records:session.snapshotEvents(start,end).map(event=>({type:'event',event})),hasMore:start>0};
 }
 
-export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta,retireToolOutcome}) {
+export function workbenchHistory({ctx,api,llm,RemoteError,read,release:releaseRead=read,listChildren,authorize,command,submit,inbox,storage,creationMeta,retireToolOutcome}) {
   const owners=workbenchOwners({ctx,api,llm,command,submit,read,release:releaseRead,inbox,storage,creationMeta,retireToolOutcome});
   const live=workbenchControl(authorize);
   async function open(request,signal,captured,first) {
     const {address}=request;
     const child=address.kind==='subagent';
-    if(address.kind!=='session'&&(!child||!address.parentSessionId||!address.childSessionId||address.mode!=='continuable'))
+    if(address.kind!=='session'&&(!child||!address.parentSessionId||!address.childSessionId))
       throw new Error('Subagent history requires its native parent authority');
     const id=child?address.childSessionId:address.sessionId;
     const call=(operation,override=signal)=>read(id,operation,override,child?address.parentSessionId:undefined);
@@ -114,6 +116,24 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       },
     };
     return view;
+  }
+  function validateHistoryAddress(address,session,projections) {
+    if(address.kind==='session'){
+      if(session.header.origin==='subagent')throw new RemoteError('session/agent-busy','Subagent history requires its parent address',
+        {reason:'use subagent delivery for this child session'});
+      return;
+    }
+    // The Host already checked the direct parent in the same authorized read.
+    if(session.header.origin==='subagent'){
+      const identity=(projections??ctx.sessionProjections.snapshot(session,childIdentity)).values.subagent;
+      if(identity==null||identity.seq<session.inheritedEventCount){
+        const reason=identity===null?'corrupt':'unsupported';
+        throw new RemoteError('subagent/catalog-diagnostic','Subagent descriptor is '+reason,
+          {parentSessionId:address.parentSessionId,childSessionId:session.id,reason});
+      }
+      if(address.mode==='unknown'||address.mode===identity.mode)return;
+    }else if(address.mode==='continuable')return;
+    throw new RemoteError('subagent/unauthorized','Subagent mode does not match the supplied address',{childSessionId:session.id});
   }
   return {
     async close(){live.close();await owners.close();},
@@ -212,6 +232,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
     async page(request,signal) {
       const window=windowOf(request);
       const {session}=await open(request,signal);
+      validateHistoryAddress(request.address,session);
       const through=request.throughSeq??session.seq-1,before=request.beforeSeq??through+1;
       if(!Number.isSafeInteger(through)||through< -1||through>=session.seq||Object.is(through,-0)
         ||!Number.isSafeInteger(before)||before<0||Object.is(before,-0))
@@ -222,6 +243,7 @@ export function workbenchHistory({ctx,api,llm,read,release:releaseRead=read,list
       const window=windowOf(request);
       const view=await open(request,signal),{session,advance,through,projections}=view;
       let opening=await projections();
+      validateHistoryAddress(request.address,session,opening);
       const observer=live.open(session.id,opening,view.intermediate);
       view.publish=observer.publish;
       try {
