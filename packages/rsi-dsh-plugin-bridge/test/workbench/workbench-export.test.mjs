@@ -46,6 +46,7 @@ test('original lineage merges registered Sessions with paged durable metadata wi
   const persistence=workbenchPersistence(history,await load('dsh-session-persistence'),scope.storedPages);
   ctx.provide('sessions',scope.sessions);ctx.provide('sessionPersistence',persistence);
   try {
+    await ctx.plugin((await load('dsh-session-projection')).default);
     await (await ctx.plugin(Query,{path:':memory:',openAt:'never'})).await();
     const run=await scope.prepare(new Request('http://localhost/api/session.export'),'owner-request');
     await run(async()=>{
