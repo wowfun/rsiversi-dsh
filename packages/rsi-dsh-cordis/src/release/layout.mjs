@@ -102,8 +102,8 @@ export async function releaseLayout(root, runtimeRoots, pluginRoots, signal, {ho
     const files = [];
     const terminalTarget = runtimeTarget && owner === 'runtime' && record.location === 'node_modules/node-pty'
       ? `${runtimeTarget.platform}-${runtimeTarget.arch}` : undefined;
-    if (!hostPeers || owner !== 'runtime') await walkFiles(record.directory, async (path,bytes) => {
-      files.push({path:record.location+'/'+path, source:resolve(record.directory,path), bytes});
+    if (!hostPeers || owner !== 'runtime') await walkFiles(record.directory, async (path,bytes,executable) => {
+      files.push({path:record.location+'/'+path, source:resolve(record.directory,path), bytes, executable});
     }, {signal, exclude:(path,entry)=>path==='node_modules' ||
       (terminalTarget && entry.isDirectory() && path==='prebuilds/'+entry.name && entry.name!==terminalTarget)});
     const group = groups.get(owner) ?? [];
@@ -143,11 +143,10 @@ function footprint(packages) {
   let files = 0, body = 0, records = 0;
   for (const pkg of packages) {
     if (!pkg.files.length) throw new Error('Empty release package: '+pkg.location);
-    for (const {path, bytes} of pkg.files) {
+    for (const {path, bytes, executable = false} of pkg.files) {
       files++;
       body += bytes;
-      // Digest and executable encodings have fixed lengths in the archive.
-      records += Buffer.byteLength(JSON.stringify({path, bytes, digest:digestPlaceholder, executable:false})) + 1;
+      records += Buffer.byteLength(JSON.stringify({path, bytes, digest:digestPlaceholder, executable})) + 1;
       for (let parent = posix.dirname(path); parent !== '.' && !directories.has(parent); parent = posix.dirname(parent)) {
         directories.add(parent);
       }

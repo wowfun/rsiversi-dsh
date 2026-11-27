@@ -1,12 +1,34 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {packageLocation, releaseLayout, splitPayloads} from '../../src/release/layout.mjs';
 import {installReleaseResolver} from '../../src/release/resolver.mjs';
+import {writePayload, writePayloadFiles} from '../../src/archive/payload.mjs';
+
+test('both packers retain POSIX execution for regular npm package files', {skip:process.platform==='win32'}, async t=>{
+  const root=await mkdtemp(join(tmpdir(),'rsi-package-mode-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const location='node_modules/example', pkg=join(root,location);
+  await mkdir(pkg,{recursive:true});
+  await writeFile(join(pkg,'helper'),'#!/bin/sh\nexit 0\n');
+  await chmod(join(pkg,'helper'),0o755);
+  await writeFile(join(pkg,'package.json'),'{"name":"example","version":"1.0.0"}');
+  await chmod(join(pkg,'package.json'),0o644);
+  await writeFile(join(root,'package-lock.json'),JSON.stringify({lockfileVersion:3,packages:{[location]:{version:'1.0.0'}}}));
+  const groups=await releaseLayout(root,[],['example']);
+  const direct=join(root,'direct.rsi'), release=join(root,'release.rsi');
+  await writePayload(pkg,direct,{prefix:location});
+  await writePayloadFiles(groups.get('example')[0].files,release);
+  for(const file of [direct,release]){
+    const bytes=await readFile(file);
+    const {files}=JSON.parse(bytes.subarray(12,12+bytes.readUInt32LE(8)));
+    assert.deepEqual(files.map(({path,executable})=>[path,executable]),[[location+'/helper',true],[location+'/package.json',false]]);
+  }
+});
 
 test('Office uses the target engine while separately requested engines remain installable',async t=>{
   const root=await mkdtemp(join(tmpdir(),'rsi-office-engines-'));

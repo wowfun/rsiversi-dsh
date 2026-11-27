@@ -8,8 +8,8 @@ export const maximumHeaderBytes = 16 * 1024 ** 2;
 /** Emit only regular files. Rust repeats path/type/digest checks before publication. */
 export async function writePayload(root, destination, { prefix: archivePrefix = '', exclude = () => false, signal } = {}) {
   const files = [];
-  await walkFiles(root, async (source, bytes) => {
-    files.push({ path: archivePrefix ? `${archivePrefix}/${source}` : source, source:join(root, source), bytes });
+  await walkFiles(root, async (source, bytes, executable) => {
+    files.push({ path: archivePrefix ? `${archivePrefix}/${source}` : source, source:join(root, source), bytes, executable });
   }, {exclude, signal});
   return writePayloadFiles(files, destination, signal);
 }
@@ -18,9 +18,9 @@ export async function writePayload(root, destination, { prefix: archivePrefix = 
 export async function writePayloadFiles(entries, destination, signal) {
   if (!entries.length || entries.length > maximumEntries) throw new Error('Payload file capacity');
   const files = [];
-  for (const entry of entries) {
-    const digest = await readDigest(entry.source, entry.bytes, undefined, signal);
-    files.push({...entry, digest, executable:false});
+  for (const {source, path, bytes, executable = false} of entries) {
+    const digest = await readDigest(source, bytes, undefined, signal);
+    files.push({source, path, bytes, digest, executable});
   }
   const header = Buffer.from(JSON.stringify({ format: 1, files: files.map(({ source, ...record }) => record) }));
   if (header.length > maximumHeaderBytes) throw new Error('payload header capacity');

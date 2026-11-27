@@ -24,7 +24,7 @@ export async function walkFiles(root, visit, { exclude = () => false, signal } =
       else if (stat.isFile()) {
         bytes += stat.size;
         if (bytes > maximumBytes) throw new Error('Tree file capacity');
-        await visit(path, stat.size);
+        await visit(path, stat.size, process.platform !== 'win32' && (stat.mode & 0o111) !== 0);
       } else throw new Error('Tree refuses special file');
     }
   }

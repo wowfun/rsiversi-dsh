@@ -1114,6 +1114,11 @@ directory for the target OS and CPU. Files directly under `prebuilds` and
 source-built bindings under `build/Release` remain available. Private copies
 of the terminal package installed by guest plugins retain their own files.
 
+The packer records the execute bit of regular files from a POSIX npm tree.
+The native package store materializes executable files with owner read and
+execute permissions and ordinary files with owner read permission. Windows
+uses its native file association and executable format rules.
+
 Within a release ownership group, the packer keeps each connected set of npm
 dependencies in one physical payload when it fits. Its children and workers
 then use ordinary Node resolution. Larger sets span payloads at whole-package
