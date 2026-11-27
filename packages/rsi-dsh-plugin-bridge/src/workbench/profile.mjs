@@ -43,6 +43,8 @@ export async function workbenchProfile(modules,boot,state,{importer=false,langua
     const {dsh}=JSON.parse(await readFile(join(dir,'package.json'),'utf8'));
     return boot.bundlePatchPaths(dir,dsh.bundle).flatMap(file=>boot.loadOverlayPatches('rsi-dsh',file));
   }));
+  // Owner credentials come from the native Host. Shared readers enter via Live Share.
+  patches.push([{id:'remote-connection',disabled:true}]);
   const composed=boot.composeEntries(patches);
   const rows=[], clientOnly=new Set();
   for(const entry of composed) {

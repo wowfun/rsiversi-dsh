@@ -91,6 +91,8 @@ for(const restored of [false,true])test(`the published Live Share Host serves gr
       await ctx.plugin(boot.PluginPackages);
     }});
     const selected=await workbenchProfile(modules,boot,home);
+    assert.equal(selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-remote-connection'),false);
+    assert.equal(selected.clientOnly.has('remote-connection'),false);
     const required=['client-connection','typert-registry','typert-loader','api-remote-access','api-gateway','api-remotes','api-session-controller','api-workspace-controller'];
     const entries=selected.rows.filter(row=>required.some(name=>row.name==='@deepseek-ai/dsh-'+name));
     if(!restored)await app.reconcile([{insert:entries}]);

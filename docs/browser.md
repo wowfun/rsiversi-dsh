@@ -37,6 +37,8 @@ the link directly. The Relay authenticates the reader and the original
 Live Share plugin owns share membership, expiry and permissions. Pairing
 confers no DSH Session grant. Operator routes and upgrades require the native
 owner credential. The Host neither receives nor stores the link from the entry form.
+The standard workbench omits the DSH Remote Connection entry that issues
+additional owner credentials to invited browsers.
 The workspace sidebar uses the shipped DSH directory picker. Its adaptive
 plugin mounts a matching browser surface and Host backend. The browse picker
 can enter any directory accessible to the Host account, follow directory links,
