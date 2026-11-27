@@ -265,7 +265,7 @@ test('failed compensation retains recovery intent and blocks further writes unti
   assert.equal((await raw.done).exitCode,1);
   assert.match(Buffer.concat(await Array.fromAsync(raw.stderr)).toString(),/recovery requires restarting the application with the same profile/);
   const reopened=await createMarketProfile({...options,reconcile:()=>[]});
-  assert.equal(JSON.parse(await readFile(journal)).rollback,null);
+  await assert.rejects(lstat(journal),{code:'ENOENT'});
   assert.deepEqual(await captureProfileFiles(profile),before);
   assert.deepEqual(await reopened.activate(),{ok:true});
 });
@@ -420,7 +420,7 @@ test('published dshmarket raw runtime resolves explicit installs, restores and r
     const failed=await run(['add',spec]);
     assert.equal(failed.exitCode,1);
     assert.match(failed.stderr,/collides/);
-    assert.deepEqual(JSON.parse(await readFile(journal)),{format:3,installed:{},rollback:null});
+    await assert.rejects(lstat(journal),{code:'ENOENT'});
     await rm(collision,{recursive:true});
     for(const _ of [1,2]) {
       const result=await run(['add',spec]);
@@ -519,7 +519,7 @@ test('published dshmarket raw runtime resolves explicit installs, restores and r
         recovered.dependencies={};recovered.dsh.profile.bundles=[];
         await writeFile(targetManifest,JSON.stringify(recovered));
         assert.equal((await runtime.runPlugin('target',['install','--no-frozen-lockfile'])).exitCode,0);
-        assert.deepEqual(JSON.parse(await readFile(join(targetState,'selections.json'))).installed,{});
+        await assert.rejects(lstat(join(targetState,'selections.json')),{code:'ENOENT'});
         assert.deepEqual(targetRoots({}),{});
         assert.deepEqual(await restored.activate(),{ok:true});
       } finally {runtime.dispose();}

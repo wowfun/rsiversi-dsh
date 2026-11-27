@@ -64,5 +64,5 @@ test('a process loss after restore cleanup recovers the exact pre-cleanup manife
   assert.notEqual(await readFile(path,'utf8'),before);
   await createMarketProfile({profile,state,modules:{},call:async()=>({})});
   assert.equal(await readFile(path,'utf8'),before);
-  assert.equal(JSON.parse(await readFile(join(state,'selections.json'))).rollback,null);
+  await assert.rejects(readFile(join(state,'selections.json')),{code:'ENOENT'});
 });

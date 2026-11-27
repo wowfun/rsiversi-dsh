@@ -82,13 +82,13 @@ test('unsupported journal formats preserve their bytes and explain the refusal',
 test('journal writes cannot exceed the selection cardinality accepted on reopen',async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-profile-cardinality-'));
   t.after(()=>rm(profile,{recursive:true,force:true}));
-  const path=join(profile,'selections.json');await saveSelections(path,{});
-  const before=await readFile(path),installed=Object.fromEntries(Array.from({length:129},(_,i)=>
+  const path=join(profile,'selections.json');
+  const installed=Object.fromEntries(Array.from({length:129},(_,i)=>
     ['fixture-'+i,{package:'rsi-dsh-selection-fixture',digest:'a'.repeat(64),version:'1.0.0'}]));
   await assert.rejects(saveSelections(path,installed),/selection capacity/);
   const rollback=await captureRecovery(path,profile);
   await assert.rejects(saveSelections(path,{}, {...rollback,touched:Object.keys(installed)}),/selection capacity/);
-  assert.deepEqual(await readFile(path),before);
+  await assert.rejects(stat(path),{code:'ENOENT'});
   assert.deepEqual((await readSelections(path)).installed,{});
 });
 
@@ -114,6 +114,7 @@ test('snapshot publication and commit leave orphans harmless but pending intent 
   assert.deepEqual((await readSelections(journal)).rollback.files,
     Object.fromEntries(Object.entries(rollback.files).map(([name,value])=>[name,value===null?null:Buffer.from(value,'base64')])));
   await saveSelections(journal,{});
+  await assert.rejects(stat(journal),{code:'ENOENT'});
   await assert.rejects(stat(snapshot),{code:'ENOENT'});
   await writeFile(snapshot,'incomplete orphan');
   assert.equal((await readSelections(journal)).rollback,null,'committed metadata never reads orphan bytes');
@@ -122,7 +123,8 @@ test('snapshot publication and commit leave orphans harmless but pending intent 
 test('malformed write-side metadata is refused before replacing a valid journal',async t=>{
   const profile=await mkdtemp(join(tmpdir(),'rsi-profile-write-'));
   t.after(()=>rm(profile,{recursive:true,force:true}));
-  const path=join(profile,'selections.json');await saveSelections(path,{});
+  const path=join(profile,'selections.json');
+  await saveSelections(path,{fixture:{package:'rsi-dsh-selection-fixture',digest:'a'.repeat(64),version:'1.0.0'}});
   const before=await readFile(path);
   await assert.rejects(saveSelections(path,{},{}),/Invalid host selection journal/);
   await assert.rejects(saveSelections(path,{fixture:{package:'invalid',digest:'bad',version:'1'}}),/Invalid host selection/);

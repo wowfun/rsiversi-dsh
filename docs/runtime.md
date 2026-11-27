@@ -1234,6 +1234,7 @@ snapshot, written once before publishing recovery intent. The snapshot admits
 pnpm-lock.yaml; its bound includes their base64 encoding plus 1 MiB of framing.
 Profile manifest reads enforce the same 1 MiB limit before JSON parsing. Snapshot
 recovery validates durable base64 once and retains the decoded bytes for restoration.
+When there are no installed selections or pending recovery, the profile has no selection journal.
 Touched-name updates rewrite only metadata. Commit removes the recovery intent
 before deleting the snapshot. An orphan snapshot is ignored and can be removed
 at startup; a pending intent requires a matching, valid snapshot. A healthy

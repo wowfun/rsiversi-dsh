@@ -54,7 +54,9 @@ export async function captureRecovery(path,profile,managed=true) {
 export async function saveSelections(path,installed,rollback=null) {
   const journal={format:3,installed,rollback:rollback===null?null:{id:rollback.id,touched:rollback.touched}};
   validateSelections(journal);
-  await save(path,journal,profileTextLimit);
+  if(rollback===null && !Object.keys(installed).length) {
+    await unlink(path).catch(error=>{if(error.code!=='ENOENT')throw error;});
+  } else await save(path,journal,profileTextLimit);
   if(rollback===null)await discardRecovery(path);
 }
 export async function captureProfileFiles(profile,managed=true) {
