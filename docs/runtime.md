@@ -1413,6 +1413,12 @@ that effect against the live invocation before it admits the child.
 For a plugin action invoked by a browser, the Host checks that browser's access
 to the parent before the trusted manager starts its own activity. A call made by
 a running Tool retains the Tool invocation throughout creation.
+A trusted Loader plugin can also call `agents.create` directly with
+`origin: 'subagent'` and an existing `parentSession` to create a child with
+no inherited history. The Host records the initiating plugin and derives the
+child's execution permissions and tree depth from the actual parent. A missing
+parent rejects creation before Agent publication. This is a compatibility
+difference from DSH, which accepts a descriptive parent ID on its own.
 An explicit child working directory is resolved against the parent's current
 directory. The Host pins the result for execution, including a sibling project
 selected by the plugin. The DSH Session header retains its original project,

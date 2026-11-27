@@ -383,7 +383,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       if(record.closing)throw Error('Agent owner retired during setup');
       setup?.commit();
       detach=ctx.agents.enter(agent,options.parentAgent);
-      if(options.resumeSessionId||record.owner?.meta.plugin_child_depth===undefined)seedNativePermission(ctx,record);
+      if(options.resumeSessionId||!subagents?.configuring(id))seedNativePermission(ctx,record);
       await ctx.agents.announce(agent,source,options.signal);
       record.dispose=dispose;
       if(!record.passive)observe(record);
@@ -398,7 +398,7 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
       if(!parent&&(supplied.length||options.parentSource||meta.isSeeded||meta.origin||meta.delegationDepth!==undefined))
         throw Error('Native seeded or delegated creation requires a source Session');
       const pluginChild=subagents?.creation(owner,options);
-      if(pluginChild&&(meta.isSeeded||options.seed!==undefined))
+      if(pluginChild&&(meta.isSeeded||supplied.length||options.parentSource))
         throw Error('This subagent provider requires a managed native history fork');
       const seed=parent&&!pluginChild?nativeForkSeed(parent,supplied,records.get(parent)?.view.session):undefined;
       const annotations=snapshotForkAnnotations(supplied,options.inheritedEventCount,snapshotJsonValue);
@@ -423,7 +423,8 @@ export async function workbenchAgents(ctx,scope,history,{createScope,scopeTarget
           await scope.selectModel({sessionId:id,...selection},signal);
       }
       try {
-        return await scope.withCaller(signal=>attach(owner,{...options,signal},'startup',true,()=>prepare(signal)),options.signal);
+        const publish=signal=>attach(owner,{...options,signal},'startup',true,()=>prepare(signal));
+        return await (pluginChild?scope.withPluginParent(parent,publish,options.signal):scope.withCaller(publish,options.signal));
       }finally{receipt.resolve();creating.delete(id);}
     },
     resume:(owner,options)=>scope.withCaller(signal=>attach(owner,{...options,signal},'resume',true),options.signal),

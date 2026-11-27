@@ -32,9 +32,17 @@ export function workbenchSubagents(Runtime,caller,scope) {
       }
     },
     creation(owner,options) {
+      const meta=options.meta;
+      if(meta?.origin!=='subagent'||!meta.parentSession)return;
       const start=starting.getStore();
-      if(!start||start.closed||start.created!==undefined||loaderEntry(owner)?.options.name!==runtime||
-          options.meta?.origin!=='subagent'||options.meta.parentSession!==start.parent.id||
+      const entry=loaderEntry(owner);
+      if(!start||start.closed||entry?.options.name!==runtime){
+        if(meta.isSeeded||options.seed?.length||options.parentSource)return;
+        if(!entry)throw Error('Direct subagent creation requires a Cordis plugin entry');
+        return {parent:meta.parentSession,plugin:entry.options.name,task_name:options.sessionId,
+          ...(meta.cwd===undefined?{}:{cwd:meta.cwd})};
+      }
+      if(start.created!==undefined||meta.parentSession!==start.parent.id||
           (start.childId!==undefined&&start.childId!==options.sessionId))return;
       start.ctx.fiber.assertActive();
       start.created=options.sessionId;

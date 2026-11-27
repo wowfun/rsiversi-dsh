@@ -8,8 +8,59 @@ import {test} from 'node:test';
 import {createApplication} from '../../src/application/application.mjs';
 import {SessionProjectionJournal} from '../../src/session/session-projection-journal.mjs';
 import {workbenchSubagents} from '../../src/workbench/subagents.mjs';
+import {workbenchAgents} from '../../src/workbench/agents.mjs';
+import {applicationSessions} from '../../src/application/sessions.mjs';
 
 const root=process.env.RSI_DSH_MARKET_COHORT;
+test('direct plugin children require a real parent even before its first Turn',{skip:!root},async t=>{
+  const require=createRequire(join(root,'package.json')),guest='example-child-inspector';
+  const profile=await mkdtemp(join(tmpdir(),'rsi-direct-child-'));
+  t.after(()=>rm(profile,{recursive:true,force:true}));
+  const modules={entry:name=>name===guest?fileURLToPath(import.meta.url):require.resolve(name)};
+  const hostModules=new Map(),requests=[],authorized=[],published=[];
+  let create,scope;
+  const app=await createApplication({modules,profile,hostModules,async provide(ctx,load){
+    await ctx.plugin((await load('@deepseek-ai/dsh-session-projection')).default);
+    const agentApi=await load('@deepseek-ai/dsh-agent');
+    await ctx.plugin(agentApi.AgentRegistry);
+    const api={...await load('@deepseek-ai/dsh-session'),...await load('@deepseek-ai/dsh-session/surface'),...await load('@deepseek-ai/dsh-util-values')};
+    const header={version:4,id:'inspected',createdAt:1,cwd:profile,isSeeded:false,parentSession:'root',origin:'subagent',delegationDepth:1};
+    const session=new SessionProjectionJournal(ctx,api,{header}).session;
+    scope=applicationSessions(async(method,args)=>{
+      if(method==='application.actor'){
+        authorized.push([args.request,args.session_id]);
+        if(args.session_id==='hidden')throw Error('Parent is private');
+        return;
+      }
+      assert.equal(method,'application.child.create');
+      requests.push(args);
+      if(args.parent!=='root')throw Error('Session unavailable to caller');
+      return {id:args.session_id,summary:{createdAt:1}};
+    },{owner:'host'});
+    scope.inbox.capture=async()=>({kind:'draft',shared:true,revision:0,pending:[]});
+    const binding=workbenchSubagents(class {},Symbol(),scope);
+    await workbenchAgents(ctx,scope,{
+      metadata:async()=>({selection_cursor:{kind:'draft',revision:0}}),
+      captureAgent:async()=>({session,options:{}}),
+    },await load('@deepseek-ai/dsh-scope'),agentApi,api.snapshotJsonValue,binding);
+    ctx.on('session/created',s=>published.push(s.id));
+    hostModules.set(guest,{inject:['agents'],apply(caller){create=options=>caller.agents.create(options);}});
+  }});
+  t.after(async()=>{await app.close();await scope.close();});
+  await app.reconcile([[{insert:[{id:'inspector',name:guest}]}]]);
+  const options=parentSession=>({sessionId:'inspected',meta:{parentSession,origin:'subagent',cwd:profile}});
+  await assert.rejects(create(options('absent')),/Session unavailable to caller/);
+  const browser=await scope.prepare({url:'/api/test',headers:{'x-rsi-upstream-request':'browser'}});
+  await browser(()=>assert.rejects(create(options('hidden')),/Parent is private/));
+  assert.deepEqual(published,[]);
+  const child=await browser(()=>create({...options('root'),seed:[]}));
+  assert.deepEqual(authorized,[['browser','hidden'],['browser','root']]);
+  assert.deepEqual(published,['inspected']);
+  assert.equal(child.agent.session.header.origin,'subagent');
+  assert.deepEqual(requests.map(({request,parent,session_id,task_name,plugin,cwd})=>({request,parent,session_id,task_name,plugin,cwd})),
+    ['absent','root'].map(parent=>({request:'host',parent,session_id:'inspected',task_name:'inspected',plugin:guest,cwd:profile})));
+  await child.dispose();
+});
 test('mixed descendants retain original descriptors and place native children below their creator',async()=>{
   const child={kind:'child',id:'child',parentId:'root',hasChildren:false,label:'original',path:'worker'};
   const external={kind:'child',id:'external',parentId:'root',mode:'external',hasChildren:false};
