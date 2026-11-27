@@ -261,7 +261,7 @@ test('follow opens authorized history before optional independent Agent startup'
 });
 
 test('rename uses the authorized Session and returns the title service event coordinate',async()=>{
-  const session={id:'one'},calls=[];
+  const session={id:'one',header:{id:'one'}},calls=[];
   class SessionTitleInvalidError extends Error {}
   class RemoteError extends Error {
     constructor(code,message,data){super(message);Object.assign(this,{code,data});}
@@ -442,7 +442,7 @@ test('base workbench serves authorized cold pages through published Typert witho
     const {TypertRemoteService,RemoteError}=protocol;
     hostModules.set(session,sessionController({...protocol,...await load('@deepseek-ai/dsh-util-time')},scope,
       {forkTurn:async()=> 'native-turn'},undefined,(id,signal,source)=>{
-        signal.throwIfAborted();assert.equal(source,'startup');registered.set(id,{status:'idle',session:{id}});
+        signal.throwIfAborted();assert.equal(source,'startup');registered.set(id,{status:'idle',session:{id,header:{id}}});
       }));
     hostModules.set('@deepseek-ai/dsh-api-workspace-controller',workspaceController(TypertRemoteService,scope,RemoteError));
     ctx.provide('agents',{get:id=>registered.get(id)});

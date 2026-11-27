@@ -1423,6 +1423,11 @@ The workbench's subagent catalog reads native Session-backed child identities
 in stable pre-order. It exposes direct children and descendants without starting
 an Agent. Unknown live state and program-owned branches are reported as DSH
 diagnostics. Operator catalog reads never acquire a model's execution authority.
+The ordinary Session controller, Typert Agent lookups and the file-upload
+resolver return `session/agent-busy` for a Session whose header declares
+`origin: subagent`. A cold lookup leaves that Agent unregistered. An existing
+child remains with its current owner. A fork with a parent and an ordinary
+origin can still resume through the Session controller.
 The released workbench reads topology through Session projections separately
 from live activity. A parent's projected child catalog joins successful native
 spawn receipts through that Session's conversation cut to visible immutable

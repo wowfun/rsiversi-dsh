@@ -29,26 +29,42 @@ function sessionResource({args,parameters}) {
 }
 
 export function sessionController({TypertRemoteService,RemoteError,principalOf,canonicalClientTimeZone,SessionTitleInvalidError,Deque,desktop,searchApi},scope,history,interactions,activate) {
+  const childOwned=id=>new RemoteError('session/agent-busy',`session "${id}" is owned by subagent routing`,
+    {reason:'use subagent delivery for this child session'});
+  function ordinary(agent) {
+    if(agent.session.header.origin==='subagent')throw childOwned(agent.id);
+    return agent;
+  }
+  async function resumeOrdinary(id,signal) {
+    const meta=await history.metadata(id,signal,true);
+    if(!meta)throw new RemoteError('session/not-found',`session "${id}" not found`,{sessionId:id});
+    if(meta.plugin_child_depth!==undefined || (meta.inherited&&(await history.snapshot(meta)).header.origin==='subagent'))throw childOwned(id);
+    return activate(id,signal);
+  }
+  const lookup=(id,registry=false)=>scope.lookupAgent(id,resumeOrdinary,registry).then(ordinary);
   return class extends TypertRemoteService {
     claims=new Map();
     static inject=['typert','remoteAccess'];
     constructor(ctx,config={}) {super(ctx,'sessionController',{namespace:'session'});this.nativeOpen=config.nativeOpen;}
     [TypertRemoteService.init]() {
-      const lookup=id=>scope.lookupAgent(id,activate,true);
+      const registryLookup=id=>lookup(id,true);
       this.ctx.typert.resources.register('session',{resolve:sessionResource});
       this.ctx.typert.lookups.register('session',{
         parameter:'session',wire:'sessionId',resource:'session',
         hostTypeSymbol:'@deepseek-ai/dsh-session#Session',
         wireTypeSymbol:'@deepseek-ai/dsh-session/types#SessionId',
-        resolve:async id=>(await lookup(id)).session,
+        resolve:async id=>(await registryLookup(id)).session,
       });
-      this.ctx.typert.lookups.configure('agent',lookup);
-      this.ctx.typert.contexts.configureHost('agent',async id=>(await lookup(id)).ctx);
-      this.ctx.inject(['fileUploads'],ctx=>ctx.effect(()=>ctx.fileUploads.registerAgentResolver(id=>scope.lookupAgent(id,activate)),
+      this.ctx.typert.lookups.configure('agent',registryLookup);
+      this.ctx.typert.contexts.configureHost('agent',async id=>(await registryLookup(id)).ctx);
+      this.ctx.inject(['fileUploads'],ctx=>ctx.effect(()=>ctx.fileUploads.registerAgentResolver(id=>lookup(id)),
         'file-upload Agent resolver'));
     }
     async resolveAgent(id) {
-      try {return {agent:await scope.runOwned(signal=>activate(id,signal))};}
+      try {
+        const live=this.ctx.get('agents')?.get(id);
+        return {agent:ordinary(live??await scope.runOwned(signal=>resumeOrdinary(id,signal)))};
+      }
       catch(error){return {error};}
     }
     summary(row) {return sessionSummary(this.ctx,row);}
@@ -115,7 +131,7 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
     }
     selectModel(request,signal) {return scope.selectModel(request,signal);}
     async rename({sessionId,title}) {
-      const agent=await scope.lookupAgent(sessionId,activate);
+      const agent=await lookup(sessionId);
       const titles=this.ctx.get('sessionTitle');
       if(!titles)throw new RemoteError('gateway/internal','Session title service is unavailable',{});
       try {
@@ -154,7 +170,7 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
     async submitAttachments(request,source,signal) {
       let content=request.content,agent,uploads,receipts;
       if(content.some(part=>part.type==='file')){
-        agent=this.ctx.get('agents').get(request.sessionId)??await scope.lookupAgent(request.sessionId,activate);
+        agent=await lookup(request.sessionId);
         uploads=this.ctx.get('fileUploads');
         const ids=new Set();
         content=content.map(part=>{
@@ -211,9 +227,10 @@ export function sessionController({TypertRemoteService,RemoteError,principalOf,c
               if(!stop.aborted)console.error('Native interaction observation:',error.message);
             });
             if(request.activate===true&&frame.header.origin!=='subagent'&&!this.ctx.get('agents')?.get(id)){
-              void this.resolveAgent(id).then(result=>{
-                if(result.error)this.ctx.emit('api-session/error',id,result.error.message);
-              }).catch(error=>this.ctx.logger.error('Session activation failed:',error));
+              // The authorized snapshot already supplied the child-ownership check.
+              void scope.runOwned(signal=>activate(id,signal)).then(ordinary)
+                .catch(error=>this.ctx.emit('api-session/error',id,error.message))
+                .catch(error=>this.ctx.logger.error('Session activation failed:',error));
             }
           }
           yield frame;
