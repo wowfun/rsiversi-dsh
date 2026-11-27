@@ -7,6 +7,7 @@ const hostServices=new Set(['dsh-workspace','dsh-typert-loader','dsh-config-edit
   'dsh-cordis-host-runner','dsh-subprocess-local','dsh-sandbox-local','dsh-sandbox-policy','dsh-fs-sandbox',
   'dsh-bash-sandbox','dsh-pwsh-sandbox','dsh-shell-env','dsh-jobs-local','dsh-action-cards',
   'dsh-user-questions','dsh-permission-presets','dsh-web','dsh-web-fetch-http','dsh-ptc-runtime-node',
+  'dsh-deepseek-llm-api-extensions','dsh-session-log-deepseek',
   'dsh-subagent','dsh-subagent-spawn-in-process','dsh-tool-subagent/model-selection-settings'].map(name=>'@deepseek-ai/'+name));
 const managerServices=new Set(['@deepseek-ai/dsh-creation-recommendations','@deepseek-ai/dsh-plugin-recommendations']);
 
@@ -57,6 +58,7 @@ export async function workbenchProfile(modules,boot,state,{importer=false,langua
     const optionalHost=importer&&managerServices.has(name)||language&&name==='@deepseek-ai/dsh-session-title-first-prompt-llm';
     if(!client && !hostServices.has(name) && !optionalHost) continue;
     if(name==='@deepseek-ai/dsh-client-connection')rows.push({id:entry.id,name});
+    else if(name==='@deepseek-ai/dsh-session-log-deepseek')rows.push({...entry,config:{enabled:false,...entry.config}});
     else if(name==='@deepseek-ai/dsh-storage-json')rows.push({...entry,config:{...entry.config,root:join(state,'storages')}});
     else if(name==='@deepseek-ai/dsh-attachment-local')rows.push({...entry,config:{...entry.config,dshHome:state}});
     else if(name==='@deepseek-ai/dsh-sandbox-policy'){

@@ -27,9 +27,9 @@ test('a late settings read cannot restore a retired Host default',async()=>{
   assert.equal(defaults.id,'current');
 });
 test('base workbench configures live plugins and discovers local apps without an importer',{skip:!root},async t=>{
-  const profile=await mkdtemp(join(tmpdir(),'rsi-settings-'));
-  t.after(()=>rm(profile,{recursive:true,force:true}));
-  await mkdir(join(profile,'node_modules'));
+  const home=await mkdtemp(join(tmpdir(),'rsi-settings-')),profile=join(home,'market');
+  t.after(()=>rm(home,{recursive:true,force:true}));
+  await mkdir(join(profile,'node_modules'),{recursive:true});
   await symlink(join(root,'node_modules/@deepseek-ai'),join(profile,'node_modules/@deepseek-ai'),process.platform==='win32'?'junction':'dir');
   const probe=join(profile,'node_modules/settings-probe');await mkdir(probe);
   await writeFile(join(probe,'package.json'),JSON.stringify({name:'settings-probe',type:'module',main:'index.mjs'}));
@@ -68,7 +68,8 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   assert.deepEqual(permissions.config.presets['danger-full-access'],{sandbox:'danger-full-access',approval:'never'});
   assert.ok(selected.rows.some(row=>row.name==='@deepseek-ai/dsh-client-ui-permission-presets'&&selected.clientOnly.has(row.id)));
   const names=new Set(['dsh-typert-registry','dsh-typert-loader','dsh-api-remote-access','dsh-api-gateway',
-    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-permission-presets','dsh-agent-preset-registry','dsh-tool-subagent/model-selection-settings']);
+    'dsh-config-editor','dsh-settings','dsh-api-settings-controller','dsh-subprocess-local','dsh-host-open-in-app','dsh-agent-loop','dsh-permission-presets','dsh-agent-preset-registry','dsh-tool-subagent/model-selection-settings',
+    'dsh-deepseek-llm-api-extensions','dsh-session-log-deepseek']);
   const rows=selected.rows.filter(row=>names.has(row.name.replace('@deepseek-ai/','')));
   permissions.config.presets['team-review']={sandbox:'read-only',approval:'never'};
   rows.push({id:'probe',name:'settings-probe',config:{token:'isolated-test-secret'}});
@@ -105,7 +106,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
           ctx.webServer.getOrigin()==='https://workbench.example'?'required':'deny',
         handler:(_req,socket)=>socket.end('HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n')}));
       ctx.provide('profileContext',{name:'settings',dir:profile,patchPath:join(profile,'cordis.patch.yml'),
-        installAnchor:join(root,'package.json'),cwd:profile,home:profile,startedBundles:[],overlayPaths:[]});
+        installAnchor:join(root,'package.json'),cwd:profile,home,startedBundles:[],overlayPaths:[]});
       await ctx.plugin(boot.PluginPackages);
     }});
     const patch=await readFile(join(profile,'cordis.patch.yml'),'utf8').catch(e=>{if(e.code!=='ENOENT')throw e;});
@@ -147,6 +148,16 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   await app.ctx.settings.mutate('permission',savePermission('team-review'));
   assert.deepEqual(permission,{preset:'team-review',sandbox:'read-only',approval:'never'});
   const modelNs='subagent-model-selection-settings';
+  const logNs='session-log-deepseek';
+  const logForm=before.value.namespaces.find(row=>row.ns===logNs);
+  assert.equal(logForm?.value.enabled,false);
+  const logSession=app.ctx.sessions.create('opt-in-log');
+  logSession.append('turn/start',{turn:1});
+  const prepareLog=()=>app.ctx.deepseekLlmApiExtensions.prepare({body:{model:'fixture'},sessionId:logSession.id,signal:AbortSignal.timeout(5000)});
+  assert.deepEqual(Object.keys((await prepareLog()).fields),[]);
+  const enabled=await rpc('settings/mutate',{ns:logNs,ops:[{op:'set',path:['enabled'],value:true}],expectedRevision:logForm.revision});
+  assert.equal(enabled.ok,true,JSON.stringify(enabled));
+  assert.equal((await prepareLog()).fields.dsh_session_log.events[0].type,'turn/start');
   const modelForm=before.value.namespaces.find(row=>row.ns===modelNs);
   assert.deepEqual(modelForm?.value,{enabled:false,allowedModels:[]});
   assert.equal(app.ctx.subagentModelSelection.allowedRoutes(),undefined);
@@ -237,6 +248,7 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
   await start();
   assert.equal((await stat(alias)).nlink,1);
   assert.equal(app.ctx.permissionPresets.catalog().defaultPreset,'team-review');
+  assert.equal(app.ctx.settings.describe().find(row=>row.ns===logNs).value.enabled,true);
   assert.notEqual((await stat(generated[0],{bigint:true})).ino,(await stat(alias,{bigint:true})).ino);
   assert.equal((await stat(alias)).mode,aliasMode);
   if(process.platform!=='win32'){
@@ -244,4 +256,6 @@ export function apply(ctx,config){ctx.provide('settingsProbe',{read:()=>({count:
     assert.equal((await stat(target)).mtimeMs,stamp.getTime());
   }
   assert.deepEqual(await Promise.all(generated.map(path=>readFile(path))),saved);
+  await app.ctx.settings.mutate(logNs,[{op:'unset',path:['enabled']}]);
+  assert.equal(app.ctx.settings.describe().find(row=>row.ns===logNs).value.enabled,false);
 });
