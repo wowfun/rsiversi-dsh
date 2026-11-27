@@ -288,7 +288,10 @@ object; other values are encoded and hashed independently. The next saved plugin
 record, mutation binding, receipt or catalog change checkpoints the observed
 native prefix alongside the application data. Native progress alone advances the
 in-memory digest. Orderly shutdown checkpoints that tail for existing journals,
-including Sessions whose readers have been collected. After an abrupt stop,
+including Sessions whose readers have been collected. If the stored checkpoint
+already has the requested source digest, source count and event count, closing
+another reader at that checkpoint succeeds without rewriting the journal.
+After an abrupt stop,
 cold recovery verifies the saved prefix and replays subsequent events from the Host.
 
 Each consumed native event retains its source position, content digest and

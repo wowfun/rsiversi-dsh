@@ -123,6 +123,8 @@ function decodeJournal(state) {
 export function checkpointNativeTail(document,tail) {
   if(typeof document!=='string'||Buffer.byteLength(document)>maximumJournalBytes)throw Error('Invalid application journal size');
   const raw=JSON.parse(document),state=decodeJournal({...raw});
+  if(state.version===8&&state.sourceDigest===tail.digest&&state.sources.length===tail.nativeSeq&&state.eventCount===tail.seq)
+    return;
   if(state.version!==8||state.sourceDigest!==tail.base)throw Error('Application journal checkpoint changed');
   const length=tail.nativeSeq-state.sources.length;
   if(length<=0||state.eventCount+length!==tail.seq)throw Error('Invalid application journal tail');

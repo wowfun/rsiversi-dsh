@@ -40,6 +40,9 @@ test('native progress checkpoints at the next plugin record or shutdown and repl
   assert.throws(()=>cold(writes[0],native.with(0,{...native[0],time:555})),/prefix changed/);
   const shutdown=checkpointNativeTail(writes[0],pending);
   assert.equal(shutdown,journal.encode());
+  assert.equal(checkpointNativeTail(shutdown,pending),undefined,'an already published tail needs no write');
+  for(const conflict of [{seq:pending.seq+1},{nativeSeq:pending.nativeSeq+1},{digest:'0'.repeat(64)}])
+    assert.throws(()=>checkpointNativeTail(shutdown,{...pending,...conflict}),/checkpoint changed/);
   assert.throws(()=>cold(shutdown,editedTail),/prefix changed/);
   journal.append('feedback/record',{text:'second'});await journal.flush({observed:true});
   assert.equal(writes.length,2);assert.equal(pending,undefined);

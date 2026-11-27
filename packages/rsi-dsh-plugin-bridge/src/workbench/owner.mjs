@@ -184,7 +184,10 @@ export function workbenchOwners({ctx,api,llm,command,submit,read,release:release
     revision(id){return rows.get(id)?.deref()?.journal.revision??0;},
     async close(){closed=true;await Promise.allSettled(opening.values());
       await Promise.all([...rows.values()].flatMap(reference=>{const row=reference.deref();return row?[row.flush()]:[];}));
-      for(const [id,tail] of nativeTails)await storage.save(id,checkpointNativeTail(await storage.read(id),tail));
+      for(const [id,tail] of nativeTails){
+        const next=checkpointNativeTail(await storage.read(id),tail);
+        if(next!==undefined)await storage.save(id,next);
+      }
       nativeTails.clear();},
   };
 }
