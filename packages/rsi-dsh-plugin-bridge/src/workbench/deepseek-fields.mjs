@@ -51,7 +51,7 @@ export function modelFieldRoute(ctx,WebSocketServer,scope,refresh,auth) {
     const stop=new AbortController();
     socket.once('close',()=>stop.abort());
     socket.on('error',()=>socket.terminate());
-    let phase='origin',origin,accept;
+    let phase='origin',origin,session,accept;
     async function frame(data,binary){
       if(phase==='origin'&&!binary){
         origin=JSON.parse(data);
@@ -61,7 +61,7 @@ export function modelFieldRoute(ctx,WebSocketServer,scope,refresh,auth) {
         phase='preparing';
         const body=JSON.parse(data);
         const prepared=await scope.runOwned(async()=>{
-          const session=origin.sessionId && await refresh(origin.sessionId,origin.activeSession,stop.signal);
+          session=origin.sessionId && await refresh(origin.sessionId,origin.activeSession,stop.signal);
           if(session)scope.exposeSessionView(session);
           return ctx.get('deepseekLlmApiExtensions')?.prepare({body,signal:stop.signal,
             ...(origin.sessionId==null?{}:{sessionId:origin.sessionId}),
@@ -81,7 +81,10 @@ export function modelFieldRoute(ctx,WebSocketServer,scope,refresh,auth) {
       }
       if(phase==='prepared'&&accept&&!binary&&data.toString()==='accept'){
         phase='settling';
-        await scope.runOwned(accept,stop.signal);
+        await scope.runOwned(()=>{
+          if(session)scope.exposeSessionView(session);
+          return accept();
+        },stop.signal);
         socket.send('ok');socket.close();
         return;
       }

@@ -165,8 +165,10 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const goals=workbenchGoalMutations((await load(goalName)).default,caller,
       id=>sessionScope.commitControl(id,{type:'disarm_goal'}));
     hostModules.set(goalName,goals.Runtime);
-    function captureModelSession(id,active,signal){
-      if(active||agents?.get(id))return history.capture(id,undefined,signal);
+    async function captureModelSession(id,active,signal){
+      if(!active)return agents?.get(id)?.session;
+      const {meta,first}=await history.stored(id,signal);
+      if(meta)return history.capture(id,meta,signal,first);
     }
     await provideHttp(ctx,load,key,sessionScope,deepseekFields?captureModelSession:undefined);
     await ctx.plugin(leasedPluginPackages(boot,modules));

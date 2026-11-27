@@ -20,9 +20,10 @@ test('a private field transaction retains only its own 2xx acceptance and carrie
   const entry=name=>name==='ws'?join(dirname(require.resolve('ws/package.json')),require('ws/package.json').exports['.'].import):require.resolve(name);
   const app=await createApplication({profile,modules:{entry},provide:async(ctx,load)=>{
     await ctx.plugin((await load('@deepseek-ai/dsh-deepseek-llm-api-extensions')).default);
+    ctx.provide('sessions',scope.sessions);
     ctx.deepseekLlmApiExtensions.register('new_field',{prepare({body,sessionId,purpose}){
-      prepared.push({body,sessionId,purpose,active:!!scope.sessions.get(sessionId)});
-      return {value:body.model,accept:()=>accepted.push(body.model)};
+      prepared.push({body,sessionId,purpose,active:!!ctx.sessions.get(sessionId)});
+      return {value:body.model,accept:()=>accepted.push([body.model,ctx.sessions.get(sessionId)?.id])};
     }});
     await provideHttp(ctx,load,key,scope,(id,active)=>{refreshes.push([id,active]);return active?{id}:undefined;});
   }});
@@ -46,7 +47,7 @@ test('a private field transaction retains only its own 2xx acceptance and carrie
   first.terminate();
   const reply=once(second,'message');second.send('accept');
   assert.equal((await reply)[0].toString(),'ok');
-  assert.deepEqual(accepted,['accepted']);assert.deepEqual(refreshes,[['test-session',false],['test-session',true]]);
+  assert.deepEqual(accepted,[['accepted','test-session']]);assert.deepEqual(refreshes,[['test-session',false],['test-session',true]]);
   assert.equal(prepared[0].active,false);
   assert.deepEqual(prepared[1],{body:{model:'accepted',input:[{text:'input'}]},sessionId:'test-session',purpose:'test',active:true});
 });

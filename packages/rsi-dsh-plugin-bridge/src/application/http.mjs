@@ -130,7 +130,7 @@ export async function provideHttp(ctx,load,key,sessionScope,refreshModelSession)
     const {WebSocketServer}=await load('ws');
     const route=modelFieldRoute(ctx,WebSocketServer,sessionScope,refreshModelSession,req=>
       !req.headers.origin && !req.headers['x-rsi-upstream-key'] && authenticated(req,'x-rsi-model-key')?'anonymous':'deny');
-    WebServer.prototype.registerUpgrade.call(ctx.webServer,route);
+    ctx.effect(()=>WebServer.prototype.registerUpgrade.call(ctx.webServer,route));
   }
   ctx.on('webserver/request',(req,res,next)=>{
     if(!authenticated(req)){res.writeHead(403).end();return;}
