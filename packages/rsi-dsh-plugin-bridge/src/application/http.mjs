@@ -3,7 +3,6 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {isIP} from 'node:net';
 import {SidebarBodyError} from './sessions.mjs';
 import {serveShareEntry} from './share-entry.mjs';
-import {modelFieldRoute} from '../workbench/deepseek-fields.mjs';
 
 // Wrap the public route seats. Cordis still owns ordering, matching, index
 // transforms, disposal, and termination of upgraded sockets.
@@ -71,7 +70,9 @@ export async function provideHttp(ctx,load,key,sessionScope,refreshModelSession)
     }
     return publicRequest.run({origin,remoteAddress:address,remotePort:port,remoteFamily:'IPv'+family},run);
   }
+  let instance;
   class PrivateServer extends WebServer {
+    constructor(scope,config){super(scope,config);instance=this;}
     getOrigin(){return publicRequest.getStore()?.origin??super.getOrigin();}
     readResource(request,peer) {
       const url=new URL(request.url);
@@ -126,8 +127,9 @@ export async function provideHttp(ctx,load,key,sessionScope,refreshModelSession)
   }
   await (await ctx.plugin(PrivateServer,{host:'127.0.0.1',port:0,
     compression:'gzip',compressionLevel:1,compressionThresholdBytes:1024})).await();
+  if(instance?.server)instance.server.keepAliveTimeout=0;
   if(refreshModelSession){
-    const {WebSocketServer}=await load('ws');
+    const [{WebSocketServer},{modelFieldRoute}]=await Promise.all([load('ws'),import('../workbench/deepseek-fields.mjs')]);
     const route=modelFieldRoute(ctx,WebSocketServer,sessionScope,refreshModelSession,req=>
       !req.headers.origin && !req.headers['x-rsi-upstream-key'] && authenticated(req,'x-rsi-model-key')?'anonymous':'deny');
     ctx.effect(()=>WebServer.prototype.registerUpgrade.call(ctx.webServer,route));

@@ -2,7 +2,7 @@ import {cohortModules} from '../../../../fixtures/market/cohort-modules.mjs';
 import assert from 'node:assert/strict';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomUUID} from 'node:crypto';
-import {request} from 'node:http';
+import {Agent,request} from 'node:http';
 import {mkdir,mkdtemp,rm,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -499,3 +499,53 @@ test('a captured Cordis registration settles once in its own Session and expires
         assert.equal(calls,3);
       });
   });
+
+test('pooled keep-alive sockets survive past five seconds idle and deliver nine concurrent session writes',{skip:!root,timeout:20000},async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'rsi-tool-keepalive-nine-'));
+  const {load}=await cohortModules(root);
+  const ctx=new (await load('@deepseek-ai/cordis')).Context(),tools=await load('@deepseek-ai/dsh-tools');
+  for(const name of ['dsh-session-projection','dsh-system-prompt'])await ctx.plugin((await load('@deepseek-ai/'+name)).default);
+  await ctx.plugin(tools.default);
+  const sessions=applicationSessions(()=>{throw Error('unexpected native request');});
+  let active=0,peak=0;
+  const barrier=Promise.withResolvers();
+  ctx.tools.register(tools.defineTool({name:'write_probe',description:'concurrent session write',
+    parameters:{session:{type:'string',required:true}},isConcurrencySafe:()=>true,
+    output:{schema:{type:'string'},render:(_,value)=>[{type:'text',text:value}]},
+    async execute({session}){
+      peak=Math.max(peak,++active);
+      if(active===9)barrier.resolve();
+      await barrier.promise;
+      active--;
+      return 'wrote:'+session;
+    }}));
+  const key=randomUUID(),listener=await fixtureTools(ctx,{load,key,generation:randomUUID(),directory,sessions});
+  const agent=new Agent({keepAlive:true,maxSockets:9});
+  t.after(async()=>{barrier.resolve();agent.destroy();await ctx.fiber.dispose();await sessions.close();await rm(directory,{recursive:true,force:true});});
+  const post=(path,payload)=>new Promise((resolve,reject)=>{
+    const body=Buffer.from(JSON.stringify(payload));
+    const req=request({hostname:'127.0.0.1',port:listener.port,path:'/v1/'+path,method:'POST',agent,
+      headers:{authorization:key,'content-type':'application/json','content-length':body.length}},res=>{
+      const chunks=[];res.on('data',c=>chunks.push(c));
+      res.on('end',()=>resolve({status:res.statusCode,socket:req.socket?.localPort,value:JSON.parse(Buffer.concat(chunks).toString())}));
+    });
+    req.on('error',reject);req.end(body);
+  });
+  const ids=Array.from({length:9},(_,i)=>'concurrent-'+(i+1));
+  const captures=await Promise.all(ids.map(id=>post('capture',{view:randomUUID(),header:{id,cwd:directory},reserved:[],modelSelection:nativeSelection})));
+  for(const reply of captures)assert.equal(reply.status,200);
+  // Exceed Node's default 5000 ms server keepAliveTimeout while holding the pooled sockets idle.
+  await new Promise(resolve=>setTimeout(resolve,5200));
+  const outcomes=await Promise.all(captures.map((reply,index)=>{
+    const session=ids[index],view=reply.value,effect=randomUUID();
+    return post('start',{view:view.view,session,effect,name:'write_probe',args:{session},
+      registration:view.tools[0].registration,
+      identity:{owner_id:'nine',invocation_id:effect,call_id:effect,request_sha256:'c'.repeat(64)}});
+  }));
+  assert.equal(peak,9);
+  for(const [index,reply] of outcomes.entries()){
+    assert.equal(reply.status,200);
+    assert.equal(reply.value.state,'settled');
+    assert.equal(reply.value.result.value,'wrote:'+ids[index]);
+  }
+});

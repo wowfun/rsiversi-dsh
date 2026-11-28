@@ -193,6 +193,7 @@ export async function applicationTools(ctx,{load,key,generation,sessions,resolve
     }
     finally{if(readingOrServing)lane.active--;}
   });
+  server.keepAliveTimeout=0;
   const {WebSocketServer}=await load('ws');
   const closeNative=serveNativeTools(server,WebSocketServer,authenticated,views,sessions,execute);
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});

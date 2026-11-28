@@ -329,6 +329,9 @@ a Cordis callback rejects with a non-Error value.
 In a forwarded HTTP callback or a socket upgrade's route policy and handler,
 the public WebServer origin and socket peer describe the Host listener and
 its connecting client. The private loopback hop remains internal to the carrier.
+Both private loopback HTTP listeners disable server-side idle keep-alive
+timeouts so the native Host's pooled client owns idle socket expiry without
+racing a server disconnect.
 Enabled plugins can also make independent
 Language calls through the released Cordis `llm` service. Its Host adapter
 uses the native catalog and exact provider route. The Host owns the credentials
