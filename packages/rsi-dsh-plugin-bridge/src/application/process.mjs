@@ -13,23 +13,16 @@ import {requestBoundary} from './request-boundary.mjs';
 import {drainsOnCancel,readWorkerLaunch} from './entry.mjs';
 import {leasedPluginPackages} from './package-metadata.mjs';
 import {provideHttp} from './http.mjs';
-import {languageCalls,provideLanguage} from './language.mjs';
-import {createMarketProfile} from '../market/market-profile.mjs';
 import {linkProfilePackage} from '../market/profile-files.mjs';
 import {applicationSessions,provideWorkbenchSessions} from './sessions.mjs';
 import {workbenchWorkspaceRegistry} from '../workbench/workspace-registry.mjs';
 import {hostHomePicker,workspaceController} from '../workbench/workspace-controller.mjs';
 import {sessionController} from '../workbench/session-controller.mjs';
-import {jobController} from '../workbench/job-controller.mjs';
 import {packagedPresetPlugins,workbenchProfile} from '../workbench/profile.mjs';
 import {workbenchPresetRegistry} from '../workbench/presets.mjs';
 import {workbenchHostSettings} from '../workbench/host-settings.mjs';
-import {workbenchDeepSeekFields} from '../workbench/deepseek-fields.mjs';
-import {packageCommand} from '../market/package-command.mjs';
 import {brandModule,publishBrand} from './brand.mjs';
-import {moveRegistryCache,profileState,registryCache,viewNpm} from '../../../rsi-dsh-cordis/src/registry/npm-install.mjs';
-import {managedBoundary,managementTools} from '../market/management.mjs';
-import {managedPackages} from '../market/managed-packages.mjs';
+import {profileState} from '../../../rsi-dsh-cordis/src/registry/npm-install.mjs';
 import {historyHeader,workbenchHistory} from '../workbench/history.mjs';
 import {sessionJournalStore} from '../session/session-journal-store.mjs';
 import {workbenchPersistence} from '../workbench/persistence.mjs';
@@ -38,15 +31,18 @@ import {installSessionRecordWriter} from '../session/plugin-records.mjs';
 import {workbenchSubagents} from '../workbench/subagents.mjs';
 import {workbenchGoalMutations} from '../workbench/goal-mutations.mjs';
 import {terminalController} from '../terminal/controller.mjs';
-import {applicationTools} from '../tools/application-tools.mjs';
 import {workbenchInteractions} from '../workbench/interactions.mjs';
 import {watchWorkbenchCatalog} from '../workbench/catalog.mjs';
 
-const {generation,roots,layout}=await readWorkerLaunch();
+const generation=process.argv[2];
+if(!generation)throw Error('Invalid package launch');
+for(const name of ['log','info','warn','debug'])console[name]=console.error;
 let modules, recordWriter, checkpointEngine, app, opening, nativeSessions, language, workbench;
 async function open({protocol,profile,key,owner,importer,timings=false,tools=false,language:hasLanguage=false,deepseekFields=false}) {
   const start=performance.now();
   if (protocol !== 16 || !/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-f]{64}$/.test(owner)) throw new Error('Invalid application.open');
+  let {roots,layout}=await readWorkerLaunch();
+  const toolchain=layout.toolchain;
   modules=installReleaseResolver(layout,roots,profile);
   recordWriter=installSessionRecordWriter(modules.entry('@deepseek-ai/dsh-session'));
   checkpointEngine=installCheckpointEngine(modules.entry('@deepseek-ai/dsh-compaction-basic'));
@@ -59,6 +55,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       !(name.startsWith('@deepseek-ai/') || ['cordis','react','react-dom'].includes(name))) continue;
     await linkProfilePackage(profile,name,modules.directory(name),modules.setProfileLink);
   }
+  layout=undefined;
   let market;
   const {rows,clientOnly}=await workbenchProfile(modules,boot,profileState(profile),{importer,language:hasLanguage});
   const official='@deepseek-ai/dsh-client-ui-brand-official';
@@ -95,6 +92,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       capture:async(id,signal)=>agents?.get(id)?(await agents.refresh(id,signal)).session:persistence.capture(id,signal)});
     nativeSessions=sessionScope;
     if(hasLanguage){
+      const {languageCalls,provideLanguage}=await import('./language.mjs');
       language=languageCalls(call,owner);
       ctx.effect(()=>()=>language.close(),'cancel standalone Host model calls');
       const catalog=await sessionScope.observeOwned(signal=>sessionScope.modelCatalog(signal,true));
@@ -122,7 +120,10 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     const {SessionTitleInvalidError}=await load('@deepseek-ai/dsh-session-title');
     const presets='@deepseek-ai/dsh-agent-preset-registry';
     const presetModule=await load(presets);
-    if(deepseekFields)fields=await workbenchDeepSeekFields(hostModules,load,value=>call('application.deepseek.fields',value));
+    if(deepseekFields){
+      const {workbenchDeepSeekFields}=await import('../workbench/deepseek-fields.mjs');
+      fields=await workbenchDeepSeekFields(hostModules,load,value=>call('application.deepseek.fields',value));
+    }
     const defaults=await workbenchHostSettings(hostModules,load,sessionScope,fields?.flush);
     const basic='@deepseek-ai/dsh-compaction-basic';
     hostModules.set(basic,workbenchCompaction((await load(basic)).default,
@@ -148,7 +149,10 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       constructor(scope){super(scope);scope.plugin(DirectoryPickerController);}
     });
     const jobName='@deepseek-ai/dsh-api-job-controller';
-    if(rows.some(row=>row.name===jobName))hostModules.set(jobName,jobController((await load(jobName)).default,history));
+    if(rows.some(row=>row.name===jobName)){
+      const [{jobController},jobModule]=await Promise.all([import('../workbench/job-controller.mjs'),load(jobName)]);
+      hostModules.set(jobName,jobController(jobModule.default,history));
+    }
     const terminalName='@deepseek-ai/dsh-api-terminal-controller';
     const terminal=await load(terminalName);
     hostModules.set(terminalName,terminalController({TypertRemoteService,RemoteError},sessionScope,terminal.default.Config({})));
@@ -172,6 +176,11 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
     await ctx.plugin(leasedPluginPackages(boot,modules));
     let packageManager;
     if (importer) {
+      const [{createMarketProfile},{packageCommand},{managedBoundary,managementTools},{managedPackages},{moveRegistryCache,registryCache,viewNpm}]=await Promise.all([
+        import('../market/market-profile.mjs'),import('../market/package-command.mjs'),
+        import('../market/management.mjs'),import('../market/managed-packages.mjs'),
+        import('../../../rsi-dsh-cordis/src/registry/npm-install.mjs'),
+      ]);
       const state=profileState(profile);
       await moveRegistryCache(profile);
       const managerName='@deepseek-ai/dsh-plugin-manager';
@@ -185,7 +194,7 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
         inUse:graph=>candidate.usesPayload([...graph.roots].filter(([name])=>!roots.has(name)).map(([,dir])=>dir)),
         manager:()=>ctx.get('pluginManager'),
         view:async(spec,fields,registry,signal)=>{
-          const selection=layout.toolchain;
+          const selection=toolchain;
           if(!selection) throw new Error('The application has no selected registry toolchain');
           const held=await call('application.payloads',{package:selection.name,digest:selection.digest,
             export:'runtime',dependency_export:'runtime'},signal);
@@ -221,7 +230,8 @@ async function open({protocol,profile,key,owner,importer,timings=false,tools=fal
       watchWorkbenchCatalog(loop,sessionScope,agents.sharedBlankChanged);
     }).await();
     if(tools){
-      await (await ctx.plugin((await load('@deepseek-ai/dsh-user-approval')).default,{})).await();
+      const [{applicationTools},approval]=await Promise.all([import('../tools/application-tools.mjs'),load('@deepseek-ai/dsh-user-approval')]);
+      await (await ctx.plugin(approval.default,{})).await();
       toolListener=await applicationTools(ctx,{load,key,generation,sessions:sessionScope,boundary,
         resolveAgent:(id,signal)=>sessionScope.runOwned(()=>agents.ensure(id,signal),signal)});
     }

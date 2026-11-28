@@ -24,10 +24,11 @@ export function installReleaseResolver(layout, roots, profile) {
   const profileURL=profile&&pathToFileURL(resolve(profile)+sep).href;
   const profileModules=profile&&join(resolve(profile),'node_modules');
   const profileLinks=new Map(),marketLinks=new Map();
+  const releaseVersion=layout.version;
   let release, lastParent, lastOwner;
   function releaseBinding(location,version) {
-    const row=layout.locations[location];
-    if(row && row.version===version && runtimeShard.test(row.package)) return release.get(location);
+    const active=release.get(location);
+    if(active?.runtimeVersion===version) return active;
   }
   function prepare(graph,paths,names) {
     const externalPeers=release!==undefined && graph?.format===2;
@@ -35,7 +36,7 @@ export function installReleaseResolver(layout, roots, profile) {
       (externalPeers && !graph.hostPeers))
       throw new Error('Invalid profile module layout');
     const local=new Map(),owned=[];
-    const sameRelease=release!==undefined && layout.version!==undefined && graph.version===layout.version;
+    const sameRelease=release!==undefined && releaseVersion!==undefined && graph.version===releaseVersion;
     for (const [location,row] of Object.entries(graph.locations)) {
       const name=packageLocation(location);
       if(sameRelease && runtimeShard.test(row.package)) continue;
@@ -43,7 +44,8 @@ export function installReleaseResolver(layout, roots, profile) {
       if (!root) throw new Error('Missing package lease: '+row.package);
       const directory=resolve(root,location);
       const lookupRoot=directory.slice(0,-('node_modules/'+name).length);
-      const binding={name,directory,location,parent:pathToFileURL(join(lookupRoot,'__rsi_lookup__.cjs')).href,dependencies:row.dependencies,local};
+      const binding={name,directory,location,parent:pathToFileURL(join(lookupRoot,'__rsi_lookup__.cjs')).href,dependencies:row.dependencies,local,
+        ...(release===undefined&&runtimeShard.test(row.package)?{runtimeVersion:row.version}:{})};
       local.set(location,binding);
       owned.push(binding);
     }
@@ -70,7 +72,7 @@ export function installReleaseResolver(layout, roots, profile) {
     });
     if(externalPeers && !sameRelease) {
       const semver=createRequire(entry('@deepseek-ai/dsh-app-boot'))('semver');
-      for(const [,row] of entries) checkRequirements(JSON.parse(readFileSync(join(row.directory,'package.json'),'utf8')),layout.version,semver);
+      for(const [,row] of entries) checkRequirements(JSON.parse(readFileSync(join(row.directory,'package.json'),'utf8')),releaseVersion,semver);
     }
     return {directory:name=>local.get('node_modules/'+name)?.directory,publish() {
       for(const row of owned) {
@@ -102,6 +104,7 @@ export function installReleaseResolver(layout, roots, profile) {
   }
   const host=new Map(rootsByName);
   for(const name of layout.plugins??[]) host.delete(name);
+  layout=undefined;
   function destinationFor(owner,name) {
     const declared=owner.local.get(owner.dependencies[name]);
     if(declared) return declared;

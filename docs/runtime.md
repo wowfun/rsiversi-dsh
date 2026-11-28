@@ -1759,6 +1759,11 @@ can be republished on restart or upgrade even when an older asset inherited
 the Store's read-only permissions.
 When the Host requests opening timings, the Worker reports setup, Cordis
 composition and profile reconciliation durations with its normal ready reply.
+Once the Worker binds the release resolver and links the profile's shared
+runtime packages, it releases the parsed startup layout document, retaining only
+the resolved bindings and optional toolchain reference. Optional language,
+DeepSeek request-field, job, market-management and application-tool modules load
+on demand when their capability is enabled.
 For Plugin Manager installs with a request ID, the Host records the intent
 before starting the original installer and its return value before replying.
 Concurrent equal requests join one installation. Repeating the ID with the
