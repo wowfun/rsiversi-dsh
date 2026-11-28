@@ -8,6 +8,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {createMarketProfile} from '../../src/market/market-profile.mjs';
+import {managedPackages} from '../../src/market/managed-packages.mjs';
 import {captureProfileFiles,captureRecovery,readSelections,saveSelections,linkProfilePackage} from '../../src/market/profile-files.mjs';
 import {createApplication} from '../../src/application/application.mjs';
 import {requestBoundary} from '../../src/application/request-boundary.mjs';
@@ -531,4 +532,128 @@ test('published dshmarket raw runtime resolves explicit installs, restores and r
     assert.deepEqual(await service.activate(),{ok:true});assert.equal(releases,2);
     assert.equal(JSON.parse(await readFile(path)).dependencies[name],undefined);
     await assert.rejects(readFile(join(profile,'node_modules',name,'package.json')),{code:'ENOENT'});
+  });
+
+test('local directory and tarball installs record file provenance and never query npm on cross-host restore',
+  {skip:!root},async t=>{
+    const base=await mkdtemp(join(tmpdir(),'rsi-local-provenance-'));
+    t.after(()=>rm(base,{recursive:true,force:true}));
+    const profile=join(base,'profile'),state=join(base,'state'),held=join(base,'held');
+    const localDir=join(base,'local-dir-plugin'),localTarball=join(base,'local-tarball-plugin.tgz');
+    await Promise.all([profile,held,localDir].map(dir=>mkdir(dir,{recursive:true})));
+    const dirName='local-dir-fixture',tarName='local-tar-fixture',regName='dsh-better-sidebar';
+    const regEntry=join(root,'node_modules',regName);
+    const {version:regVersion}=JSON.parse(await readFile(join(regEntry,'package.json'),'utf8'));
+    await writeFile(join(localDir,'package.json'),JSON.stringify({name:dirName,version:'0.1.0',dsh:{bundle:{patch:'patch.yml'}}}));
+    await writeFile(join(localDir,'patch.yml'),'[]\n');
+    await writeFile(localTarball,'tarball-placeholder');
+    const tarExtracted=join(base,'tar-extracted');await mkdir(tarExtracted);
+    await writeFile(join(tarExtracted,'package.json'),JSON.stringify({name:tarName,version:'0.2.0',dsh:{bundle:{patch:'patch.yml'}}}));
+    await writeFile(join(tarExtracted,'patch.yml'),'[]\n');
+    for(const [id,plugin,version] of [['dir',dirName,'0.1.0'],['tar',tarName,'0.2.0'],['reg',regName,regVersion]]){
+      const folder=join(held,id);await mkdir(folder);
+      await writeFile(join(folder,'layout.json'),JSON.stringify({format:1,plugins:[plugin],locations:{['node_modules/'+plugin]:{version}}}));
+    }
+    const dirs={[dirName]:localDir,[tarName]:tarExtracted,[regName]:regEntry};
+    const require=createRequire(join(root,'package.json'));
+    const boot=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')));
+    const managerModule=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-plugin-manager')));
+    const roots=rootSet(),stagedSpecs=[];
+    const selectionFor=spec=>{
+      if(spec.includes('local-dir-plugin'))return ['rsi-dsh-selection-dir','1'.repeat(64),'dir'];
+      if(spec.includes('local-tarball-plugin.tgz'))return ['rsi-dsh-selection-tar','2'.repeat(64),'tar'];
+      if(spec===regName+'@'+regVersion)return ['rsi-dsh-selection-reg','3'.repeat(64),'reg'];
+      throw Error('unexpected stage specification: '+spec);
+    };
+    const byDigest={['1'.repeat(64)]:'dir',['2'.repeat(64)]:'tar',['3'.repeat(64)]:'reg'};
+    let market;
+    const options={profile,state,modules:{entry:require.resolve,add(){},prepare(_l,_r,[plugin]){return {directory:()=>dirs[plugin],publish(){}};},
+      directory:name=>dirs[name],installationDependency(){}},boot,reconcile:()=>[],
+      async call(method,request){
+        if(method==='application.stage.release'||method==='application.release')return null;
+        if(method==='application.roots')return roots(request);
+        if(method==='application.stage'){
+          stagedSpecs.push(request.specifications[0]);
+          const [sel,digest]=selectionFor(request.specifications[0]);
+          return stage(roots,request,{[sel]:digest});
+        }
+        assert.equal(method,'application.payloads');
+        return {profile:join(held,byDigest[request.digest]),roots:{}};
+      }};
+    market=await createMarketProfile(options);
+    for(const spec of [localDir,localTarball,regName+'@'+regVersion]){
+      const run=market.packageRunner.runPlugin(['add',spec],profile);
+      assert.equal((await run.done).exitCode,0,Buffer.concat(await Array.fromAsync(run.stderr)).toString());
+    }
+    const manifest=JSON.parse(await readFile(join(profile,'package.json'),'utf8'));
+    assert.equal(manifest.dependencies[dirName],'file:'+localDir);
+    assert.equal(manifest.dependencies[tarName],'file:'+localTarball);
+    assert.equal(manifest.dependencies[regName],regVersion);
+    const saved=await readSelections(join(state,'selections.json'));
+    assert.equal(saved.installed[dirName].source,'file:'+localDir);
+    assert.equal(saved.installed[tarName].source,'file:'+localTarball);
+    assert.equal(saved.installed[regName].source,undefined);
+
+    // Verify real upstream PluginManager.listBundles() and managedPackages replacement inspection for both path and tarball.
+    const hostModules=new Map(),managerName='@deepseek-ai/dsh-plugin-manager';
+    const app=await createApplication({
+      modules:{entry:require.resolve,directory:name=>join(root,'node_modules',name)},
+      profile,hostModules,baseRows:[{id:'plugin-manager',name:managerName}],
+      provide:async ctx=>{
+        hostModules.set(managerName,managedPackages(managerModule.default,()=>market,managerModule));
+        ctx.provide('profileContext',{name:'profile',dir:profile,patchPath:join(profile,'cordis.patch.yml'),
+          installAnchor:join(root,'node_modules/@deepseek-ai/dsh/package.json'),cwd:profile,home:base,
+          startedBundles:[],overlayPaths:[],telemetryDisabledEnv:'1'});
+      }});
+    t.after(()=>app.close());
+    await app.reconcile([]);
+    const bundles=await app.ctx.pluginManager.listBundles();
+    const dirBundle=bundles.find(b=>b.name===dirName),tarBundle=bundles.find(b=>b.name===tarName);
+    assert.equal(dirBundle?.source,'file:'+localDir);
+    assert.equal(tarBundle?.source,'file:'+localTarball);
+    app.ctx.pluginManager.registries=async()=>({registry:'https://registry.npmjs.org/',resolved:'https://registry.npmjs.org/',fallbackRegistries:[]});
+    assert.equal((await app.ctx.pluginManager.inspect(localDir)).replacement,true);
+    assert.equal((await app.ctx.pluginManager.inspect(localTarball)).replacement,true);
+
+    // Same-host restore reuses held local selections without staging or touching npm.
+    stagedSpecs.length=0;
+    await unlink(join(profile,'node_modules',dirName));
+    const sameHost=market.packageRunner.runPlugin(['install'],profile);
+    assert.equal((await sameHost.done).exitCode,0);
+    assert.deepEqual(stagedSpecs,[]);
+    assert.equal(await realpath(join(profile,'node_modules',dirName)),await realpath(localDir));
+
+    // Cross-host restore with reachable local directory, missing local tarball, and healthy registry dependency:
+    // never queries npm for name@version on either local dependency.
+    const target=join(base,'target-profile'),targetState=join(base,'target-state');
+    await mkdir(target,{recursive:true});
+    const missingTarball=join(base,'absent-plugin.tgz');
+    await writeFile(join(target,'package.json'),JSON.stringify({
+      name:'restored-profile',private:true,
+      dependencies:{[dirName]:'file:'+localDir,[tarName]:'file:'+missingTarball,[regName]:regVersion},
+      dsh:{profile:{bundles:[dirName,tarName,regName]}},
+    }));
+    const targetRoots=rootSet(),targetSpecs=[];
+    const restored=await createMarketProfile({...options,profile:target,state:targetState,
+      async call(method,request){
+        if(method==='application.stage.release'||method==='application.release')return null;
+        if(method==='application.roots')return targetRoots(request);
+        if(method==='application.stage'){
+          const spec=request.specifications[0];
+          assert.notEqual(spec,dirName+'@0.1.0','must never query registry for local directory');
+          assert.notEqual(spec,tarName+'@0.2.0','must never query registry for missing local tarball');
+          targetSpecs.push(spec);
+          const [sel,digest]=selectionFor(spec);
+          return stage(targetRoots,request,{[sel]:digest});
+        }
+        return {profile:join(held,byDigest[request.digest]),roots:{}};
+      }});
+    const restoreRun=restored.packageRunner.runPlugin(['--no-frozen-lockfile','install'],target);
+    assert.equal((await restoreRun.done).exitCode,1);
+    const errText=Buffer.concat(await Array.fromAsync(restoreRun.stderr)).toString();
+    assert.match(errText,/Local package path is unavailable on this host/);
+    assert.deepEqual(targetSpecs,['file:'+localDir,regName+'@'+regVersion]);
+    const cleaned=JSON.parse(await readFile(join(target,'package.json'),'utf8'));
+    assert.deepEqual(cleaned.dependencies,{[dirName]:'file:'+localDir,[regName]:regVersion});
+    assert.deepEqual(cleaned.dsh.profile.bundles,[dirName,regName]);
   });

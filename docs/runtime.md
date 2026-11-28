@@ -1293,9 +1293,22 @@ reconciliation retains partial successes. Replacement completion requires the
 new entry to be active, not merely a saved package view. Retired payloads stay
 leased through admitted work and Fiber cleanup. The bridge prepares candidates independently and applies them with exact Store compensation. It accepts explicit
 replacement of an installed profile-owned package, including an unchanged
-version or absolute local directory. Manifest restoration reuses an available,
-already leased selection when its exact version matches, repairing its profile
-link without downloading it again. Every explicit install resolves its current
+version, absolute local directory or local tarball. When a selection is prepared
+from a local directory or local tarball specification, its format-3
+`selections.json` record stores `source: "file:<absolute-path>"` alongside the
+Store package, digest and version, and `materialize` writes that `file:`
+specification to `profile/package.json` `dependencies` instead of a bare version
+so upstream Plugin Manager inventory reports local `file:` provenance without
+registry update checks. Registry selections omit `source` and record their exact
+version. Manifest restoration reuses an available, already-leased selection when
+its recorded `source` (for a `file:` dependency) or exact version (for a registry
+dependency) matches, repairing its profile link without importing it again. For
+an unheld `file:` dependency, `restoreManifest` imports the resolved local
+regular file or directory when reachable on the current Host and verifies the
+declared package name; missing or symbolic-link `file:` targets, `link:`
+specifications and other non-registry protocols fail restoration into
+unavailable diagnostics while preserving working selections and never query the
+npm registry for `name@version`. Every explicit install resolves its current
 content. A request ID identifies an active installation for progress, waiting and
 cancellation. After settlement or restart, the workbench reads the installed
 bundle and its activation state. A subsequent explicit install evaluates the

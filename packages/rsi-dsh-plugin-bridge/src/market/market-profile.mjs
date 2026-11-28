@@ -1,13 +1,31 @@
 import {wait} from '../application/request-boundary.mjs';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {lstat, mkdir, readFile} from 'node:fs/promises';
-import {basename, join} from 'node:path';
+import {homedir} from 'node:os';
+import {basename, isAbsolute, join, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {packageLocation} from '../../../rsi-dsh-cordis/src/release/layout.mjs';
 import {applicationBundle} from '../application/application.mjs';
 import {bundlePatches} from './bundles.mjs';
 import {packageRunners} from './package-runners.mjs';
 import {withCleanup} from './cleanup.mjs';
 import {buildDecisions, captureRecovery, discardRecovery, restoreProfileFiles, linkProfilePackage, publishReleaseAgeDefault, readProfileManifest, readSelections, save, saveSelections, unlinkProfilePackage} from './profile-files.mjs';
+
+const nonRegistryValue=/^(?!(?:npm|jsr|workspace|catalog):)[a-z][a-z0-9+.-]*:|^[^@/:\s]+@[^:/\s]+:/i;
+function resolveLocalSpec(raw,profile) {
+  const value=raw.trim();
+  const match=/^(file|link):(.*)$/s.exec(value);
+  if(match) {
+    const kind=match[1],rest=match[2];
+    const path=kind==='file'&&/^\/\//.test(rest)?fileURLToPath(value)
+      :resolve(profile,rest.replace(/^~(?=$|[\\/])/,()=>homedir()));
+    return {kind,path,source:'file:'+path};
+  }
+  if(isAbsolute(value)||/^(?:\.{1,2}|~)(?:[\\/]|$)/.test(value)) {
+    const path=resolve(profile,value.replace(/^~(?=$|[\\/])/,()=>homedir()));
+    return {kind:'file',path,source:'file:'+path};
+  }
+}
 
 /** Publish npm layout links only after the Store holds their exact generation.
  * dshmarket owns its bundle rows. Its activation callback reconciles those
@@ -104,8 +122,9 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
         bindings.set(name,{digest:selection.digest,release});
       }
       await linkProfilePackage(profile,name,modules.directory(name),modules.setProfileLink);
-      if(value.dependencies[name]===selection.version)return false;
-      value.dependencies[name]=selection.version;
+      const recorded=selection.source??selection.version;
+      if(value.dependencies[name]===recorded)return false;
+      value.dependencies[name]=recorded;
     }
     else {
       retireBinding(name);
@@ -219,6 +238,8 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
     installed=selected;
   }
   async function prepare(spec,signal,registry,log,expected) {
+    const local=resolveLocalSpec(spec,profile);
+    if(local?.kind==='link')throw new Error('Symbolic link dependencies are not supported: '+spec);
     log.write('Preparing '+spec+' in the package store\n');
     const builds=await buildDecisions(profile,modules);
     const options={cache:true,...(registry?{registry}:{}),...(Object.keys(builds).length?{builds}:{})};
@@ -238,18 +259,20 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
       const {layout,roots}=await load({package:name,digest},signal);
       const updates={},prepared=new Map(),patches=new Map();
       for(const plugin of layout.plugins) {
-        updates[plugin]={package:name,digest,version:layout.locations['node_modules/'+plugin].version};
+        updates[plugin]={package:name,digest,version:layout.locations['node_modules/'+plugin].version,
+          ...(local?{source:local.source}:{})};
         const mapping=modules.prepare(layout,roots,[plugin]);prepared.set(plugin,mapping);
         patches.set(plugin,bundlePatches(boot,modules.installationDependency(plugin)??mapping.directory(plugin),boot.readProfileVersionExemptions(profile),boot.getDshRuntimeVersion()));
       }
-      if(expected && (layout.plugins.length!==1 || layout.plugins[0]!==expected.name || updates[expected.name].version!==expected.version))
+      if(expected && (layout.plugins.length!==1 || layout.plugins[0]!==expected.name ||
+          (expected.version!==undefined && updates[expected.name].version!==expected.version)))
         throw Object.assign(new Error('unexpected-package'),{code:'unexpected-package'});
       signal?.throwIfAborted();
       return {updates,prepared,patches,dispose};
     } catch(error) {return withCleanup(()=>{throw error;},dispose);}
   }
-  async function install(spec,signal,registry,log) {
-    const candidate=await prepare(spec,signal,registry,log);
+  async function install(spec,signal,registry,log,expected) {
+    const candidate=await prepare(spec,signal,registry,log,expected);
     await withCleanup(async()=>{
       const apply=()=>publish(candidate.updates,signal,candidate.prepared);
       await changeRaw(apply,signal);
@@ -283,18 +306,36 @@ export async function createMarketProfile({profile,state,modules,call,reconcile,
     const dependencies=(await manifest()).dependencies??{};
     const failed=[];
     const missing=[];
-    for(const [name,version] of Object.entries(dependencies)) {
+    for(const [name,recorded] of Object.entries(dependencies)) {
       signal.throwIfAborted();
       if(name===applicationBundle) continue;
       try {
-        if(packageLocation('node_modules/'+name)!==name || typeof version!=='string' || !version.length)
+        if(packageLocation('node_modules/'+name)!==name || typeof recorded!=='string' || !recorded.length)
           throw new Error('Invalid dependency specification');
         const selected=installed[name];
-        if(selected?.version===version&&loaded.has(selected.digest)&&!unavailable.has(name)) {
+        const local=resolveLocalSpec(recorded,profile);
+        if(local) {
+          if(local.kind==='link')throw new Error('Symbolic link dependencies are not supported: '+recorded);
+          if(selected?.source===local.source&&loaded.has(selected.digest)&&!unavailable.has(name)) {
+            await changeRaw(()=>materialize(name,selected,{dependencies:{[name]:recorded}}),signal);
+            if(recorded!==local.source)await changeRaw(()=>syncManifest({[name]:selected}),signal);
+            continue;
+          }
+          const entry=await lstat(local.path).catch(error=>{
+            if(error.code==='ENOENT'||error.code==='ENOTDIR')return null;
+            throw error;
+          });
+          if(!entry)throw new Error('Local package path is unavailable on this host: '+local.path);
+          if(entry.isSymbolicLink())throw new Error('Local package path cannot be a symbolic link: '+local.path);
+          await install(local.source,signal,registry,log,{name});
+          continue;
+        }
+        if(nonRegistryValue.test(recorded))throw new Error('Unsupported non-registry dependency specification: '+recorded);
+        if(!selected?.source&&selected?.version===recorded&&loaded.has(selected.digest)&&!unavailable.has(name)) {
           await changeRaw(()=>materialize(name,selected,{dependencies:{}}),signal);
           continue;
         }
-        await install(name+'@'+version,signal,registry,log);
+        await install(name+'@'+recorded,signal,registry,log);
       } catch(error) {
         signal.throwIfAborted();
         failed.push(name+': '+error.message);

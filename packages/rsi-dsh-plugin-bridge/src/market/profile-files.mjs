@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {lstat, mkdir, readlink, rename, rmdir, symlink, unlink, writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
-import {basename, dirname, join, relative, resolve} from 'node:path';
+import {basename, dirname, isAbsolute, join, relative, resolve} from 'node:path';
 import {packageLocation} from '../../../rsi-dsh-cordis/src/release/layout.mjs';
 
 export async function readProfileManifest(path,fallback) {
@@ -104,7 +104,9 @@ function validateSelections(journal) {
   }
   for(const row of Object.values(journal.installed)) if(
     !/^rsi-dsh-selection-[a-z0-9-]+$/.test(row?.package) || !/^[a-f0-9]{64}$/.test(row?.digest) ||
-      typeof row.version!=='string' || !row.version.length || row.version.length>256) throw new Error('Invalid host selection');
+      typeof row.version!=='string' || !row.version.length || row.version.length>256 ||
+      (row.source!==undefined && (typeof row.source!=='string' || !row.source.startsWith('file:') ||
+        !isAbsolute(row.source.slice(5)) || Buffer.byteLength(row.source)>4096))) throw new Error('Invalid host selection');
 }
 function validateRecoveryFiles(files) {
   if(!files || typeof files!=='object' || Array.isArray(files))throw new Error('Invalid Profile recovery files');

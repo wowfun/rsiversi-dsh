@@ -1,8 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
-import {buildPolicy} from './build-policy.mjs';
-import {join} from 'node:path';
+import {join, resolve} from 'node:path';
 import {readProfileManifest} from './profile-files.mjs';
 import {withCleanup} from './cleanup.mjs';
 
@@ -20,13 +19,18 @@ export function managedPackages(Manager,market,{parseInstallSpec,classifyInstall
     }
     async replacement(spec) {
       const parsed=parseInstallSpec(spec);
-      const name=parsed.kind==='registry'?parsed.name:parsed.kind==='path'
-        ?(await readProfileManifest(join(parsed.path,'package.json'),{})).name:undefined;
-      return name===undefined?undefined:(await this.listBundles()).find(row=>
-        row.name===name && row.installed && row.availability==='profile' && row.removable);
+      const dirName=parsed.kind==='path'?(await readProfileManifest(join(parsed.path,'package.json'),{})).name:undefined;
+      const tarballSource=parsed.kind==='tarball'&&parsed.path!==undefined?'file:'+resolve(market().profile,parsed.path):undefined;
+      return (await this.listBundles()).find(row=>row.installed && row.availability==='profile' && row.removable &&
+        (parsed.kind==='registry'?row.name===parsed.name:parsed.kind==='path'?row.name===dirName:
+          tarballSource!==undefined&&row.source===tarballSource));
     }
     async inspect(spec,options,signal) {
       const result=await super.inspect(spec,options,signal);
+      if(result.status==='accepted' && result.kind==='tarball') {
+        const previous=await this.replacement(spec);
+        return previous?{...result,name:previous.name,bundle:true,replacement:true}:result;
+      }
       if(result.status!=='refused' || result.problem!=='already-installed')return result;
       const previous=await this.replacement(spec);
       if(!previous)return result;
@@ -53,18 +57,24 @@ export function managedPackages(Manager,market,{parseInstallSpec,classifyInstall
         const [atomic,registry,boot]=await Promise.all([
           load('@deepseek-ai/dsh-atomic-write'),load('@deepseek-ai/dsh-plugin-manager/registry'),load('@deepseek-ai/dsh-app-boot'),
         ]);
-        const yaml=createRequire(modules.entry('@deepseek-ai/dsh-plugin-manager'))('yaml');
+        let yaml,policy;
+        const applyBuildPolicy=async opts=>{
+          yaml??=createRequire(modules.entry('@deepseek-ai/dsh-plugin-manager'))('yaml');
+          policy??=(await import('./build-policy.mjs')).buildPolicy;
+          return policy(profile,yaml,atomic,opts);
+        };
         return atomic.withFileLock(join(profile,'package.json'),async()=>{
           signal.throwIfAborted();operation('started');
           if(!spec.trim()||spec.startsWith('-'))throw Object.assign(new Error('invalid-spec'),{code:'invalid-spec'});
           const parsed=parseInstallSpec(spec);
+          const tarballSource=parsed.kind==='tarball'&&parsed.path!==undefined?'file:'+resolve(profile,parsed.path):undefined;
           const known=parsed.kind==='registry'?parsed.name:parsed.kind==='path'?(await readProfileManifest(join(parsed.path,'package.json'),{})).name:undefined;
           const dependencies=boot.readProfileManifest('dsh',profile).dependencies??{};
-          if(known!==undefined && Object.hasOwn(dependencies,known)){
-            const existing=(await this.listBundles()).find(row=>row.name===known&&row.installed);
+          if((known!==undefined && Object.hasOwn(dependencies,known)) || tarballSource!==undefined){
+            const existing=(await this.listBundles()).find(row=>row.installed&&(known!==undefined?row.name===known:row.source===tarballSource));
             if(existing&&!existing.removable)throw Object.assign(new Error('not-removable'),{code:'not-removable'});
           }
-          if(options.approvedBuilds){await buildPolicy(profile,yaml,atomic,{approve:options.approvedBuilds});result.approvedBuilds=options.approvedBuilds;}
+          if(options.approvedBuilds){await applyBuildPolicy({approve:options.approvedBuilds});result.approvedBuilds=options.approvedBuilds;}
           const plan=registry.registryPlan(options.registry,await this.registries());
           result.registries=[];
           let candidate;
@@ -87,7 +97,7 @@ export function managedPackages(Manager,market,{parseInstallSpec,classifyInstall
             const failedAt=registry.attributeFailure(kind,output,parsed);
             if(failedAt!=='other')result.failedAt=failedAt;
             if(failedAt==='registry'&&index<plan.length-1)continue;
-            result.pendingBuilds=await buildPolicy(profile,yaml,atomic,{output});
+            result.pendingBuilds=await applyBuildPolicy({output});
             throw failure;
           }
           await withCleanup(async()=>{
